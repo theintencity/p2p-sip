@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vxml xmlns="http://www.w3.org/2001/vxml"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+   xsi:schemaLocation="http://www.w3.org/2001/vxml 
+   http://www.w3.org/TR/voicexml20/vxml.xsd"
+   version="2.0">
+  <form id="basic">
+    <field name="acctnum">
+      <grammar type="application/srgs+xml" src="/grammars/digits.grxml"/>
+      <prompt> What is your account number? </prompt>
+    </field>
+    <field name="acctphone">
+      <grammar type="application/srgs+xml" src="/grammars/phone_numbers.grxml"/>
+      <prompt> What is your home telephone number? </prompt>
+      <filled>
+        <!-- The values obtained by the two fields are supplied
+          to the calling dialog by the "return" element. -->
+        <return namelist="acctnum acctphone"/>
+      </filled>
+    </field>
+  </form>
+</vxml>

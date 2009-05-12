@@ -1,0 +1,57 @@
+P1L1	<!-- begin new headers and page layout -->
+P1L2	<body bgcolor="#ffffff" > 
+P1L3	<center>
+P1L4	<table border=0 cellpadding=0 cellspacing=0>
+P1L5	<tr>
+P1L6	<td><a href="/home.html"><img src="/images/header/ietflogo_sm.gif" border="0"></a></td>
+P1L7	<td><a href="/home.html"><img src="/images/header/home11.gif" border="0"></a></td>
+P1L8	<td><img src="/images/header/separator.gif" border="0"></td>
+P1L9	<td><a href="/html.charters/wg-dir.html"><img src="/images/header/wg11.gif" border="0"></a></td>
+P1L10	<td><img src="/images/header/separator.gif" border="0"></td>
+P1L11	<td><a href="/meetings/meetings.html"><img src="/images/header/meetings11.gif" border="0"></a></td>
+P1L12	<td><img src="/images/header/separator.gif" border="0"></td>
+P1L13	<td><a href="/proceedings_directory.html"><img src="/images/header/proceed11.gif"  border="0"></a></td>
+P1L14	<td><img src="/images/header/separator.gif" border="0"></td>
+P1L15	<td><a href="/ID.html"><img src="/images/header/id-index11.gif" border="0"></a></td>
+P1L16	<td><img src="/images/header/separator.gif" border="0"></td>
+P1L17	<td><a href="/rfc.html"><img src="/images/header/rfc11.gif" border="0"></a></td>
+P1L18	</tr>
+P1L19	</table>
+P1L20	</center>
+P1L21	<hr>
+P1L22	<!-- end new headers and layout -->
+P1L23	
+P1L24	<html>
+P1L25	<head>
+P1L26	<title>Page Not Found</title>
+P1L27	</head>
+P1L28	<body bgcolor="#ffffff" >
+P1L29	
+P1L30	<center>
+P1L31	<img src="/images/ietflogo2e.gif" height="160" width="280">
+P1L32	<br clear=all>
+P1L33	
+P1L34	<center><h1>The Internet Engineering Task Force</h1></center>
+P1L35	<table border=0 cellspacing=5 cellpadding=5>
+P1L36	
+P1L37	<br>
+P1L38	<font size = 3>
+P1L39	<center><img alt="" src="/images/blue-line.jpg"></center>
+P1L40	<br clear=all>
+P1L41	<h3>The page you are looking for cannot be found.</h3><br>
+P1L42	If it is an Internet-Draft, the version may have expired.<br>
+P1L43	Please visit <A HREF="http://search.ietf.org"> search.ietf.org</A> and enter in keywords or the name of the draft without the version numbers. 
+P1L44	<br>
+P1L45	<br>
+P1L46	For other Web page issues, please contact <a href="mailto:webmaster@ietf.org">webmaster@ietf.org</a>. <br>
+P1L47	<br>
+P1L48	<font size = 3>
+P1L49	<center><img alt="Blue Line" src="/images/blue-line.jpg"></center>
+P1L50	<br clear=all>
+P1L51	The IETF is an organized activity of the <a href="http://www.isoc.org"><img alt="ISOC" src="/images/isoc-small.gif" hspace="3" border="0"></A>
+P1L53	<br>
+P1L55	<hr>
+P1L56	<i>The <A HREF="/secretariat.html">IETF Secretariat</A> is hosted by the NeuStar Secretariat Services, a wholly owned subsidiary of <a href="http://www.neustar.biz/"><img src="/images/NS_logo_100px.gif" alt="NeuStar Logo" border="0">
+P1L57	</i>
+P1L59	</body>
+P1L60	</html>

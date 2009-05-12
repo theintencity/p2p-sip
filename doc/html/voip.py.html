@@ -1,0 +1,1272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+<span class="p_triple">'''
+Implementation of VoIP related applications such as SIP user agent. The main classes are as
+follows: User, Session, Presence and Conf. 
+
+A User represents a local user that is listening for SIP messages and is bound to a single
+address-of-record. A Session is a SIP INVITE based session that is created implicitly
+by the library when User.connect or User.accept is invoked for outbound or inbound calls.
+A Presence object is used to represent the user's presence status and is created implicitly
+by the library when User.watch or User.approve is invoked for watching a remote user or 
+approving presence subscription from remote user. A Conf object is created by the application
+either for a new conference for inviting new participants in the conference or for accepting
+an incoming invitation in a conference. A Conf, Session or Presence object is associated with
+one local User object which supplies the local credentials and local address-of-record for
+various SIP messages.
+
+There are some simplifications in the API design. In particular, a single listening socket
+is associated with a single User, hence can do only one outbound registration. An instant 
+message can be part of an established Session for a session-based IM or can be dispatched
+independently by the User object for a paging-mode IM.
+
+There is some analogy between the UNIX socket API and this API. I use semantics of socket
+functions such as bind, accept, recv, send, connect and close.
+
+User
+----
+The application first starts a User object, and starts the main listening loop so that incoming
+SIP messages can be received. The socket for listening is supplied by the application, hence
+additional considerations such as port number configuration or socket type are outside the 
+library.
+
+    sock = socket.socket(type=socket.SOCK_DGRAM)
+    sock.bind(('0.0.0.0', 5060)) 
+    myself = User(sock).start()
+
+Once a User object is created it can be bound to an address-of-record by doing SIP registration.
+The optional username and password can be supplied for authentication, if the server demands
+authentication. Additionally, the refresh argument can be supplied to automatically perform
+registration refresh before the registration expires. The return value from bind method is a
+tuple (result, reason) where result is 'success' or 'failed' and reason is None or a text
+reason for failure.
+
+    result, reason = (yield myself.bind('"Kundan Singh" &lt;sip:kundansingh99@iptel.org&gt;', 
+                        username='kundansingh99', password='mypass', refresh=True))
+    if result == 'failed':
+        print 'bind failed', reason
+
+The user can be unregistered by invoking the close() method on a bound user. If for some
+reason the registration refresh fails, the recv method on user object will throw an exception.
+
+   yield myself.close()
+
+A communication such as a multimedia call involves two parties. Usually, you use myself
+as one end and some other contact as the other end. The connect method is used on the user
+object to place an outbound call to a destination contact. The additional socket is supplied
+so that the session can be negotiated for this socket. The connect method is a generator
+which eventually returns a Session object for connected session or a reason for failure.
+
+    msock = socket.socket(type=socket.SOCK_DGRAM)
+    msock.bind(('0.0.0.0', 0))
+    yourcall, reason = (yield myself.connect('sanjayc77@iptel.org', msock))
+    if not yourcall:
+        print 'connect failed', reason
+        
+If the application requires that it should be able to cancel a pending outbound invitation
+it should use the generator explicitly as follows:
+
+    gen = myself.connect('sanjayc77@iptel.org', msock)
+    try:
+        yourcall, reason = (yield gen)
+        if not yourcall:
+            print 'connect failed', reason
+    except GeneratorExit:
+        # outgoing connect is cancelled by calling gen.close() in another task
+
+To watch the presence status of a remote contact you can do the following:
+
+    yourpresence, reason = yield myself.watch('sip:sanjayc77@iptel.org', refresh=True)
+    if not yourpresence:
+        print 'watch failed', reason
+
+The application can send a paging-mode instant message using the send method as follows:
+
+    result, reason = yield myself.sendIM('sip:sanjayc77@iptel.org', 'How are you doing?')
+    if result == 'failed':
+       print 'send failed', reason
+
+The recv method can be used on the user object to receive incoming notifications for new 
+connect, paging-mode instant message or watch request. The application can invoke the accept
+or reject method to accept or reject a call, or the approve or block method to accept or
+reject a watch request.  
+
+    while True:
+        cmd, arg = (yield myself.recv())
+        if cmd == 'connect':                  # incoming connect request
+            yourcall, = (yield myself.accept(arg, msock))
+        elif cmd == 'close':                  # incoming connect is cancelled
+            ...
+        elif cmd == 'watch':                  # incoming watch request
+            yourpresence, = (yield myself.approve(arg)
+        elif cmd == 'send':                   # paging-mode instant message
+            print 'received from sender=', arg[0], 'message=', arg[1]
+
+Session and Presence
+--------------------
+Once a Session or Presence object is created, subsequent events for that session or presence
+is dispatched to that object. The appliction does a processing loop to receive events from
+the object as follows:
+
+    while True:
+        cmd, arg = (yield yourcall.recv())
+        if cmd == 'send': 
+            print 'received session-based instant message', arg
+        elif cmd == 'close':
+            print 'session closed by remote'
+
+    while True:
+        cmd, arg = (yield yourpresence.recv())
+        if cmd == 'status':
+            print 'presence status changed to', arg
+        elif cmd == 'close':
+            print 'watch request cancelled'
+
+The application can change the presence status on the user object so that all the approved
+remote watchers receive the update of status. 
+
+    myself.status = 'online'
+    
+The media processing loop is outside this module. In particular, the application should
+do something like the following to send and receive media on the msock. This is external so that
+the library does not have to deal with sending and receiving media on an established session.
+
+    while True:
+        ... # receive my_data from device (mic or camera) and encode
+        yield multitask.send(msock, my_data)
+        
+    while True:
+       your_data = (yield multitask.recv(msock, 1500))
+       ... # decode your_data and play to device (speaker or display)
+       
+Conf
+----
+A conference object can be constructed from the conference name, id and local
+User object as follows:
+
+    conf = Conf(name='sip:conf@example.net', id='72186356347283', user=myself)
+    
+The id is a unique identifier used in the Conf-ID header of the decentralized conference
+signaling. 
+
+Once a Conf object is created it can be treated by a User object except that it allows only
+a session and among multiple remote contacts. In particular you can use the connect and accept
+method on Conf to invite a contact in the conference, or accept an incoming connect request
+in a conference.
+
+    yourcall1, reason = (yield conf.connect('sip:sanjayc77@iptel.org', msock1)
+    yourcall2, reason = (yield conf.connect('sip:kundan@iptel.org', msock2)
+    ...
+    while True:
+        cmd, arg = (yield myself.recv())
+        ...
+        elif cmd == 'confconnect' or cmd == 'confinvite:    
+            ...                       # similar to connect but for conference
+            conf = find(arg)          # find an existing Conf or create one
+            yourcall, = (yield conf.accept(arg))
+
+The difference between confinvite and confconnect is that a confinvite is sent for 
+a new conference invitation, which may require the application to create a Conf before
+calling accept, whereas a confconnect is to indicate that some member A invited
+another member B and that other member A is re-connecting with us, so we should immediately
+invoke accept on the conf, and let the library take care of membership checks.
+
+You can not remove a participant from the conference, but watch the status of the 
+conference membership as follows:
+
+    cmd, contact = (yield conf.recv())
+    if cmd == 'connect': 
+        # added the contact in the conference
+    elif cmd == 'close':
+        # the contact left the conference
+        
+To leave a conference just invoke the close method on the conference. In turn it closes
+all the associated sessions for this conference.
+
+    yield conf.close()
+    
+Note that once you have created a Conf object and started a conference with some member,
+those members can admit new other members without your consent. This is a simplified version
+of decentralized (full-mesh) conference with no conference or floor control.
+
+Pitfalls to avoid
+-----------------
+The way generator functions operate in the multitask context is tricky. I define most of the
+methods as generators, so that the semantics is like a blocking function call, but internally
+it uses co-operative multitasking. For example,
+
+   yourcall, reason = (yield myself.connect(...))
+
+There are other alternative designs for API, e.g., event and callback oriented, provider 
+and listener based, etc. Almost every other SIP API is usually in callback or listener design. I chose
+the synchronous generator style with co-operative multitasking because it reduces the overhead
+in terms of state maintenance and understanding different scattered parts of the source code.
+
+There is one pitfall to avoid when using this API. If the generator method is called, you should
+be careful to use 'yield'. If you use 'yield' the method's final return value is returned from
+the yield statement. If you don't use 'yield' then it returns a generator which can later be
+used to get all intermediate values as well as final values. This is also useful to cancel the
+generator function by calling a close() on it. A general practice could be to always use 'yield' 
+for simple applications.
+'''</span>
+
+<span class="p_word">from</span> __future__ <span class="p_word">import</span> with_statement
+<span class="p_word">from</span> contextlib <span class="p_word">import</span> closing
+<span class="p_word">from</span> std.kutil <span class="p_word">import</span> Timer, getlocaladdr
+<span class="p_word">from</span> std.rfc2396 <span class="p_word">import</span> URI, Address
+<span class="p_word">import</span> std.rfc3261 as sip
+<span class="p_word">import</span> std.rfc3489bis as stun
+<span class="p_word">import</span> sys, traceback, socket, multitask
+
+_debug = False  <span class="p_commentline"># set this to True to display all the debug messages.</span>
+
+<span class="p_word">class</span> User(object):
+    <span class="p_triple">'''The User object provides a layer between the application and the SIP stack.'''</span>
+    <span class="p_word">def</span> __init__(self, sock, start=False):
+        <span class="p_triple">'''Construct a new User on given bound socket for SIP signaling.'''</span>
+        self.sock, self.sockaddr = sock, getlocaladdr(sock)
+        self.nattype = self.mapping = self.filtering = self.external = <span class="p_word">None</span> <span class="p_commentline"># NAT properties</span>
+        self._listenergen = self._natcheckgen = self._queue = <span class="p_word">None</span>
+        self.address = self.username = self.password = self.proxy = <span class="p_word">None</span>
+        self.stack = sip.Stack(self, sip.TransportInfo(self.sock)) <span class="p_commentline"># create a SIP stack instance</span>
+        self.reg = <span class="p_word">None</span>   <span class="p_commentline"># registration UAC</span>
+        
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'User created on'</span>, self.sockaddr
+        <span class="p_word">if</span> start:
+            self.start()
+            
+    <span class="p_word">def</span> __del__(self):
+        <span class="p_triple">'''Destroy other internal references to Stack, etc.'''</span>
+        self.stop()
+        self.reg = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.stack: self.stack.app = <span class="p_word">None</span> <span class="p_commentline"># TODO: since self.stack has a reference to this, __del__will never get called. </span>
+        self.sock = self.stack = <span class="p_word">None</span>
+    
+    <span class="p_commentline">#----------------------------- start/stop daemon ---------------------- </span>
+       
+    <span class="p_word">def</span> start(self):
+        <span class="p_triple">'''Start the listener, if not already started.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self._listenergen:
+            self._listenergen  = self._listener()
+            multitask.add(self._listenergen) <span class="p_commentline"># start the transport listening task</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self._natcheckgen:
+            self._natcheckgen = self._natcheck()
+            multitask.add(self._natcheckgen) <span class="p_commentline"># start the task that periodically checks the nat type</span>
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> stop(self):
+        <span class="p_triple">'''Stop the listener, if already present'''</span>
+        <span class="p_word">if</span> self._listenergen: 
+            self._listenergen.close()
+        <span class="p_word">if</span> self._natcheckgen: 
+            self._natcheckgen.close()
+        self._listenergen = self._natcheckgen = <span class="p_word">None</span>
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> _listener(self, maxsize=<span class="p_number">1500</span>, interval=<span class="p_number">180</span>):
+        <span class="p_triple">'''Listen for transport messages on the signaling socket. The default maximum 
+        packet size to receive is 1500 bytes. The interval argument specifies how
+        often should the sock be checked for close, default is 180 s.
+        This is a generator function and should be invoked as multitask.add(u._listener()).'''</span>
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> self.sock <span class="p_word">and</span> self.stack:
+                data, remote = (<span class="p_word">yield</span> multitask.recvfrom(self.sock, maxsize, timeout=interval))
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'received[%d] from %s\n%s'</span>%(len(data),remote,data)
+                self.stack.received(data, remote)
+        <span class="p_word">except</span> GeneratorExit: <span class="p_word">pass</span>
+        <span class="p_word">except</span>: <span class="p_word">print</span> <span class="p_string">'User._listener exception'</span>, (sys <span class="p_word">and</span> sys.exc_info() <span class="p_word">or</span> <span class="p_word">None</span>); traceback.print_exc()
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'terminating User._listener()'</span>
+    
+    <span class="p_word">def</span> _natcheck(self, interval=<span class="p_number">180</span>):
+        <span class="p_triple">'''Periodically discover the NAT behavior. Default interval is every 3 min (180s).
+        This is a generator function and should be invoked as multitask.add(u._natcheck())'''</span>
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> self.sock:
+                self.nattype, self.mapping, self.filtering, self.external = <span class="p_word">yield</span> stun.discoverBehavior()
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'nattype='</span>, self.nattype, <span class="p_string">'external='</span>, self.external
+                <span class="p_word">yield</span> multitask.sleep(interval)
+        <span class="p_word">except</span> GeneratorExit: <span class="p_word">pass</span>
+        <span class="p_word">except</span>: <span class="p_word">print</span> <span class="p_string">'User._natcheck exception'</span>, (sys <span class="p_word">and</span> sys.exc_info() <span class="p_word">or</span> <span class="p_word">None</span>)
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'terminating User._natcheck()'</span>
+        
+
+    <span class="p_commentline">#-------------------- binding related ---------------------------------</span>
+    
+    <span class="p_word">def</span> bind(self, address, username=<span class="p_word">None</span>, password=<span class="p_word">None</span>, interval=<span class="p_number">180</span>, refresh=False): 
+        <span class="p_triple">'''Register the local address with the server to receive incoming requests.
+        This is a generator function, and returns either ('success', None) for successful
+        registration or ('failed', 'reason') for a failure. The username and password 
+        arguments are used to authenticate the registration. The interval argument 
+        controls how long the registration is valid, and refresh if set to True causes 
+        automatic refresh of registration before it expires.'''</span>
+        
+        <span class="p_word">if</span> self.reg: 
+            <span class="p_word">raise</span> StopIteration((<span class="p_string">'failed'</span>, <span class="p_string">'Already bound'</span>))
+        
+        address = self.address = Address(str(address))
+        <span class="p_word">if</span> <span class="p_word">not</span> address.uri.scheme: address.uri.scheme = <span class="p_string">'sip'</span> <span class="p_commentline"># default scheme</span>
+        self.username, self.password = username <span class="p_word">or</span> self.username <span class="p_word">or</span> address.uri.user, password <span class="p_word">or</span> self.password
+
+        reg = self.reg = self.createClient()
+        reg.queue = multitask.Queue()
+        result, reason = (<span class="p_word">yield</span> self._bind(interval=interval, refresh=refresh, wait=False))
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'received response'</span>, result
+        <span class="p_word">raise</span> StopIteration((result, reason))
+                    
+    <span class="p_word">def</span> close(self):
+        <span class="p_triple">'''Close the binding by unregistering with the SIP server.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.reg:
+            <span class="p_word">raise</span> StopIteration((<span class="p_string">'failed'</span>, <span class="p_string">'not bound'</span>))
+        reg = self.reg
+        <span class="p_word">if</span> reg.gen: reg.gen.close(); reg.gen = <span class="p_word">None</span>
+        result, reason = (<span class="p_word">yield</span> self._bind(interval=<span class="p_number">0</span>, refresh=False, wait=False))
+        <span class="p_word">raise</span> StopIteration((result, reason))
+            
+    <span class="p_word">def</span> _bind(self, interval, refresh, wait):
+        <span class="p_triple">'''Internal function to perform bind and wait for response, and schedule refresh.'''</span>
+        <span class="p_word">try</span>:
+            <span class="p_word">if</span> wait:
+                <span class="p_word">yield</span> multitask.sleep(interval - min(interval*<span class="p_number">0.05</span>, <span class="p_number">5</span>)) <span class="p_commentline"># refresh about 5 seconds before expiry</span>
+            reg = self.reg
+            reg.sendRequest(self._createRegister(interval))
+            <span class="p_word">while</span> True:
+                response = (<span class="p_word">yield</span> reg.queue.get())
+                <span class="p_word">if</span> response.CSeq.method == <span class="p_string">'REGISTER'</span>:
+                    <span class="p_word">if</span> response.is2xx:   <span class="p_commentline"># success</span>
+                        <span class="p_word">if</span> refresh:        <span class="p_commentline"># install automatic refresh</span>
+                            <span class="p_word">if</span> response.Expires:
+                                interval = int(response.Expires.value)
+                            <span class="p_word">if</span> interval &gt; <span class="p_number">0</span>:
+                                reg.gen = self._bind(interval, refresh, True) <span class="p_commentline"># generator for refresh</span>
+                                multitask.add(reg.gen)
+                        <span class="p_word">raise</span> StopIteration((<span class="p_string">'success'</span>, <span class="p_word">None</span>))
+                    <span class="p_word">elif</span> response.isfinal: <span class="p_commentline"># failed</span>
+                        self.reg.gen = <span class="p_word">None</span>; self.reg = <span class="p_word">None</span>
+                        <span class="p_word">raise</span> StopIteration((<span class="p_string">'failed'</span>, str(response.response) + <span class="p_string">' '</span> + response.responsetext))
+        <span class="p_word">except</span> GeneratorExit:
+            <span class="p_word">raise</span> StopIteration((<span class="p_string">'failed'</span>, <span class="p_string">'Generator closed'</span>))
+
+    <span class="p_word">def</span> _createRegister(self, interval):
+        <span class="p_triple">'''Create a REGISTER Message and populate the Expires and Contact headers. It assumes
+        that self.reg is valid.'''</span>
+        <span class="p_word">if</span> self.reg:
+            ua = self.reg
+            m = ua.createRegister(ua.localParty)
+            m.Contact = sip.Header(str(self.stack.uri), <span class="p_string">'Contact'</span>)
+            m.Contact.value.uri.user = ua.localParty.uri.user
+            m.Expires = sip.Header(str(interval), <span class="p_string">'Expires'</span>)
+            <span class="p_word">return</span> m
+        <span class="p_word">else</span>: <span class="p_word">return</span> <span class="p_word">None</span>
+    
+    <span class="p_commentline">#-------------------------- Session related methods -------------------</span>
+    <span class="p_word">def</span> connect(self, dest, mediasock):
+        <span class="p_triple">'''Invite a remote destination to a session. This is a generator function, which 
+        returns a (session, None) for successful connection and (None, reason) for failure.'''</span>
+        <span class="p_word">if</span> self.nattype == <span class="p_string">'blocked'</span>: 
+            <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'udp blocking network'</span>)) 
+        <span class="p_word">else</span>:
+            dest = Address(str(dest))
+            ua = self.createClient(dest)
+            ua.queue = multitask.Queue() <span class="p_commentline"># to receive responses</span>
+            m = ua.createRequest(<span class="p_string">'INVITE'</span>)
+            
+            local = <span class="p_word">yield</span> self._getLocalCandidates(mediasock) <span class="p_commentline"># populate the media candidates</span>
+            <span class="p_word">for</span> c <span class="p_word">in</span> local: <span class="p_commentline"># add proprietary SIP header - Candidate</span>
+                m.insert(sip.Header(c[<span class="p_number">0</span>] + <span class="p_string">':'</span> + str(c[<span class="p_number">1</span>]), <span class="p_string">'Candidate'</span>), True)
+            
+            ua.sendRequest(m)
+            
+            <span class="p_word">while</span> True:
+                response = <span class="p_word">yield</span> ua.queue.get()
+                <span class="p_word">if</span> response.is2xx: <span class="p_commentline"># success</span>
+                    session = Session(user=self, dest=dest)
+                    session.ua, session.mediasock = hasattr(ua, <span class="p_string">'dialog'</span>) <span class="p_word">and</span> ua.dialog <span class="p_word">or</span> ua, mediasock
+                    session.local = local
+                    session.remote= [(x.value.split(<span class="p_string">':'</span>)[<span class="p_number">0</span>], int(x.value.split(<span class="p_string">':'</span>)[<span class="p_number">1</span>])) <span class="p_word">for</span> x <span class="p_word">in</span> response.all(<span class="p_string">'Candidate'</span>)] <span class="p_commentline"># store remote candidates </span>
+                    
+                    <span class="p_word">yield</span> session.start(True)
+                    <span class="p_word">raise</span> StopIteration((session, <span class="p_word">None</span>))
+                <span class="p_word">elif</span> response.isfinal: <span class="p_commentline"># some failure</span>
+                    <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, str(response.response) + <span class="p_string">' '</span> + response.responsetext))
+    
+    <span class="p_word">def</span> accept(self, arg, mediasock):
+        <span class="p_triple">'''Accept a incoming connection from given arg (dest, ua). The arg is what is supplied
+        in the 'connect' notification from recv() method's return value.'''</span>
+        dest, ua = arg
+        m = ua.createResponse(<span class="p_number">200</span>, <span class="p_string">'OK'</span>)
+        ua.queue = multitask.Queue()
+        
+        local = <span class="p_word">yield</span> self._getLocalCandidates(mediasock)
+        <span class="p_word">for</span> c <span class="p_word">in</span> local: <span class="p_commentline"># add proprietary SIP header - Candidate</span>
+            m.insert(sip.Header(c[<span class="p_number">0</span>] + <span class="p_string">':'</span> + str(c[<span class="p_number">1</span>]), <span class="p_string">'Candidate'</span>), True)
+            
+        ua.sendResponse(m)
+        
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> True:
+                request = <span class="p_word">yield</span> ua.queue.get(timeout=<span class="p_number">5</span>) <span class="p_commentline"># wait for 5 seconds for ACK</span>
+                <span class="p_word">if</span> request.method == <span class="p_string">'ACK'</span>:
+                    session = Session(user=self, dest=dest)
+                    session.ua, session.mediasock = hasattr(ua, <span class="p_string">'dialog'</span>) <span class="p_word">and</span> ua.dialog <span class="p_word">or</span> ua, mediasock
+                    session.local = local
+                    session.remote= [(x.value.split(<span class="p_string">':'</span>)[<span class="p_number">0</span>], int(x.value.split(<span class="p_string">':'</span>)[<span class="p_number">1</span>])) <span class="p_word">for</span> x <span class="p_word">in</span> ua.request.all(<span class="p_string">'Candidate'</span>)] <span class="p_commentline"># store remote candidates </span>
+                    
+                    <span class="p_word">yield</span> session.start(False)
+                    <span class="p_word">raise</span> StopIteration((session, <span class="p_word">None</span>))
+        <span class="p_word">except</span> multitask.Timeout: <span class="p_word">pass</span>
+        <span class="p_word">except</span> GeneratorExit: <span class="p_word">pass</span>
+        
+        <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'didnot receive ACK'</span>))
+    
+    <span class="p_word">def</span> reject(self, arg, reason=<span class="p_string">'486 Busy here'</span>):
+        dest, ua = arg
+        code, sep, phrase = reason.partition(<span class="p_string">' '</span>)
+        <span class="p_word">if</span> code: 
+            <span class="p_word">try</span>: code = int(code)
+            <span class="p_word">except</span>: <span class="p_word">pass</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(code, int): 
+            code = <span class="p_number">603</span> <span class="p_commentline"># decline</span>
+            phrase = reason
+        ua.sendResponse(ua.createResponse(code, phrase))
+        
+    <span class="p_word">def</span> _getLocalCandidates(self, mediasock):
+        local = [getlocaladdr(mediasock)] <span class="p_commentline"># first element is local-addr</span>
+        <span class="p_word">if</span> self.nattype == <span class="p_string">'good'</span> <span class="p_word">or</span> self.nattype == <span class="p_string">'bad'</span>: <span class="p_commentline"># get STUN address for media</span>
+            response, external = <span class="p_word">yield</span> stun.request(mediasock)
+            local.append(external)
+        <span class="p_word">raise</span> StopIteration(local)
+
+    <span class="p_commentline">#-------------------------- presence and IM related methods------------</span>
+    <span class="p_word">def</span> watch(self, dest):
+        <span class="p_triple">'''Watch for the presence status of the remote destination.'''</span>
+        <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'Not implemented'</span>))
+    
+    <span class="p_word">def</span> approve(self, arg):
+        <span class="p_triple">'''Approve the remote watcher to know our presence status.'''</span>
+        <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'Not implemented'</span>))
+    
+    <span class="p_word">def</span> block(self, arg):
+        <span class="p_triple">'''Block the remote watcher to know our presence status.'''</span>
+        <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'Not implemented'</span>))
+    
+    <span class="p_word">def</span> sendIM(self, dest, message):
+        <span class="p_triple">'''Send a paging-mode instant message to the destination and return ('success', None)
+        or ('failed', 'reason')'''</span>
+        ua = self.createClient(dest)
+        ua.queue = multitask.Queue() <span class="p_commentline"># to receive responses</span>
+        m = ua.createRequest(<span class="p_string">'MESSAGE'</span>)
+        m[<span class="p_string">'Content-Type'</span>] = sip.Header(<span class="p_string">'text/plain'</span>, <span class="p_string">'Content-Type'</span>)
+        m.body = str(message)
+        ua.sendRequest(m)
+        <span class="p_word">while</span> True:
+            response = <span class="p_word">yield</span> ua.queue.get()
+            <span class="p_word">if</span> response.is2xx:
+                <span class="p_word">raise</span> StopIteration((<span class="p_string">'success'</span>, <span class="p_word">None</span>))
+            <span class="p_word">elif</span> response.isfinal:
+                <span class="p_word">raise</span> StopIteration((<span class="p_string">'failed'</span>, str(response.response) + <span class="p_string">' '</span> + response.responsetext))
+    
+    <span class="p_commentline">#-------------------------- generic event receive ---------------------</span>
+    <span class="p_word">def</span> recv(self, timeout=<span class="p_word">None</span>):
+        <span class="p_word">if</span> self._queue <span class="p_word">is</span> <span class="p_word">None</span>: self._queue = multitask.Queue()
+        <span class="p_word">return</span> self._queue.get(timeout=timeout)
+    
+    <span class="p_commentline">#-------------------------- Interaction with SIP stack ----------------</span>
+    <span class="p_commentline"># Callbacks invoked by SIP Stack</span>
+    <span class="p_word">def</span> createServer(self, request, uri, stack): 
+        <span class="p_triple">'''Create a UAS if the method is acceptable. If yes, it also adds additional attributes
+        queue and gen in the UAS.'''</span>
+        ua = request.method <span class="p_word">in</span> [<span class="p_string">'INVITE'</span>, <span class="p_string">'BYE'</span>, <span class="p_string">'ACK'</span>, <span class="p_string">'SUBSCRIBE'</span>, <span class="p_string">'MESSAGE'</span>, <span class="p_string">'NOTIFY'</span>] <span class="p_word">and</span> sip.UserAgent(self.stack, request) <span class="p_word">or</span> <span class="p_word">None</span>
+        <span class="p_word">if</span> ua: ua.queue = ua.gen = <span class="p_word">None</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'createServer'</span>, ua
+        <span class="p_word">return</span> ua
+    
+    <span class="p_word">def</span> createClient(self, dest=<span class="p_word">None</span>):
+        <span class="p_triple">'''Create a UAC and add additional attributes: queue and gen.'''</span>
+        ua = sip.UserAgent(self.stack)
+        ua.queue = ua.gen = <span class="p_word">None</span>
+        ua.localParty  = self.address <span class="p_word">and</span> self.address.dup() <span class="p_word">or</span> <span class="p_word">None</span>
+        ua.remoteParty = dest <span class="p_word">and</span> dest.dup() <span class="p_word">or</span> self.address <span class="p_word">and</span> self.address.dup() <span class="p_word">or</span> <span class="p_word">None</span>
+        ua.remoteTarget= dest <span class="p_word">and</span> dest.uri.dup() <span class="p_word">or</span> self.address <span class="p_word">and</span> self.address.uri.dup() <span class="p_word">or</span> <span class="p_word">None</span>
+        ua.routeSet    = self.proxy <span class="p_word">and</span> [sip.Header(str(self.proxy), <span class="p_string">'Route'</span>)] <span class="p_word">or</span> <span class="p_word">None</span>
+        <span class="p_word">if</span> ua.routeSet <span class="p_word">and</span> <span class="p_word">not</span> ua.routeSet[<span class="p_number">0</span>].value.uri.user: ua.routeSet[<span class="p_number">0</span>].value.uri.user = ua.remoteParty.uri.user
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'createClient'</span>, ua
+        <span class="p_word">return</span> ua
+
+    <span class="p_word">def</span> sending(self, ua, message, stack): 
+        <span class="p_word">pass</span>
+    
+    <span class="p_word">def</span> receivedRequest(self, ua, request, stack):
+        <span class="p_triple">'''Callback when received an incoming request.'''</span>
+        <span class="p_word">def</span> _receivedRequest(self, ua, request): <span class="p_commentline"># a generator version</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'receivedRequest method='</span>, request.method, <span class="p_string">'ua='</span>, ua, <span class="p_string">' for ua'</span>, (ua.queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> <span class="p_string">'with queue'</span> <span class="p_word">or</span> <span class="p_string">'without queue'</span>) 
+            <span class="p_word">if</span> hasattr(ua, <span class="p_string">'queue'</span>) <span class="p_word">and</span> ua.queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                <span class="p_word">yield</span> ua.queue.put(request)
+            <span class="p_word">elif</span> request.method == <span class="p_string">'INVITE'</span>:    <span class="p_commentline"># a new invitation</span>
+                <span class="p_word">if</span> self._queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                    <span class="p_word">if</span> <span class="p_word">not</span> request[<span class="p_string">'Conf-ID'</span>]: <span class="p_commentline"># regular call invitatio</span>
+                        <span class="p_word">yield</span> self._queue.put((<span class="p_string">'connect'</span>, (str(request.From.value), ua)))
+                    <span class="p_word">else</span>: <span class="p_commentline"># conference invitation</span>
+                        <span class="p_word">if</span> request[<span class="p_string">'Invited-By'</span>]:
+                            <span class="p_word">yield</span> self._queue.put((<span class="p_string">'confconnect'</span>, (str(request.From.value), ua)))
+                        <span class="p_word">else</span>:
+                            <span class="p_word">yield</span> self._queue.put((<span class="p_string">'confinvite'</span>, (str(request.From.value), ua)))
+                <span class="p_word">else</span>:
+                    ua.sendResponse(<span class="p_number">405</span>, <span class="p_string">'Method not allowed'</span>)
+            <span class="p_word">elif</span> request.method == <span class="p_string">'SUBSCRIBE'</span>: <span class="p_commentline"># a new watch request</span>
+                <span class="p_word">if</span> self._queue:
+                    <span class="p_word">yield</span> self._queue.put((<span class="p_string">'watch'</span>, (str(request.From.value), ua)))
+                <span class="p_word">else</span>:
+                    ua.sendResponse(<span class="p_number">405</span>, <span class="p_string">'Method not allowed'</span>)
+            <span class="p_word">elif</span> request.method == <span class="p_string">'MESSAGE'</span>:   <span class="p_commentline"># a paging-mode instant message</span>
+                <span class="p_word">if</span> request.body <span class="p_word">and</span> self._queue:
+                    ua.sendResponse(<span class="p_number">200</span>, <span class="p_string">'OK'</span>)      <span class="p_commentline"># blindly accept the message</span>
+                    <span class="p_word">yield</span> self._queue.put((<span class="p_string">'send'</span>, (str(request.From.value), request.body)))
+                <span class="p_word">else</span>:
+                    ua.sendResponse(<span class="p_number">405</span>, <span class="p_string">'Method not allowed'</span>)
+            <span class="p_word">else</span>:
+                ua.sendResponse(<span class="p_number">405</span>, <span class="p_string">'Method not allowed'</span>)
+        multitask.add(_receivedRequest(self, ua, request))
+
+    <span class="p_word">def</span> receivedResponse(self, ua, response, stack):
+        <span class="p_triple">'''Callback when received an incoming response.'''</span>
+        <span class="p_word">def</span> _receivedResponse(self, ua, response): <span class="p_commentline"># a generator version</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'receivedResponse response='</span>, response.response, <span class="p_string">' for ua'</span>, (ua.queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> <span class="p_string">'with queue'</span> <span class="p_word">or</span> <span class="p_string">'without queue'</span>) 
+            <span class="p_word">if</span> hasattr(ua, <span class="p_string">'queue'</span>) <span class="p_word">and</span> ua.queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_commentline"># enqueue it to the ua's queue</span>
+                <span class="p_word">yield</span> ua.queue.put(response)
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'response put in the ua queue'</span>
+            <span class="p_word">else</span>:
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'ignoring response'</span>, response.response
+        multitask.add(_receivedResponse(self, ua, response))
+        
+    <span class="p_word">def</span> cancelled(self, ua, request, stack): 
+        <span class="p_triple">'''Callback when given original request has been cancelled by remote.'''</span>
+        <span class="p_word">def</span> _cancelled(self, ua, request): <span class="p_commentline"># a generator version</span>
+            <span class="p_word">if</span> hasattr(ua, <span class="p_string">'queue'</span>) <span class="p_word">and</span> ua.queue <span class="p_word">is</span> <span class="p_word">not</span> Note:
+                <span class="p_word">yield</span> ua.queue.put(request)
+            <span class="p_word">elif</span> self._queue <span class="p_word">and</span> ua.request.method == <span class="p_string">'INVITE'</span>: <span class="p_commentline"># only INVITE is allowed to be cancelled.</span>
+                <span class="p_word">yield</span> self._queue.put((<span class="p_string">'close'</span>, (str(request.From.value), ua)))
+        multitask.add(_cancelled(self, ua, request))
+        
+    <span class="p_word">def</span> dialogCreated(self, dialog, ua, stack):
+        dialog.queue = ua.queue
+        dialog.gen   = ua.gen 
+        ua.dialog = dialog
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'dialogCreated from'</span>, ua, <span class="p_string">'to'</span>, dialog
+        <span class="p_commentline"># else ignore this since I don't manage any dialog related ua in user</span>
+        
+    <span class="p_word">def</span> authenticate(self, ua, obj, stack):
+        <span class="p_triple">'''Provide authentication information to the UAC or Dialog.'''</span>
+        obj.username, obj.password = self.username, self.password 
+        <span class="p_word">return</span> obj.username <span class="p_word">and</span> obj.password <span class="p_word">and</span> True <span class="p_word">or</span> False
+
+    <span class="p_word">def</span> createTimer(self, app, stack):
+        <span class="p_triple">'''Callback to create a timer object.'''</span>
+        <span class="p_word">return</span> Timer(app)
+    
+    <span class="p_commentline"># rfc3261.Transport related methods</span>
+    <span class="p_word">def</span> send(self, data, addr, stack):
+        <span class="p_triple">'''Send data to the remote addr.'''</span>
+        <span class="p_word">def</span> _send(self, data, addr): <span class="p_commentline"># generator version</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'sending[%d] to %s\n%s'</span>%(len(data), addr, data)
+            <span class="p_word">if</span> self.sock:
+                <span class="p_word">yield</span> self.sock.sendto(data, addr)
+        multitask.add(_send(self, data, addr))
+
+<span class="p_commentline">#-------------------------- Session ---------------------------------------</span>
+        
+<span class="p_word">class</span> Session(object):
+    <span class="p_triple">'''The Session object represents a single session or call between local User and remote
+    dest (Address).'''</span>
+    <span class="p_word">def</span> __init__(self, user, dest):
+        self.user, self.dest = user, dest
+        self.ua = self.mediasock = self.local = self.remote = self.gen = self.remotemediaaddr = <span class="p_word">None</span>
+        self._queue = multitask.Queue()
+        
+    <span class="p_word">def</span> start(self, outgoing):
+        <span class="p_triple">'''A generator function to initiate the connectivity check and then start the run
+        method to receive messages on this ua.'''</span>
+        <span class="p_word">if</span> self.mediasock:
+            <span class="p_word">yield</span> self._checkconnectivity(outgoing)
+        self.gen = self._run()
+        multitask.add(self.gen)
+        
+    <span class="p_word">def</span> send(self, message):
+        <span class="p_word">if</span> self.ua:
+            ua = self.ua
+            m = ua.createRequest(<span class="p_string">'MESSAGE'</span>)
+            m[<span class="p_string">'Content-Type'</span>] = sip.Header(<span class="p_string">'text/plain'</span>, <span class="p_string">'Content-Type'</span>)
+            m.body = str(message)
+            ua.sendRequest(m)
+        <span class="p_word">yield</span> <span class="p_commentline"># I don't wait for response </span>
+    
+    <span class="p_word">def</span> recv(self, timeout=<span class="p_word">None</span>):
+        cmd, arg = <span class="p_word">yield</span> self._queue.get(timeout=timeout)
+        <span class="p_word">raise</span> StopIteration((cmd, arg))
+    
+    <span class="p_word">def</span> close(self, outgoing=True):
+        <span class="p_triple">'''Close the call and terminate any generators.'''</span>
+        self.mediasock = self.local = self.remote = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.gen: <span class="p_commentline"># close the generator</span>
+            self.gen.close()
+            self.gen = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.ua:
+            ua = self.ua
+            <span class="p_word">if</span> outgoing:
+                ua.sendRequest(ua.createRequest(<span class="p_string">'BYE'</span>))
+                <span class="p_word">try</span>: response = <span class="p_word">yield</span> ua.queue.get(timeout=<span class="p_number">5</span>) <span class="p_commentline"># wait for atmost 5 seconds for BYE response</span>
+                <span class="p_word">except</span> multitask.Timeout: <span class="p_word">pass</span> <span class="p_commentline"># ignore the no response for BYE</span>
+            self.ua.queue = <span class="p_word">None</span>
+            self.ua.close()  <span class="p_commentline"># this will remove dialog if needed</span>
+            self.ua = <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> _run(self):
+        <span class="p_triple">'''Thread method for this multitask task.'''</span>
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> True:
+                message = <span class="p_word">yield</span> self.ua.queue.get()
+                <span class="p_word">if</span> message.method: <span class="p_commentline"># request</span>
+                    <span class="p_word">yield</span> self._receivedRequest(message)
+                <span class="p_word">else</span>: <span class="p_commentline"># response</span>
+                    <span class="p_word">yield</span> self._receivedResponse(message)
+        <span class="p_word">except</span> GeneratorExit: 
+            self.gen = <span class="p_word">None</span>
+            self.ua.queue = multitask.Queue() <span class="p_commentline"># this is needed because the queue gets corrupted when generator is closed</span>
+            
+    <span class="p_word">def</span> _receivedRequest(self, request):
+        <span class="p_triple">'''Callback when received an incoming request.'''</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'session receivedRequest'</span>, request.method, <span class="p_string">'ua='</span>, self.ua
+        ua = self.ua
+        <span class="p_word">if</span> request.method == <span class="p_string">'INVITE'</span>:
+            ua.sendResponse(<span class="p_number">501</span>, <span class="p_string">'re-INVITE not implemented'</span>)
+        <span class="p_word">elif</span> request.method == <span class="p_string">'BYE'</span>: <span class="p_commentline"># remote terminated the session</span>
+            ua.sendResponse(<span class="p_number">200</span>, <span class="p_string">'OK'</span>)
+            self.close(outgoing=False)
+            <span class="p_word">yield</span> self._queue.put((<span class="p_string">'close'</span>, <span class="p_word">None</span>))
+        <span class="p_word">elif</span> request.method == <span class="p_string">'MESSAGE'</span>: <span class="p_commentline"># session based instant message</span>
+            ua.sendResponse(<span class="p_number">200</span>, <span class="p_string">'OK'</span>)
+            message = request.body
+            <span class="p_word">yield</span> self._queue.put((<span class="p_string">'send'</span>, message))
+        <span class="p_word">elif</span> request.method <span class="p_word">not</span> <span class="p_word">in</span> [<span class="p_string">'ACK'</span>, <span class="p_string">'CANCEL'</span>]:
+            m = ua.createResponse(<span class="p_number">405</span>, <span class="p_string">'Method not allowed in session'</span>)
+            m.Allow = sip.Header(<span class="p_string">'INVITE, ACK, CANCEL, BYE'</span>, <span class="p_string">'Allow'</span>)
+            ua.sendResponse(m)
+    
+    <span class="p_word">def</span> _receivedResponse(self, response):
+        <span class="p_triple">'''Callback when received an incoming response.'''</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'session receivedResponse'</span>, response.response, <span class="p_string">'ua='</span>, self.ua
+        method = response.CSeq.method
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'Ignoring response '</span>, response.response, <span class="p_string">'of'</span>, method
+    
+    <span class="p_word">def</span> _checkconnectivity(self, outgoing):
+        <span class="p_triple">'''Check media connectivity using ICE-style checks on mediasock. After it is done
+        it returns 'connected' from register()'''</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'check connectivity, local='</span>, self.local, <span class="p_string">'remote='</span>, self.remote
+        <span class="p_word">try</span>:
+            retry = <span class="p_number">7</span> <span class="p_commentline"># retry count</span>
+            <span class="p_word">while</span> retry&gt;<span class="p_number">0</span>:
+                <span class="p_word">if</span> <span class="p_word">not</span> self.remote:
+                    <span class="p_word">break</span>
+                <span class="p_word">for</span> dest <span class="p_word">in</span> self.remote: <span class="p_commentline"># send a ping to all remote candidates</span>
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'sending connectivity request from'</span>, self.mediasock.getsockname(), <span class="p_string">'to'</span>, dest
+                    <span class="p_word">try</span>: self.mediasock.sendto(<span class="p_string">'request'</span>, dest)
+                    <span class="p_word">except</span>: <span class="p_word">pass</span> <span class="p_commentline"># ignore any ICMP error.</span>
+                <span class="p_word">try</span>:
+                    <span class="p_word">while</span> True:
+                        response, remote = <span class="p_word">yield</span> multitask.recvfrom(self.mediasock, <span class="p_number">1500</span>, timeout=<span class="p_number">1</span>) <span class="p_commentline"># TODO: is the timeout too small?</span>
+                        <span class="p_word">if</span> len(response) &gt; <span class="p_number">10</span>: <span class="p_commentline"># probably a pending stun response from stun server</span>
+                            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'ignoring a late stun response, len='</span>, len(response), <span class="p_string">'remote='</span>, remote
+                            <span class="p_word">continue</span>
+                        <span class="p_word">break</span>
+                <span class="p_word">except</span> multitask.Timeout:
+                    retry = retry-<span class="p_number">1</span>
+                    <span class="p_word">continue</span>
+                
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'received from'</span>, remote, <span class="p_string">'response='</span>, response
+                <span class="p_commentline">#talk.mediasock.connect(remote) # connect the UDP socket to that address</span>
+                <span class="p_word">if</span> response == <span class="p_string">'request'</span>:
+                    self.mediasock.sendto(<span class="p_string">'response'</span>, remote)
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'connected to peer'</span>, remote
+                self.remotemediaaddr = remote
+                <span class="p_word">break</span> <span class="p_commentline"># connectivity check is completed</span>
+        <span class="p_word">except</span>:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'_checkconnectivity() exception'</span>, (sys <span class="p_word">and</span> sys.exc_info() <span class="p_word">or</span> <span class="p_word">None</span>)
+            
+
+<span class="p_word">class</span> Presence(object):
+    <span class="p_triple">'''The Presence object represents a single subscribe dialog between local user and remote
+    contact.'''</span>
+    <span class="p_word">def</span> __init__(self, user, dest):
+        self.user, self.dest = user, dest
+        self.ua = self.gen = <span class="p_word">None</span>
+        self._queue = multitask.Queue()
+        
+    <span class="p_word">def</span> start(self, outgoing):
+        <span class="p_triple">'''A generator function to initiate the connectivity check and then start the run
+        method to receive messages on this ua.'''</span>
+        self.gen = self._run()
+        multitask.add(self.gen)
+        <span class="p_word">yield</span> 
+    
+    <span class="p_word">def</span> status(self, status):
+        <span class="p_triple">'''Update my presence status to the remote.'''</span>
+        <span class="p_word">if</span> self.ua:
+            ua = self.ua
+            m = ua.createRequest(<span class="p_string">'MESSAGE'</span>)
+            m[<span class="p_string">'Content-Type'</span>] = sip.Header(<span class="p_string">'text/plain'</span>, <span class="p_string">'Content-Type'</span>)
+            m.body = str(message)
+            ua.sendRequest(m)
+        <span class="p_word">yield</span> <span class="p_commentline"># I don't wait for response </span>
+    
+    <span class="p_word">def</span> recv(self, timeout=<span class="p_word">None</span>):
+        cmd, arg = <span class="p_word">yield</span> self._queue.get(timeout=timeout)
+        <span class="p_word">raise</span> StopIteration((cmd, arg))
+    
+    <span class="p_word">def</span> close(self, outgoing=True):
+        <span class="p_triple">'''Close the call and terminate any generators.'''</span>
+        self.local = self.remote = <span class="p_word">None</span> <span class="p_commentline"># do not clear mediasock yet</span>
+        <span class="p_word">if</span> self.gen: <span class="p_commentline"># close the generator</span>
+            self.gen.close()
+            self.gen = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.ua:
+            <span class="p_word">if</span> outgoing:
+                self.ua.sendRequest(ua.createRequest(<span class="p_string">'BYE'</span>))
+                <span class="p_word">try</span>: response = <span class="p_word">yield</span> self.ua.queue.get(timeout=<span class="p_number">5</span>) <span class="p_commentline"># wait for atmost 5 seconds for BYE response</span>
+                <span class="p_word">except</span>: <span class="p_word">pass</span> <span class="p_commentline"># ignore the timeout error</span>
+            self.ua.queue = <span class="p_word">None</span>
+            self.ua.close()  <span class="p_commentline"># this will remove dialog if needed</span>
+            self.ua = <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> _run(self):
+        <span class="p_triple">'''Thread method for this multitask task.'''</span>
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> True:
+                message = <span class="p_word">yield</span> self.ua.queue.get()
+                <span class="p_word">if</span> message.method: <span class="p_commentline"># request</span>
+                    <span class="p_word">yield</span> self._receivedRequest(message)
+                <span class="p_word">else</span>: <span class="p_commentline"># response</span>
+                    <span class="p_word">yield</span> self._receivedResponse(message)
+        <span class="p_word">except</span> GeneratorExit: 
+            self.gen = <span class="p_word">None</span>
+            self.ua.queue = multitask.Queue()
+            
+    <span class="p_word">def</span> _receivedRequest(self, request):
+        <span class="p_triple">'''Callback when received an incoming request.'''</span>
+        ua = self.ua
+        <span class="p_word">if</span> request.method == <span class="p_string">'INVITE'</span>:
+            ua.sendResponse(<span class="p_number">501</span>, <span class="p_string">'re-INVITE not implemented'</span>)
+        <span class="p_word">elif</span> request.method == <span class="p_string">'BYE'</span>: <span class="p_commentline"># remote terminated the session</span>
+            self.close(outgoing=False)
+            <span class="p_word">yield</span> self._queue.put((<span class="p_string">'close'</span>, <span class="p_word">None</span>))
+        <span class="p_word">elif</span> request.method == <span class="p_string">'MESSAGE'</span>: <span class="p_commentline"># session based instant message</span>
+            message = request.body
+            <span class="p_word">yield</span> self._queue.put((<span class="p_string">'send'</span>, message))
+        <span class="p_word">elif</span> request.method <span class="p_word">not</span> <span class="p_word">in</span> [<span class="p_string">'ACK'</span>, <span class="p_string">'CANCEL'</span>]:
+            m = ua.createResponse(<span class="p_number">405</span>, <span class="p_string">'Method not allowed in session'</span>)
+            m.Allow = sip.Header(<span class="p_string">'INVITE, ACK, CANCEL, BYE'</span>, <span class="p_string">'Allow'</span>)
+            ua.sendResponse(m)
+    
+    <span class="p_word">def</span> _receivedResponse(self, response):
+        <span class="p_triple">'''Callback when received an incoming response.'''</span>
+        method = response.CSeq.method
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'Ignoring response '</span>, response.response, <span class="p_string">'of'</span>, method
+    
+<span class="p_commentline">#------------------------------ Conf --------------------------------------</span>
+
+<span class="p_triple">'''
+The Conf class implements decentralized conferencing based on Jonathan Lennox's 
+PhD thesis found at <a href="http://www1.cs.columbia.edu/~lennox/thesis.pdf">http://www1.cs.columbia.edu/~lennox/thesis.pdf</a>
+The model is that of full-mesh conference, where there is a signaling and media
+relationship between every pair of participants. Any existing participant can
+invite another participant. Every participant maintains its own list of membership
+which eventual converges, even in the case of simultaneous join and leave.
+Since the media stream is point-to-point between every pair of participants,
+every participant is responsible for mixing or displaying multiple streams, one
+from each active participant. This scheme works well for small 2-5 party conferences
+assuming enough network bandwidth at each participant's network.
+
+Each participant maintains the following conference state:
+- id which uniquely identifies the named conference and is usually derived randomly by originator.
+  For well-known conferences, one can use a pre-defined id, e.g., 'meetkundan'.
+- originator is the Member which invited this participant in the conference. This is used in
+  the Invited-By header in SIP INVITE to connect with existing participants. 
+- name is a user understandable conference name such as 'my private meeting'.
+- tag which identifies this participant's membership to this conference. 
+- membership information as a list of Member where each Member has
+  SIP address, tag, and state (pending or established).
+
+To invite a new participant in the conference, 
+  the participant sends a SIP INVITE message with Conf-ID and local tag
+
+When a participant receives a INVITE
+  if the target has a tag but doesnot match our tag,
+    then reject the call
+  else if the source is already a established Member in our conf state
+    then reject the call
+  else if the source is a pending Member in our conf state
+    use a tie breaker to decide which direction of invitation is used.
+    if our address.uri (user@domain) is less than source's address.uri in string comparision
+      then reject the call. The source will do similar logic and accept the call.
+  
+  if there is no Invited-By header in INVITE request
+    then treat this as a new call invitation and let the application decide whether to accept.
+    when the application accepts, then send the 200 OK response, else send a failure response
+  else this is for an existing conference
+    if the Invited-By is correct and a Member in our conf state
+      then accept the invitation as a new Member
+    else
+      reject the invitation saying this Invited-By does not belong to existing conf state
+      
+  When generating a 200 OK response to INVITE
+    include one or more Conf-Member header with information about each established Member
+    in particular, the address and tag of the Member
+
+When a participant receives a 200 OK or a ACK message
+  As per SIP spec generate ACK for a 200 OK response
+    The ACK has a Conf-Member header with information about each established Member's
+    address and tag
+  if the message has Conf-Member header(s)
+    for each member in Conf-Member
+      if member is not a Member in our conf state
+        then send INVITE to that member with Invited-By header set to the originator 
+        of our conf state
+  if message is ACK and our list of established Member is different than list of members in Conf-Member
+    send INVITE with latest Conf-Member information to the source
+
+Each Member in the conf-state is like a Session, where the pending or established state is
+determined based on whether we received a 200 OK or ACK or not.
+
+SIP headers
+-----------
+Examples of new SIP headers that are included are as follows:
+The Conf-ID header's value is the id of the conf state. The additional parameter 'from' contains
+the tag of the originator of the message (hence response's from will be the tag of the participant
+that is generating the 200 OK response; thus header cannot be blindly copied from request to
+response when generating a 200 OK.). The optional 'to' parameter contains the tag of the 
+intended receiver of the message, if the local conf state's Member has known tag for that
+participant. This is used by the receiver to know if the message is indeed intended for it or
+some other instance of the participant's membership.
+ 
+    Conf-ID: 727818273;from=88273747;to=415256273
+    
+The Invited-By header's value contains the address of the Member who is the originator of the
+conference in this participant's conf state. It is used only in INVITE that is sent to connect
+with existing participant after accepting a conference invitation. The tag parameter is 
+mandatory stores the tag of the originator. The receiver usually can ignore the value, but
+use only the tag for sanity checks.
+
+    Invited-By: "Kundan Singh" &lt;sip:kundan@iptel.org&gt;;tag=88273747
+    
+The Conf-Member header can appear zero or more times in 200 OK and ACK messages. Each
+such header contains information about an existing known participant's established Member 
+information such as address and tag. A pending Member is not used in constructing Conf-Member
+header.
+
+    Conf-Member: "Sanjay Chouksey" &lt;sip:sanjayc77@iptel.org&gt;;tag=415256273
+'''</span>
+
+<span class="p_word">class</span> Member(object):
+    <span class="p_word">def</span> __init__(self, address, tag=<span class="p_word">None</span>, state=<span class="p_string">'pending'</span>):
+        self.address, self.tag, self.state, self.session = address, tag, state, <span class="p_word">None</span>
+        
+<span class="p_word">class</span> Conf(object):
+    <span class="p_triple">'''A conference object that is used for communication between a User and one or more
+    Contact.'''</span>
+    <span class="p_word">def</span> __init__(self, name, id, user):
+        self.name, self.id, self.user, self.address = name, id, user, user.address
+        self.originator = <span class="p_word">None</span>
+        self.tag = str(random.randint(<span class="p_number">0</span>, <span class="p_number">2</span>**<span class="p_number">32</span>))
+        self.members = [] <span class="p_commentline"># TODO: use a better data structure like set or map indexed by tag as well as address</span>
+        
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_word">print</span> <span class="p_string">'&lt;Conf name=%s id=%s user=%s members=%d&gt;'</span>%(self.name, self.id, self.user.address, len(self.members))
+        
+    <span class="p_word">def</span> find(self, addrortag):
+        <span class="p_triple">'''Find a Member with the given address or tag.'''</span>
+        <span class="p_word">if</span> isinstance(addrortag, Address):
+            <span class="p_word">for</span> member <span class="p_word">in</span> self.members:
+                <span class="p_word">if</span> member.address.uri == addrortag.uri:
+                    <span class="p_word">return</span> member
+        <span class="p_word">else</span>:
+            <span class="p_word">for</span> member <span class="p_word">in</span> self.members:
+                <span class="p_word">if</span> member.tag == addrortag:
+                    <span class="p_word">return</span> member
+        <span class="p_word">return</span> <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> invite(self, dest):
+        <span class="p_triple">'''Invite a destination user in the conference. The method is similar to User.connect.'''</span>
+        dest, user = Address(str(dest)), self.user
+        
+        <span class="p_word">if</span> self.find(dest): <span class="p_commentline"># if it is already a member, don't invite again</span>
+            <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'400 Already a conference member'</span>))
+        
+        member = Member(address=dest)
+        self.members.append(member)
+        
+        ua = user.createClient(dest)
+        ua.queue = multitask.Queue() <span class="p_commentline"># to receive responses</span>
+        m = ua.createRequest(<span class="p_string">'INVITE'</span>)
+        
+        <span class="p_commentline">#local = yield self._getLocalCandidates(mediasock) # populate the media candidates</span>
+        <span class="p_commentline">#for c in local: # add proprietary SIP header - Candidate</span>
+        <span class="p_commentline">#    m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)</span>
+        m[<span class="p_string">'Conf-ID'</span>] = sip.Header(str(self.id), <span class="p_string">'Conf-ID'</span>)
+        m[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>] = self.tag
+ 
+        ua.autoack = False
+        ua.sendRequest(m)
+        
+        <span class="p_word">while</span> True:
+            response = <span class="p_word">yield</span> ua.queue.get()
+            <span class="p_word">if</span> response.is2xx: <span class="p_commentline"># success</span>
+                ua = hasattr(ua, <span class="p_string">'dialog'</span>) <span class="p_word">and</span> ua.dialog <span class="p_word">or</span> ua <span class="p_commentline"># update ua if needed</span>
+                    
+                session = Session(user=self, dest=dest)
+                session.ua = ua
+                <span class="p_commentline">#session.mediasock = mediasock</span>
+                <span class="p_commentline">#session.local = local</span>
+                <span class="p_commentline">#session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates </span>
+                
+                <span class="p_word">if</span> response[<span class="p_string">'Conf-ID'</span>]:  <span class="p_commentline"># remote supports conference</span>
+                    member.tag = response[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>]
+                    member.state = <span class="p_string">'established'</span>
+                    
+                m = ua.createRequest(<span class="p_string">'ACK'</span>) <span class="p_commentline"># send a ACK</span>
+                self._populateMessage(m, member.tag)
+                ua.sendRequest(m) <span class="p_commentline"># send the request</span>
+                
+                toinvite = self.remaining(response)
+                <span class="p_word">if</span> toinvite:
+                    multitask.add(self.connect(toinvite)) <span class="p_commentline"># connect to those members if needed</span>
+                
+                <span class="p_word">yield</span> session.start(True)
+                member.session = session
+                <span class="p_word">raise</span> StopIteration((member, <span class="p_word">None</span>))
+            <span class="p_word">elif</span> response.isfinal: <span class="p_commentline"># some failure</span>
+                self.members.remove(member)
+                <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, str(response.response) + <span class="p_string">' '</span> + response.responsetext))
+        
+    <span class="p_word">def</span> connect(self, members):
+        <span class="p_word">for</span> member <span class="p_word">in</span> members:
+            <span class="p_word">if</span> member.address.uri != self.address.uri <span class="p_word">and</span> member.tag != self.tag <span class="p_word">and</span> <span class="p_word">not</span> self.find(member.tag) <span class="p_word">and</span> member.state == <span class="p_string">'pending'</span>:
+                self.members.append(member)
+                
+                ua = self.user.createClient(member.address)
+                ua.queue = multitask.Queue() <span class="p_commentline"># to receive responses</span>
+                m = ua.createRequest(<span class="p_string">'INVITE'</span>)
+                
+                <span class="p_commentline">#local = yield self._getLocalCandidates(mediasock) # populate the media candidates</span>
+                <span class="p_commentline">#for c in local: # add proprietary SIP header - Candidate</span>
+                <span class="p_commentline">#    m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)</span>
+                m[<span class="p_string">'Conf-ID'</span>] = sip.Header(str(self.id), <span class="p_string">'Conf-ID'</span>)
+                m[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>] = self.tag
+                m[<span class="p_string">'Invited-By'</span>] = sip.Header(self.originator <span class="p_word">and</span> str(self.originator.address) <span class="p_word">or</span> str(self.address), <span class="p_string">'Invited-By'</span>)
+                m[<span class="p_string">'Invited-By'</span>][<span class="p_string">'tag'</span>] = self.originator <span class="p_word">and</span> self.originator.tag <span class="p_word">or</span> self.tag
+         
+                ua.autoack = False
+                ua.sendRequest(m)
+                
+                <span class="p_word">while</span> True:
+                    response = <span class="p_word">yield</span> ua.queue.get()
+                    <span class="p_word">if</span> response.is2xx: <span class="p_commentline"># success</span>
+                        ua = hasattr(ua, <span class="p_string">'dialog'</span>) <span class="p_word">and</span> ua.dialog <span class="p_word">or</span> ua <span class="p_commentline"># update ua if needed</span>
+                            
+                        session = Session(user=self, dest=member.address)
+                        session.ua = ua
+                        <span class="p_commentline">#session.mediasock = mediasock</span>
+                        <span class="p_commentline">#session.local = local</span>
+                        <span class="p_commentline">#session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates </span>
+                        
+                        <span class="p_word">if</span> response[<span class="p_string">'Conf-ID'</span>]:  <span class="p_commentline"># remote supports conference</span>
+                            member.tag = response[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>]
+                            member.state = <span class="p_string">'established'</span>
+                            
+                        m = ua.createRequest(<span class="p_string">'ACK'</span>) <span class="p_commentline"># send a ACK</span>
+                        self._populateMessage(m, member.tag)
+                        ua.sendRequest(m) <span class="p_commentline"># send the request</span>
+
+                        toinvite = self.remaining(response)
+                        <span class="p_word">if</span> toinvite:
+                            multitask.add(self.connect(toinvite)) <span class="p_commentline"># connect to those members if needed</span>
+                        
+                        <span class="p_word">yield</span> session.start(True)
+                        member.session = session
+                        <span class="p_word">raise</span> StopIteration((member, <span class="p_word">None</span>))
+                    <span class="p_word">elif</span> response.isfinal: <span class="p_commentline"># some failure</span>
+                        self.members.remove(member)
+                        <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, str(response.response) + <span class="p_string">' '</span> + response.responsetext))
+                        
+    <span class="p_word">def</span> remaining(self, response):
+        toinvite = []
+        <span class="p_word">for</span> mem <span class="p_word">in</span> response.all(<span class="p_string">'Conf-Member'</span>): <span class="p_commentline"># for each Conf-Member in response</span>
+            <span class="p_word">if</span> (<span class="p_string">'state'</span> <span class="p_word">not</span> <span class="p_word">in</span> mem <span class="p_word">or</span> mem[<span class="p_string">'state'</span>] == <span class="p_string">'established'</span>) <span class="p_word">and</span> <span class="p_word">not</span> self.find(mem.tag):
+                toinvite.append(Member(address=Address(mem.value), tag=mem.tag))  
+        <span class="p_word">return</span> toinvite
+    
+    <span class="p_word">def</span> _populateMessage(self, m, desttag=<span class="p_word">None</span>): 
+        <span class="p_triple">'''Populate the message with local headers.'''</span>
+        m[<span class="p_string">'Conf-ID'</span>] = sip.Header(str(self.id), <span class="p_string">'Conf-ID'</span>)
+        m[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>] = self.tag
+        <span class="p_word">if</span> desttag: m[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'to'</span>] = desttag
+        <span class="p_word">for</span> mem <span class="p_word">in</span> self.members: <span class="p_commentline"># add Conf-Member</span>
+            <span class="p_word">if</span> mem.state == <span class="p_string">'established'</span>:
+                hdr = sip.Header(str(mem.address), <span class="p_string">'Conf-Member'</span>)
+                hdr[<span class="p_string">'tag'</span>] = mem.tag
+                m.insert(hdr, append=True)
+        <span class="p_word">return</span> m
+    
+    <span class="p_word">def</span> accept(self, arg):
+        <span class="p_triple">'''Accept an incoming invitation (dest, ua) or connect in this conference.'''</span>
+        <span class="p_word">try</span>:
+            dest, ua = arg
+            request = ua.request <span class="p_commentline"># the original incoming request</span>
+            <span class="p_word">if</span> request[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'to'</span>] <span class="p_word">and</span> request[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'to'</span>] != self.tag:
+                <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'400 Invalid to parameter in Conf-ID'</span>))
+            <span class="p_word">elif</span> <span class="p_word">not</span> request[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>]:
+                <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'400 Missing from parameter in Conf-ID'</span>))
+    
+            tag = request[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>]
+            member = self.find(tag)
+            <span class="p_word">if</span> <span class="p_word">not</span> member: <span class="p_commentline"># not already found by tag</span>
+                member = self.find(request.From.value)
+                <span class="p_word">if</span> member: <span class="p_commentline"># found by name</span>
+                    <span class="p_word">if</span> member.state == <span class="p_string">'established'</span>: <span class="p_commentline"># accept without problem</span>
+                        member.tag = tag
+                        <span class="p_word">raise</span> StopIteration((member, <span class="p_string">'Already accepted'</span>))
+                    <span class="p_word">else</span>:
+                        <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'400 Simultaneous invitations'</span>))
+            <span class="p_word">else</span>: <span class="p_commentline"># member exists</span>
+                <span class="p_word">if</span> member.state == <span class="p_string">'established'</span>:
+                    <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'Already a member'</span>))
+                <span class="p_word">elif</span> member.state == <span class="p_string">'pending'</span> <span class="p_word">and</span> self.address.uri &lt; member.address.uri:
+                    <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'400 Simultaneous invitations'</span>))
+                
+            <span class="p_word">if</span> request[<span class="p_string">'Invited-By'</span>]: <span class="p_commentline"># a connect</span>
+                <span class="p_word">if</span> <span class="p_word">not</span> self.find(request[<span class="p_string">'Invited-By'</span>][<span class="p_string">'tag'</span>]): <span class="p_commentline"># not found</span>
+                    <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'400 Invalid Invited-By header'</span>))
+            <span class="p_word">if</span> <span class="p_word">not</span> member:
+                member = Member(address=request.From.value, tag=request[<span class="p_string">'Conf-ID'</span>][<span class="p_string">'from'</span>])
+                self.originator = member
+                self.members.append(member)
+            <span class="p_word">raise</span> StopIteration((member, <span class="p_word">None</span>))
+            
+        <span class="p_word">except</span> StopIteration, E: <span class="p_commentline"># send response and receive ACK before re-raising</span>
+            <span class="p_word">if</span> E[<span class="p_number">0</span>][<span class="p_number">0</span>]:  <span class="p_commentline"># member is present, accept</span>
+                member = E[<span class="p_number">0</span>][<span class="p_number">0</span>]
+                <span class="p_word">if</span> isinstance(member, Member):
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'NOT A MEMBER'</span>, type(member)
+                     
+                m = ua.createResponse(<span class="p_number">200</span>, <span class="p_string">'OK'</span>)
+                ua.queue = multitask.Queue()
+                
+                <span class="p_commentline">#local = yield self._getLocalCandidates(mediasock)</span>
+                <span class="p_commentline">#for c in local: # add proprietary SIP header - Candidate</span>
+                <span class="p_commentline">#    m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)</span>
+                    
+                self._populateMessage(m, member.tag)
+                ua.sendResponse(m)
+                ua = hasattr(ua, <span class="p_string">'dialog'</span>) <span class="p_word">and</span> ua.dialog <span class="p_word">or</span> ua
+                
+                <span class="p_word">try</span>:
+                    <span class="p_word">while</span> True:
+                        request = <span class="p_word">yield</span> ua.queue.get(timeout=<span class="p_number">5</span>) <span class="p_commentline"># wait for 5 seconds for ACK</span>
+                        <span class="p_word">if</span> request.method == <span class="p_string">'ACK'</span>:
+                            session = Session(user=self, dest=dest)
+                            session.ua = ua
+                            <span class="p_commentline">#session.mediasock = mediasock</span>
+                            <span class="p_commentline">#session.local = local</span>
+                            <span class="p_commentline">#session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in ua.request.all('Candidate')] # store remote candidates </span>
+                            
+                            <span class="p_word">yield</span> session.start(False)
+                            <span class="p_word">if</span> member.state == <span class="p_string">'pending'</span>: member.state = <span class="p_string">'established'</span>
+                            member.session = session
+                            
+                            toinvite = self.remaining(request)
+                            <span class="p_word">if</span> toinvite:
+                                multitask.add(self.connect(toinvite)) <span class="p_commentline"># connect to those members if needed</span>
+                                
+                            <span class="p_word">raise</span> StopIteration((member, <span class="p_word">None</span>))
+                <span class="p_word">except</span> multitask.Timeout: <span class="p_word">pass</span>
+                <span class="p_word">except</span> GeneratorExit: <span class="p_word">pass</span>
+                
+                self.members.remove(member)
+                <span class="p_word">raise</span> StopIteration((<span class="p_word">None</span>, <span class="p_string">'didnot receive ACK'</span>))
+            
+            <span class="p_word">else</span>: <span class="p_commentline"># failure response</span>
+                code, sep, rest = E[<span class="p_number">0</span>][<span class="p_number">1</span>] <span class="p_word">and</span> E[<span class="p_number">0</span>][<span class="p_number">1</span>].partition(<span class="p_string">' '</span>) <span class="p_word">or</span> (<span class="p_number">200</span>, <span class="p_string">''</span>, <span class="p_string">'OK'</span>)
+                code = int(code)
+                ua.sendResponse(ua.createResponse(code, rest))
+                <span class="p_word">raise</span> <span class="p_commentline"># re-raise Stop iteration exception for failure</span>
+        
+    <span class="p_word">def</span> recv(self):
+        <span class="p_triple">'''Receive any membership change events.'''</span>
+        
+    <span class="p_word">def</span> close(self):
+        <span class="p_triple">'''Close the conference by sending BYE to all the active members.'''</span>
+        <span class="p_word">for</span> member <span class="p_word">in</span> self.members:
+            <span class="p_word">if</span> member.state == <span class="p_string">'established'</span> <span class="p_word">and</span> member.session:
+                session = member.session
+                <span class="p_word">yield</span> session.close()
+                member.session = <span class="p_word">None</span>
+                member.state = <span class="p_string">'closed'</span>
+        self.members[:] = [] <span class="p_commentline"># clear the members</span>
+                
+<span class="p_commentline">#------------------------- Unit test --------------------------------------</span>
+
+<span class="p_word">def</span> testRegister():
+    sock = socket.socket(type=socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="p_number">1</span>)
+    sock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">5062</span>)) <span class="p_commentline"># use port 5062 for kundansingh99@iptel.org</span>
+
+    user = User(sock).start()
+    result, reason = <span class="p_word">yield</span> user.bind(<span class="p_string">'"Kundan Singh" &lt;sip:kundansingh99@iptel.org&gt;'</span>, username=<span class="p_string">'kundansingh99'</span>, password=<span class="p_string">'mypass'</span>)
+    <span class="p_word">print</span> <span class="p_string">'user.bind() returned'</span>, result, reason
+    result, reason = <span class="p_word">yield</span> user.close()
+    <span class="p_word">print</span> <span class="p_string">'user.close() returned'</span>, result, reason
+    user.stop()
+    sock.close()
+    
+
+<span class="p_word">def</span> testOutgoing(user, dest):
+    msock = socket.socket(type=socket.SOCK_DGRAM)
+    msock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+    yourself, reason = (<span class="p_word">yield</span> user.connect(dest, msock))
+    <span class="p_word">if</span> yourself:
+        <span class="p_word">print</span> <span class="p_string">'call established'</span>
+        <span class="p_word">for</span> x <span class="p_word">in</span> range(<span class="p_number">0</span>,<span class="p_number">3</span>):
+            <span class="p_word">yield</span> multitask.sleep(<span class="p_number">1</span>)
+            msock.sendto(<span class="p_string">'test media data'</span>, yourself.remotemediaaddr)
+        <span class="p_word">print</span> <span class="p_string">'sending IM'</span>
+        <span class="p_word">yield</span> yourself.sendIM(<span class="p_string">'example IM'</span>)
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">5</span>) <span class="p_commentline"># wait before closing the call</span>
+        <span class="p_word">print</span> <span class="p_string">'closing the call'</span>
+        <span class="p_word">yield</span> yourself.close()
+        <span class="p_word">print</span> <span class="p_string">'done'</span>
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">3</span>) <span class="p_commentline"># wait before exiting</span>
+    <span class="p_word">else</span>:
+        <span class="p_word">print</span> <span class="p_string">'call failed'</span>, reason
+        
+<span class="p_word">def</span> testIncoming(user):
+    <span class="p_word">while</span> True:
+        cmd, arg = (<span class="p_word">yield</span> user.recv())
+        <span class="p_word">if</span> cmd == <span class="p_string">'connect'</span>:
+            <span class="p_word">print</span> <span class="p_string">'incoming call from'</span>, arg
+            msock = socket.socket(type=socket.SOCK_DGRAM)
+            msock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+            yourself, arg = <span class="p_word">yield</span> user.accept(arg, msock)
+            <span class="p_word">if</span> <span class="p_word">not</span> yourself:
+                <span class="p_word">print</span> <span class="p_string">'cannot accept call'</span>, arg
+                
+            <span class="p_word">while</span> True:
+                <span class="p_word">try</span>:
+                    data, remote = <span class="p_word">yield</span> multitask.recvfrom(msock, <span class="p_number">1500</span>, timeout=<span class="p_number">3</span>)
+                    <span class="p_word">print</span> <span class="p_string">'remote data is'</span>, data
+                <span class="p_word">except</span>:
+                    <span class="p_word">break</span>
+            <span class="p_word">while</span> True:
+                cmd, arg = <span class="p_word">yield</span> yourself.recv()
+                <span class="p_word">print</span> <span class="p_string">'received command'</span>, cmd, arg
+                <span class="p_word">if</span> cmd == <span class="p_string">'close'</span>:
+                    <span class="p_word">break</span>
+        <span class="p_word">elif</span> cmd == <span class="p_string">'close'</span>:
+            <span class="p_word">print</span> <span class="p_string">'incoming call cancelled by'</span>, arg
+        <span class="p_word">elif</span> cmd == <span class="p_string">'send'</span>:
+            <span class="p_word">print</span> <span class="p_string">'paging-mode IM received'</span>, arg
+
+<span class="p_word">def</span> testCall():
+    sock1 = socket.socket(type=socket.SOCK_DGRAM)
+    sock1.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="p_number">1</span>)
+    sock1.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">5062</span>)) <span class="p_commentline"># use port 5062 for kundansingh99@iptel.org</span>
+    
+    sock2 = socket.socket(type=socket.SOCK_DGRAM)
+    sock2.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="p_number">1</span>)
+    sock2.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">5060</span>)) <span class="p_commentline"># use port 5060 for kundan@iptel.org</span>
+    
+    user1 = User(sock1).start()
+    user1.address = Address(<span class="p_string">'"Kundan Singh" &lt;sip:kundansingh99@iptel.org&gt;'</span>)
+    user1.username, user1.password = <span class="p_string">'kundansingh99'</span>, <span class="p_string">'mypass'</span>
+    result, reason = <span class="p_word">yield</span> user1.bind(user1.address) 
+    
+    user2 = User(sock2).start()
+    user2.address = Address(<span class="p_string">'"Kundan" &lt;sip:kundan@iptel.org&gt;'</span>)
+    user2.username, user2.password = <span class="p_string">'kundan'</span>, <span class="p_string">'mypass'</span>
+    
+    multitask.add(testIncoming(user1))
+    <span class="p_word">yield</span> multitask.sleep(<span class="p_number">2</span>)
+
+    <span class="p_word">yield</span> testOutgoing(user2, <span class="p_string">'sip:kundansingh99@iptel.org'</span>)
+
+    <span class="p_word">yield</span> user1.stop()
+    <span class="p_word">yield</span> user2.stop()
+    
+<span class="p_word">def</span> testConf():
+    data = [(<span class="p_number">5060</span>, <span class="p_string">'"User1" &lt;sip:user1@localhost:5060&gt;'</span>, <span class="p_string">'user1'</span>, <span class="p_string">'passwd1'</span>), \
+            (<span class="p_number">5062</span>, <span class="p_string">'"User2" &lt;sip:user2@localhost:5062&gt;'</span>, <span class="p_string">'user2'</span>, <span class="p_string">'passwd2'</span>), \
+            (<span class="p_number">5064</span>, <span class="p_string">'"User3" &lt;sip:user3@localhost:5064&gt;'</span>, <span class="p_string">'user3'</span>, <span class="p_string">'passwd3'</span>)]
+    users = []
+    <span class="p_word">for</span> port,aor,u,p <span class="p_word">in</span> data:
+        sock = socket.socket(type=socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="p_number">1</span>)
+        sock.bind((<span class="p_string">'0.0.0.0'</span>, port))
+        user = User(sock).start()
+        user.address = Address(aor)
+        user.username, user.password = u, p
+        users.append(user)
+
+    <span class="p_word">for</span> user <span class="p_word">in</span> users: <span class="p_commentline"># install listener for participants</span>
+        <span class="p_word">def</span> listener(self):
+            <span class="p_word">def</span> sessionlistener(session):
+                <span class="p_word">while</span> True:
+                    cmd, arg = <span class="p_word">yield</span> session.recv()
+                    <span class="p_word">if</span> cmd == <span class="p_string">'close'</span>: <span class="p_commentline"># closed the call</span>
+                        <span class="p_word">print</span> <span class="p_string">'call closed'</span>
+                        <span class="p_word">break</span>
+            conf = <span class="p_word">None</span>
+            <span class="p_word">while</span> True:
+                cmd, arg = <span class="p_word">yield</span> self.recv()
+                <span class="p_word">if</span> cmd == <span class="p_string">'confinvite'</span>:
+                    conf = Conf(name=arg[<span class="p_number">0</span>], id=arg[<span class="p_number">1</span>], user=user)
+                    member, reason = <span class="p_word">yield</span> conf.accept(arg) <span class="p_commentline"># accept the invitation in a conference</span>
+                    <span class="p_word">if</span> member:
+                        multitask.add(sessionlistener(member.session))
+                <span class="p_word">elif</span> cmd == <span class="p_string">'confconnect'</span>:
+                    <span class="p_word">if</span> conf:
+                        member, reason = <span class="p_word">yield</span> conf.accept(arg) 
+                        <span class="p_word">if</span> member:
+                            multitask.add(sessionlistener(member.session))
+                        
+                    
+        multitask.add(listener(user))
+        
+    conf = Conf(name=<span class="p_string">'sip:conf@iptel.org'</span>, id=str(random.randint(<span class="p_number">0</span>, <span class="p_number">2</span>**<span class="p_number">32</span>)), user=users[<span class="p_number">0</span>]) <span class="p_commentline"># first user hosts the conference</span>
+    <span class="p_word">for</span> user <span class="p_word">in</span> users[<span class="p_number">1</span>:]: <span class="p_commentline"># and invites other users</span>
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">2</span>) <span class="p_commentline"># wait before inviting a participant</span>
+        <span class="p_word">yield</span> conf.invite(str(user.address))
+
+    <span class="p_word">yield</span> multitask.sleep(<span class="p_number">5</span>) <span class="p_commentline"># wait while conf is active</span>
+
+    <span class="p_word">yield</span> conf.close()
+    <span class="p_word">yield</span> multitask.sleep(<span class="p_number">2</span>)
+
+    <span class="p_word">for</span> user <span class="p_word">in</span> users:
+        user.stop()
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_commentline">#multitask.add(testRegister())</span>
+    multitask.add(testCall())
+    <span class="p_commentline">#multitask.add(testConf())</span>
+    <span class="p_word">try</span>:
+        multitask.run()
+    <span class="p_word">except</span> KeyboardInterrupt:
+        <span class="p_word">pass</span>
+    
+
+
+  </PRE></BODY>
+</HTML>

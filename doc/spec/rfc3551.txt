@@ -1,0 +1,2112 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                     H. Schulzrinne
+P1L5	Request for Comments: 3551                           Columbia University
+P1L6	Obsoletes: 1890                                                S. Casner
+P1L7	Category: Standards Track                                  Packet Design
+P1L8	                                                               July 2003
+P1L9	
+P1L10	
+P1L11	              RTP Profile for Audio and Video Conferences
+P1L12	                          with Minimal Control
+P1L13	
+P1L14	Status of this Memo
+P1L15	
+P1L16	   This document specifies an Internet standards track protocol for the
+P1L17	   Internet community, and requests discussion and suggestions for
+P1L18	   improvements.  Please refer to the current edition of the "Internet
+P1L19	   Official Protocol Standards" (STD 1) for the standardization state
+P1L20	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L21	
+P1L22	Copyright Notice
+P1L23	
+P1L24	   Copyright (C) The Internet Society (2003).  All Rights Reserved.
+P1L25	
+P1L26	Abstract
+P1L27	
+P1L28	   This document describes a profile called "RTP/AVP" for the use of the
+P1L29	   real-time transport protocol (RTP), version 2, and the associated
+P1L30	   control protocol, RTCP, within audio and video multiparticipant
+P1L31	   conferences with minimal control.  It provides interpretations of
+P1L32	   generic fields within the RTP specification suitable for audio and
+P1L33	   video conferences.  In particular, this document defines a set of
+P1L34	   default mappings from payload type numbers to encodings.
+P1L35	
+P1L36	   This document also describes how audio and video data may be carried
+P1L37	   within RTP.  It defines a set of standard encodings and their names
+P1L38	   when used within RTP.  The descriptions provide pointers to reference
+P1L39	   implementations and the detailed standards.  This document is meant
+P1L40	   as an aid for implementors of audio, video and other real-time
+P1L41	   multimedia applications.
+P1L42	
+P1L43	   This memorandum obsoletes RFC 1890.  It is mostly backwards-
+P1L44	   compatible except for functions removed because two interoperable
+P1L45	   implementations were not found.  The additions to RFC 1890 codify
+P1L46	   existing practice in the use of payload formats under this profile
+P1L47	   and include new payload formats defined since RFC 1890 was published.
+P1L48	
+P2L1	Table of Contents
+P2L2	
+P2L3	   1.  Introduction .................................................  3
+P2L4	       1.1  Terminology .............................................  3
+P2L5	   2.  RTP and RTCP Packet Forms and Protocol Behavior ..............  4
+P2L6	   3.  Registering Additional Encodings .............................  6
+P2L7	   4.  Audio ........................................................  8
+P2L8	       4.1  Encoding-Independent Rules ..............................  8
+P2L9	       4.2  Operating Recommendations ...............................  9
+P2L10	       4.3  Guidelines for Sample-Based Audio Encodings ............. 10
+P2L11	       4.4  Guidelines for Frame-Based Audio Encodings .............. 11
+P2L12	       4.5  Audio Encodings ......................................... 12
+P2L13	            4.5.1   DVI4 ............................................ 13
+P2L14	            4.5.2   G722 ............................................ 14
+P2L15	            4.5.3   G723 ............................................ 14
+P2L16	            4.5.4   G726-40, G726-32, G726-24, and G726-16 .......... 18
+P2L17	            4.5.5   G728 ............................................ 19
+P2L18	            4.5.6   G729 ............................................ 20
+P2L19	            4.5.7   G729D and G729E ................................. 22
+P2L20	            4.5.8   GSM ............................................. 24
+P2L21	            4.5.9   GSM-EFR ......................................... 27
+P2L22	            4.5.10  L8 .............................................. 27
+P2L23	            4.5.11  L16 ............................................. 27
+P2L24	            4.5.12  LPC ............................................. 27
+P2L25	            4.5.13  MPA ............................................. 28
+P2L26	            4.5.14  PCMA and PCMU ................................... 28
+P2L27	            4.5.15  QCELP ........................................... 28
+P2L28	            4.5.16  RED ............................................. 29
+P2L29	            4.5.17  VDVI ............................................ 29
+P2L30	   5.  Video ........................................................ 30
+P2L31	       5.1  CelB .................................................... 30
+P2L32	       5.2  JPEG .................................................... 30
+P2L33	       5.3  H261 .................................................... 30
+P2L34	       5.4  H263 .................................................... 31
+P2L35	       5.5  H263-1998 ............................................... 31
+P2L36	       5.6  MPV ..................................................... 31
+P2L37	       5.7  MP2T .................................................... 31
+P2L38	       5.8  nv ...................................................... 32
+P2L39	   6.  Payload Type Definitions ..................................... 32
+P2L40	   7.  RTP over TCP and Similar Byte Stream Protocols ............... 34
+P2L41	   8.  Port Assignment .............................................. 34
+P2L42	   9.  Changes from RFC 1890 ........................................ 35
+P2L43	   10. Security Considerations ...................................... 38
+P2L44	   11. IANA Considerations .......................................... 39
+P2L45	   12. References ................................................... 39
+P2L46	       12.1 Normative References .................................... 39
+P2L47	       12.2 Informative References .................................. 39
+P2L48	   13. Current Locations of Related Resources ....................... 41
+P3L1	   14. Acknowledgments .............................................. 42
+P3L2	   15. Intellectual Property Rights Statement ....................... 43
+P3L3	   16. Authors' Addresses ........................................... 43
+P3L4	   17. Full Copyright Statement ..................................... 44
+P3L5	
+P3L6	1. Introduction
+P3L7	
+P3L8	   This profile defines aspects of RTP left unspecified in the RTP
+P3L9	   Version 2 protocol definition (RFC 3550) [1].  This profile is
+P3L10	   intended for the use within audio and video conferences with minimal
+P3L11	   session control.  In particular, no support for the negotiation of
+P3L12	   parameters or membership control is provided.  The profile is
+P3L13	   expected to be useful in sessions where no negotiation or membership
+P3L14	   control are used (e.g., using the static payload types and the
+P3L15	   membership indications provided by RTCP), but this profile may also
+P3L16	   be useful in conjunction with a higher-level control protocol.
+P3L17	
+P3L18	   Use of this profile may be implicit in the use of the appropriate
+P3L19	   applications; there may be no explicit indication by port number,
+P3L20	   protocol identifier or the like.  Applications such as session
+P3L21	   directories may use the name for this profile specified in Section
+P3L22	   11.
+P3L23	
+P3L24	   Other profiles may make different choices for the items specified
+P3L25	   here.
+P3L26	
+P3L27	   This document also defines a set of encodings and payload formats for
+P3L28	   audio and video.  These payload format descriptions are included here
+P3L29	   only as a matter of convenience since they are too small to warrant
+P3L30	   separate documents.  Use of these payload formats is NOT REQUIRED to
+P3L31	   use this profile.  Only the binding of some of the payload formats to
+P3L32	   static payload type numbers in Tables 4 and 5 is normative.
+P3L33	
+P3L34	1.1 Terminology
+P3L35	
+P3L36	   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+P3L37	   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+P3L38	   document are to be interpreted as described in RFC 2119 [2] and
+P3L39	   indicate requirement levels for implementations compliant with this
+P3L40	   RTP profile.
+P3L41	
+P3L42	   This document defines the term media type as dividing encodings of
+P3L43	   audio and video content into three classes: audio, video and
+P3L44	   audio/video (interleaved).
+P3L45	
+P3L46	
+P3L47	
+P3L48	
+P4L1	2. RTP and RTCP Packet Forms and Protocol Behavior
+P4L2	
+P4L3	   The section "RTP Profiles and Payload Format Specifications" of RFC
+P4L4	   3550 enumerates a number of items that can be specified or modified
+P4L5	   in a profile.  This section addresses these items.  Generally, this
+P4L6	   profile follows the default and/or recommended aspects of the RTP
+P4L7	   specification.
+P4L8	
+P4L9	   RTP data header: The standard format of the fixed RTP data
+P4L10	      header is used (one marker bit).
+P4L11	
+P4L12	   Payload types: Static payload types are defined in Section 6.
+P4L13	
+P4L14	   RTP data header additions: No additional fixed fields are
+P4L15	      appended to the RTP data header.
+P4L16	
+P4L17	   RTP data header extensions: No RTP header extensions are
+P4L18	      defined, but applications operating under this profile MAY use
+P4L19	      such extensions.  Thus, applications SHOULD NOT assume that the
+P4L20	      RTP header X bit is always zero and SHOULD be prepared to ignore
+P4L21	      the header extension.  If a header extension is defined in the
+P4L22	      future, that definition MUST specify the contents of the first 16
+P4L23	      bits in such a way that multiple different extensions can be
+P4L24	      identified.
+P4L25	
+P4L26	   RTCP packet types: No additional RTCP packet types are defined
+P4L27	      by this profile specification.
+P4L28	
+P4L29	   RTCP report interval: The suggested constants are to be used for
+P4L30	      the RTCP report interval calculation.  Sessions operating under
+P4L31	      this profile MAY specify a separate parameter for the RTCP traffic
+P4L32	      bandwidth rather than using the default fraction of the session
+P4L33	      bandwidth.  The RTCP traffic bandwidth MAY be divided into two
+P4L34	      separate session parameters for those participants which are
+P4L35	      active data senders and those which are not.  Following the
+P4L36	      recommendation in the RTP specification [1] that 1/4 of the RTCP
+P4L37	      bandwidth be dedicated to data senders, the RECOMMENDED default
+P4L38	      values for these two parameters would be 1.25% and 3.75%,
+P4L39	      respectively.  For a particular session, the RTCP bandwidth for
+P4L40	      non-data-senders MAY be set to zero when operating on
+P4L41	      unidirectional links or for sessions that don't require feedback
+P4L42	      on the quality of reception.  The RTCP bandwidth for data senders
+P4L43	      SHOULD be kept non-zero so that sender reports can still be sent
+P4L44	      for inter-media synchronization and to identify the source by
+P4L45	      CNAME.  The means by which the one or two session parameters for
+P4L46	      RTCP bandwidth are specified is beyond the scope of this memo.
+P4L47	
+P4L48	
+P5L1	   SR/RR extension: No extension section is defined for the RTCP SR
+P5L2	      or RR packet.
+P5L3	
+P5L4	   SDES use: Applications MAY use any of the SDES items described
+P5L5	      in the RTP specification.  While CNAME information MUST be sent
+P5L6	      every reporting interval, other items SHOULD only be sent every
+P5L7	      third reporting interval, with NAME sent seven out of eight times
+P5L8	      within that slot and the remaining SDES items cyclically taking up
+P5L9	      the eighth slot, as defined in Section 6.2.2 of the RTP
+P5L10	      specification.  In other words, NAME is sent in RTCP packets 1, 4,
+P5L11	      7, 10, 13, 16, 19, while, say, EMAIL is used in RTCP packet 22.
+P5L12	
+P5L13	   Security: The RTP default security services are also the default
+P5L14	      under this profile.
+P5L15	
+P5L16	   String-to-key mapping: No mapping is specified by this profile.
+P5L17	
+P5L18	   Congestion: RTP and this profile may be used in the context of
+P5L19	      enhanced network service, for example, through Integrated Services
+P5L20	      (RFC 1633) [4] or Differentiated Services (RFC 2475) [5], or they
+P5L21	      may be used with best effort service.
+P5L22	
+P5L23	      If enhanced service is being used, RTP receivers SHOULD monitor
+P5L24	      packet loss to ensure that the service that was requested is
+P5L25	      actually being delivered.  If it is not, then they SHOULD assume
+P5L26	      that they are receiving best-effort service and behave
+P5L27	      accordingly.
+P5L28	
+P5L29	      If best-effort service is being used, RTP receivers SHOULD monitor
+P5L30	      packet loss to ensure that the packet loss rate is within
+P5L31	      acceptable parameters.  Packet loss is considered acceptable if a
+P5L32	      TCP flow across the same network path and experiencing the same
+P5L33	      network conditions would achieve an average throughput, measured
+P5L34	      on a reasonable timescale, that is not less than the RTP flow is
+P5L35	      achieving.  This condition can be satisfied by implementing
+P5L36	      congestion control mechanisms to adapt the transmission rate (or
+P5L37	      the number of layers subscribed for a layered multicast session),
+P5L38	      or by arranging for a receiver to leave the session if the loss
+P5L39	      rate is unacceptably high.
+P5L40	
+P5L41	      The comparison to TCP cannot be specified exactly, but is intended
+P5L42	      as an "order-of-magnitude" comparison in timescale and throughput.
+P5L43	      The timescale on which TCP throughput is measured is the round-
+P5L44	      trip time of the connection.  In essence, this requirement states
+P5L45	      that it is not acceptable to deploy an application (using RTP or
+P5L46	      any other transport protocol) on the best-effort Internet which
+P5L47	      consumes bandwidth arbitrarily and does not compete fairly with
+P5L48	      TCP within an order of magnitude.
+P6L1	   Underlying protocol: The profile specifies the use of RTP over
+P6L2	      unicast and multicast UDP as well as TCP.  (This does not preclude
+P6L3	      the use of these definitions when RTP is carried by other lower-
+P6L4	      layer protocols.)
+P6L5	
+P6L6	   Transport mapping: The standard mapping of RTP and RTCP to
+P6L7	      transport-level addresses is used.
+P6L8	
+P6L9	   Encapsulation: This profile leaves to applications the
+P6L10	      specification of RTP encapsulation in protocols other than UDP.
+P6L11	
+P6L12	3.  Registering Additional Encodings
+P6L13	
+P6L14	   This profile lists a set of encodings, each of which is comprised of
+P6L15	   a particular media data compression or representation plus a payload
+P6L16	   format for encapsulation within RTP.  Some of those payload formats
+P6L17	   are specified here, while others are specified in separate RFCs.  It
+P6L18	   is expected that additional encodings beyond the set listed here will
+P6L19	   be created in the future and specified in additional payload format
+P6L20	   RFCs.
+P6L21	
+P6L22	   This profile also assigns to each encoding a short name which MAY be
+P6L23	   used by higher-level control protocols, such as the Session
+P6L24	   Description Protocol (SDP), RFC 2327 [6], to identify encodings
+P6L25	   selected for a particular RTP session.
+P6L26	
+P6L27	   In some contexts it may be useful to refer to these encodings in the
+P6L28	   form of a MIME content-type.  To facilitate this, RFC 3555 [7]
+P6L29	   provides registrations for all of the encodings names listed here as
+P6L30	   MIME subtype names under the "audio" and "video" MIME types through
+P6L31	   the MIME registration procedure as specified in RFC 2048 [8].
+P6L32	
+P6L33	   Any additional encodings specified for use under this profile (or
+P6L34	   others) may also be assigned names registered as MIME subtypes with
+P6L35	   the Internet Assigned Numbers Authority (IANA).  This registry
+P6L36	   provides a means to insure that the names assigned to the additional
+P6L37	   encodings are kept unique.  RFC 3555 specifies the information that
+P6L38	   is required for the registration of RTP encodings.
+P6L39	
+P6L40	   In addition to assigning names to encodings, this profile also
+P6L41	   assigns static RTP payload type numbers to some of them.  However,
+P6L42	   the payload type number space is relatively small and cannot
+P6L43	   accommodate assignments for all existing and future encodings.
+P6L44	   During the early stages of RTP development, it was necessary to use
+P6L45	   statically assigned payload types because no other mechanism had been
+P6L46	   specified to bind encodings to payload types.  It was anticipated
+P6L47	   that non-RTP means beyond the scope of this memo (such as directory
+P6L48	   services or invitation protocols) would be specified to establish a
+P7L1	   dynamic mapping between a payload type and an encoding.  Now,
+P7L2	   mechanisms for defining dynamic payload type bindings have been
+P7L3	   specified in the Session Description Protocol (SDP) and in other
+P7L4	   protocols such as ITU-T Recommendation H.323/H.245.  These mechanisms
+P7L5	   associate the registered name of the encoding/payload format, along
+P7L6	   with any additional required parameters, such as the RTP timestamp
+P7L7	   clock rate and number of channels, with a payload type number.  This
+P7L8	   association is effective only for the duration of the RTP session in
+P7L9	   which the dynamic payload type binding is made.  This association
+P7L10	   applies only to the RTP session for which it is made, thus the
+P7L11	   numbers can be re-used for different encodings in different sessions
+P7L12	   so the number space limitation is avoided.
+P7L13	
+P7L14	   This profile reserves payload type numbers in the range 96-127
+P7L15	   exclusively for dynamic assignment.  Applications SHOULD first use
+P7L16	   values in this range for dynamic payload types.  Those applications
+P7L17	   which need to define more than 32 dynamic payload types MAY bind
+P7L18	   codes below 96, in which case it is RECOMMENDED that unassigned
+P7L19	   payload type numbers be used first.  However, the statically assigned
+P7L20	   payload types are default bindings and MAY be dynamically bound to
+P7L21	   new encodings if needed.  Redefining payload types below 96 may cause
+P7L22	   incorrect operation if an attempt is made to join a session without
+P7L23	   obtaining session description information that defines the dynamic
+P7L24	   payload types.
+P7L25	
+P7L26	   Dynamic payload types SHOULD NOT be used without a well-defined
+P7L27	   mechanism to indicate the mapping.  Systems that expect to
+P7L28	   interoperate with others operating under this profile SHOULD NOT make
+P7L29	   their own assignments of proprietary encodings to particular, fixed
+P7L30	   payload types.
+P7L31	
+P7L32	   This specification establishes the policy that no additional static
+P7L33	   payload types will be assigned beyond the ones defined in this
+P7L34	   document.  Establishing this policy avoids the problem of trying to
+P7L35	   create a set of criteria for accepting static assignments and
+P7L36	   encourages the implementation and deployment of the dynamic payload
+P7L37	   type mechanisms.
+P7L38	
+P7L39	   The final set of static payload type assignments is provided in
+P7L40	   Tables 4 and 5.
+P7L41	
+P7L42	
+P7L43	
+P7L44	
+P7L45	
+P7L46	
+P7L47	
+P7L48	
+P8L1	4.  Audio
+P8L2	
+P8L3	4.1  Encoding-Independent Rules
+P8L4	
+P8L5	   Since the ability to suppress silence is one of the primary
+P8L6	   motivations for using packets to transmit voice, the RTP header
+P8L7	   carries both a sequence number and a timestamp to allow a receiver to
+P8L8	   distinguish between lost packets and periods of time when no data was
+P8L9	   transmitted.  Discontiguous transmission (silence suppression) MAY be
+P8L10	   used with any audio payload format.  Receivers MUST assume that
+P8L11	   senders may suppress silence unless this is restricted by signaling
+P8L12	   specified elsewhere.  (Even if the transmitter does not suppress
+P8L13	   silence, the receiver should be prepared to handle periods when no
+P8L14	   data is present since packets may be lost.)
+P8L15	
+P8L16	   Some payload formats (see Sections 4.5.3 and 4.5.6) define a "silence
+P8L17	   insertion descriptor" or "comfort noise" frame to specify parameters
+P8L18	   for artificial noise that may be generated during a period of silence
+P8L19	   to approximate the background noise at the source.  For other payload
+P8L20	   formats, a generic Comfort Noise (CN) payload format is specified in
+P8L21	   RFC 3389 [9].  When the CN payload format is used with another
+P8L22	   payload format, different values in the RTP payload type field
+P8L23	   distinguish comfort-noise packets from those of the selected payload
+P8L24	   format.
+P8L25	
+P8L26	   For applications which send either no packets or occasional comfort-
+P8L27	   noise packets during silence, the first packet of a talkspurt, that
+P8L28	   is, the first packet after a silence period during which packets have
+P8L29	   not been transmitted contiguously, SHOULD be distinguished by setting
+P8L30	   the marker bit in the RTP data header to one.  The marker bit in all
+P8L31	   other packets is zero.  The beginning of a talkspurt MAY be used to
+P8L32	   adjust the playout delay to reflect changing network delays.
+P8L33	   Applications without silence suppression MUST set the marker bit to
+P8L34	   zero.
+P8L35	
+P8L36	   The RTP clock rate used for generating the RTP timestamp is
+P8L37	   independent of the number of channels and the encoding; it usually
+P8L38	   equals the number of sampling periods per second.  For N-channel
+P8L39	   encodings, each sampling period (say, 1/8,000 of a second) generates
+P8L40	   N samples.  (This terminology is standard, but somewhat confusing, as
+P8L41	   the total number of samples generated per second is then the sampling
+P8L42	   rate times the channel count.)
+P8L43	
+P8L44	   If multiple audio channels are used, channels are numbered left-to-
+P8L45	   right, starting at one.  In RTP audio packets, information from
+P8L46	   lower-numbered channels precedes that from higher-numbered channels.
+P8L47	
+P8L48	
+P9L1	   For more than two channels, the convention followed by the AIFF-C
+P9L2	   audio interchange format SHOULD be followed [3], using the following
+P9L3	   notation, unless some other convention is specified for a particular
+P9L4	   encoding or payload format:
+P9L5	
+P9L6	      l  left
+P9L7	      r  right
+P9L8	      c  center
+P9L9	      S  surround
+P9L10	      F  front
+P9L11	      R  rear
+P9L12	
+P9L13	      channels  description  channel
+P9L14	                                1     2   3   4   5   6
+P9L15	      _________________________________________________
+P9L16	      2         stereo          l     r
+P9L17	      3                         l     r   c
+P9L18	      4                         l     c   r   S
+P9L19	      5                        Fl     Fr  Fc  Sl  Sr
+P9L20	      6                         l     lc  c   r   rc  S
+P9L21	
+P9L22	         Note: RFC 1890 defined two conventions for the ordering of four
+P9L23	         audio channels.  Since the ordering is indicated implicitly by
+P9L24	         the number of channels, this was ambiguous.  In this revision,
+P9L25	         the order described as "quadrophonic" has been eliminated to
+P9L26	         remove the ambiguity.  This choice was based on the observation
+P9L27	         that quadrophonic consumer audio format did not become popular
+P9L28	         whereas surround-sound subsequently has.
+P9L29	
+P9L30	   Samples for all channels belonging to a single sampling instant MUST
+P9L31	   be within the same packet.  The interleaving of samples from
+P9L32	   different channels depends on the encoding.  General guidelines are
+P9L33	   given in Section 4.3 and 4.4.
+P9L34	
+P9L35	   The sampling frequency SHOULD be drawn from the set:  8,000, 11,025,
+P9L36	   16,000, 22,050, 24,000, 32,000, 44,100 and 48,000 Hz.  (Older Apple
+P9L37	   Macintosh computers had a native sample rate of 22,254.54 Hz, which
+P9L38	   can be converted to 22,050 with acceptable quality by dropping 4
+P9L39	   samples in a 20 ms frame.)  However, most audio encodings are defined
+P9L40	   for a more restricted set of sampling frequencies.  Receivers SHOULD
+P9L41	   be prepared to accept multi-channel audio, but MAY choose to only
+P9L42	   play a single channel.
+P9L43	
+P9L44	4.2  Operating Recommendations
+P9L45	
+P9L46	   The following recommendations are default operating parameters.
+P9L47	   Applications SHOULD be prepared to handle other values.  The ranges
+P9L48	   given are meant to give guidance to application writers, allowing a
+P10L1	   set of applications conforming to these guidelines to interoperate
+P10L2	   without additional negotiation.  These guidelines are not intended to
+P10L3	   restrict operating parameters for applications that can negotiate a
+P10L4	   set of interoperable parameters, e.g., through a conference control
+P10L5	   protocol.
+P10L6	
+P10L7	   For packetized audio, the default packetization interval SHOULD have
+P10L8	   a duration of 20 ms or one frame, whichever is longer, unless
+P10L9	   otherwise noted in Table 1 (column "ms/packet").  The packetization
+P10L10	   interval determines the minimum end-to-end delay; longer packets
+P10L11	   introduce less header overhead but higher delay and make packet loss
+P10L12	   more noticeable.  For non-interactive applications such as lectures
+P10L13	   or for links with severe bandwidth constraints, a higher
+P10L14	   packetization delay MAY be used.  A receiver SHOULD accept packets
+P10L15	   representing between 0 and 200 ms of audio data.  (For framed audio
+P10L16	   encodings, a receiver SHOULD accept packets with a number of frames
+P10L17	   equal to 200 ms divided by the frame duration, rounded up.)  This
+P10L18	   restriction allows reasonable buffer sizing for the receiver.
+P10L19	
+P10L20	4.3  Guidelines for Sample-Based Audio Encodings
+P10L21	
+P10L22	   In sample-based encodings, each audio sample is represented by a
+P10L23	   fixed number of bits.  Within the compressed audio data, codes for
+P10L24	   individual samples may span octet boundaries.  An RTP audio packet
+P10L25	   may contain any number of audio samples, subject to the constraint
+P10L26	   that the number of bits per sample times the number of samples per
+P10L27	   packet yields an integral octet count.  Fractional encodings produce
+P10L28	   less than one octet per sample.
+P10L29	
+P10L30	   The duration of an audio packet is determined by the number of
+P10L31	   samples in the packet.
+P10L32	
+P10L33	   For sample-based encodings producing one or more octets per sample,
+P10L34	   samples from different channels sampled at the same sampling instant
+P10L35	   SHOULD be packed in consecutive octets.  For example, for a two-
+P10L36	   channel encoding, the octet sequence is (left channel, first sample),
+P10L37	   (right channel, first sample), (left channel, second sample), (right
+P10L38	   channel, second sample), ....  For multi-octet encodings, octets
+P10L39	   SHOULD be transmitted in network byte order (i.e., most significant
+P10L40	   octet first).
+P10L41	
+P10L42	   The packing of sample-based encodings producing less than one octet
+P10L43	   per sample is encoding-specific.
+P10L44	
+P10L45	   The RTP timestamp reflects the instant at which the first sample in
+P10L46	   the packet was sampled, that is, the oldest information in the
+P10L47	   packet.
+P10L48	
+P11L1	4.4  Guidelines for Frame-Based Audio Encodings
+P11L2	
+P11L3	   Frame-based encodings encode a fixed-length block of audio into
+P11L4	   another block of compressed data, typically also of fixed length.
+P11L5	   For frame-based encodings, the sender MAY choose to combine several
+P11L6	   such frames into a single RTP packet.  The receiver can tell the
+P11L7	   number of frames contained in an RTP packet, if all the frames have
+P11L8	   the same length, by dividing the RTP payload length by the audio
+P11L9	   frame size which is defined as part of the encoding.  This does not
+P11L10	   work when carrying frames of different sizes unless the frame sizes
+P11L11	   are relatively prime.  If not, the frames MUST indicate their size.
+P11L12	
+P11L13	   For frame-based codecs, the channel order is defined for the whole
+P11L14	   block.  That is, for two-channel audio, right and left samples SHOULD
+P11L15	   be coded independently, with the encoded frame for the left channel
+P11L16	   preceding that for the right channel.
+P11L17	
+P11L18	   All frame-oriented audio codecs SHOULD be able to encode and decode
+P11L19	   several consecutive frames within a single packet.  Since the frame
+P11L20	   size for the frame-oriented codecs is given, there is no need to use
+P11L21	   a separate designation for the same encoding, but with different
+P11L22	   number of frames per packet.
+P11L23	
+P11L24	   RTP packets SHALL contain a whole number of frames, with frames
+P11L25	   inserted according to age within a packet, so that the oldest frame
+P11L26	   (to be played first) occurs immediately after the RTP packet header.
+P11L27	   The RTP timestamp reflects the instant at which the first sample in
+P11L28	   the first frame was sampled, that is, the oldest information in the
+P11L29	   packet.
+P11L30	
+P11L31	
+P11L32	
+P11L33	
+P11L34	
+P11L35	
+P11L36	
+P11L37	
+P11L38	
+P11L39	
+P11L40	
+P11L41	
+P11L42	
+P11L43	
+P11L44	
+P11L45	
+P11L46	
+P11L47	
+P11L48	
+P12L1	4.5 Audio Encodings
+P12L2	
+P12L3	   name of                              sampling              default
+P12L4	   encoding  sample/frame  bits/sample      rate  ms/frame  ms/packet
+P12L5	   __________________________________________________________________
+P12L6	   DVI4      sample        4                var.                   20
+P12L7	   G722      sample        8              16,000                   20
+P12L8	   G723      frame         N/A             8,000        30         30
+P12L9	   G726-40   sample        5               8,000                   20
+P12L10	   G726-32   sample        4               8,000                   20
+P12L11	   G726-24   sample        3               8,000                   20
+P12L12	   G726-16   sample        2               8,000                   20
+P12L13	   G728      frame         N/A             8,000       2.5         20
+P12L14	   G729      frame         N/A             8,000        10         20
+P12L15	   G729D     frame         N/A             8,000        10         20
+P12L16	   G729E     frame         N/A             8,000        10         20
+P12L17	   GSM       frame         N/A             8,000        20         20
+P12L18	   GSM-EFR   frame         N/A             8,000        20         20
+P12L19	   L8        sample        8                var.                   20
+P12L20	   L16       sample        16               var.                   20
+P12L21	   LPC       frame         N/A             8,000        20         20
+P12L22	   MPA       frame         N/A              var.      var.
+P12L23	   PCMA      sample        8                var.                   20
+P12L24	   PCMU      sample        8                var.                   20
+P12L25	   QCELP     frame         N/A             8,000        20         20
+P12L26	   VDVI      sample        var.             var.                   20
+P12L27	
+P12L28	   Table 1: Properties of Audio Encodings (N/A: not applicable; var.:
+P12L29	            variable)
+P12L30	
+P12L31	   The characteristics of the audio encodings described in this document
+P12L32	   are shown in Table 1; they are listed in order of their payload type
+P12L33	   in Table 4.  While most audio codecs are only specified for a fixed
+P12L34	   sampling rate, some sample-based algorithms (indicated by an entry of
+P12L35	   "var." in the sampling rate column of Table 1) may be used with
+P12L36	   different sampling rates, resulting in different coded bit rates.
+P12L37	   When used with a sampling rate other than that for which a static
+P12L38	   payload type is defined, non-RTP means beyond the scope of this memo
+P12L39	   MUST be used to define a dynamic payload type and MUST indicate the
+P12L40	   selected RTP timestamp clock rate, which is usually the same as the
+P12L41	   sampling rate for audio.
+P12L42	
+P12L43	
+P12L44	
+P12L45	
+P12L46	
+P12L47	
+P12L48	
+P13L1	4.5.1 DVI4
+P13L2	
+P13L3	   DVI4 uses an adaptive delta pulse code modulation (ADPCM) encoding
+P13L4	   scheme that was specified by the Interactive Multimedia Association
+P13L5	   (IMA) as the "IMA ADPCM wave type".  However, the encoding defined
+P13L6	   here as DVI4 differs in three respects from the IMA specification:
+P13L7	
+P13L8	   o  The RTP DVI4 header contains the predicted value rather than the
+P13L9	      first sample value contained the IMA ADPCM block header.
+P13L10	
+P13L11	   o  IMA ADPCM blocks contain an odd number of samples, since the first
+P13L12	      sample of a block is contained just in the header (uncompressed),
+P13L13	      followed by an even number of compressed samples.  DVI4 has an
+P13L14	      even number of compressed samples only, using the `predict' word
+P13L15	      from the header to decode the first sample.
+P13L16	
+P13L17	   o  For DVI4, the 4-bit samples are packed with the first sample in
+P13L18	      the four most significant bits and the second sample in the four
+P13L19	      least significant bits.  In the IMA ADPCM codec, the samples are
+P13L20	      packed in the opposite order.
+P13L21	
+P13L22	   Each packet contains a single DVI block.  This profile only defines
+P13L23	   the 4-bit-per-sample version, while IMA also specified a 3-bit-per-
+P13L24	   sample encoding.
+P13L25	
+P13L26	   The "header" word for each channel has the following structure:
+P13L27	
+P13L28	      int16  predict;  /* predicted value of first sample
+P13L29	                          from the previous block (L16 format) */
+P13L30	      u_int8 index;    /* current index into stepsize table */
+P13L31	      u_int8 reserved; /* set to zero by sender, ignored by receiver */
+P13L32	
+P13L33	   Each octet following the header contains two 4-bit samples, thus the
+P13L34	   number of samples per packet MUST be even because there is no means
+P13L35	   to indicate a partially filled last octet.
+P13L36	
+P13L37	   Packing of samples for multiple channels is for further study.
+P13L38	
+P13L39	   The IMA ADPCM algorithm was described in the document IMA Recommended
+P13L40	   Practices for Enhancing Digital Audio Compatibility in Multimedia
+P13L41	   Systems (version 3.0).  However, the Interactive Multimedia
+P13L42	   Association ceased operations in 1997.  Resources for an archived
+P13L43	   copy of that document and a software implementation of the RTP DVI4
+P13L44	   encoding are listed in Section 13.
+P13L45	
+P13L46	
+P13L47	
+P13L48	
+P14L1	4.5.2 G722
+P14L2	
+P14L3	   G722 is specified in ITU-T Recommendation G.722, "7 kHz audio-coding
+P14L4	   within 64 kbit/s".  The G.722 encoder produces a stream of octets,
+P14L5	   each of which SHALL be octet-aligned in an RTP packet.  The first bit
+P14L6	   transmitted in the G.722 octet, which is the most significant bit of
+P14L7	   the higher sub-band sample, SHALL correspond to the most significant
+P14L8	   bit of the octet in the RTP packet.
+P14L9	
+P14L10	   Even though the actual sampling rate for G.722 audio is 16,000 Hz,
+P14L11	   the RTP clock rate for the G722 payload format is 8,000 Hz because
+P14L12	   that value was erroneously assigned in RFC 1890 and must remain
+P14L13	   unchanged for backward compatibility.  The octet rate or sample-pair
+P14L14	   rate is 8,000 Hz.
+P14L15	
+P14L16	4.5.3 G723
+P14L17	
+P14L18	   G723 is specified in ITU Recommendation G.723.1, "Dual-rate speech
+P14L19	   coder for multimedia communications transmitting at 5.3 and 6.3
+P14L20	   kbit/s".  The G.723.1 5.3/6.3 kbit/s codec was defined by the ITU-T
+P14L21	   as a mandatory codec for ITU-T H.324 GSTN videophone terminal
+P14L22	   applications.  The algorithm has a floating point specification in
+P14L23	   Annex B to G.723.1, a silence compression algorithm in Annex A to
+P14L24	   G.723.1 and a scalable channel coding scheme for wireless
+P14L25	   applications in G.723.1 Annex C.
+P14L26	
+P14L27	   This Recommendation specifies a coded representation that can be used
+P14L28	   for compressing the speech signal component of multi-media services
+P14L29	   at a very low bit rate.  Audio is encoded in 30 ms frames, with an
+P14L30	   additional delay of 7.5 ms due to look-ahead.  A G.723.1 frame can be
+P14L31	   one of three sizes:  24 octets (6.3 kb/s frame), 20 octets (5.3 kb/s
+P14L32	   frame), or 4 octets.  These 4-octet frames are called SID frames
+P14L33	   (Silence Insertion Descriptor) and are used to specify comfort noise
+P14L34	   parameters.  There is no restriction on how 4, 20, and 24 octet
+P14L35	   frames are intermixed.  The least significant two bits of the first
+P14L36	   octet in the frame determine the frame size and codec type:
+P14L37	
+P14L38	         bits  content                      octets/frame
+P14L39	         00    high-rate speech (6.3 kb/s)            24
+P14L40	         01    low-rate speech  (5.3 kb/s)            20
+P14L41	         10    SID frame                               4
+P14L42	         11    reserved
+P14L43	
+P14L44	
+P14L45	
+P14L46	
+P14L47	
+P14L48	
+P15L1	   It is possible to switch between the two rates at any 30 ms frame
+P15L2	   boundary.  Both (5.3 kb/s and 6.3 kb/s) rates are a mandatory part of
+P15L3	   the encoder and decoder.  Receivers MUST accept both data rates and
+P15L4	   MUST accept SID frames unless restriction of these capabilities has
+P15L5	   been signaled.  The MIME registration for G723 in RFC 3555 [7]
+P15L6	   specifies parameters that MAY be used with MIME or SDP to restrict to
+P15L7	   a single data rate or to restrict the use of SID frames.  This coder
+P15L8	   was optimized to represent speech with near-toll quality at the above
+P15L9	   rates using a limited amount of complexity.
+P15L10	
+P15L11	   The packing of the encoded bit stream into octets and the
+P15L12	   transmission order of the octets is specified in Rec. G.723.1 and is
+P15L13	   the same as that produced by the G.723 C code reference
+P15L14	   implementation.  For the 6.3 kb/s data rate, this packing is
+P15L15	   illustrated as follows, where the header (HDR) bits are always "0 0"
+P15L16	   as shown in Fig. 1 to indicate operation at 6.3 kb/s, and the Z bit
+P15L17	   is always set to zero.  The diagrams show the bit packing in "network
+P15L18	   byte order", also known as big-endian order.  The bits of each 32-bit
+P15L19	   word are numbered 0 to 31, with the most significant bit on the left
+P15L20	   and numbered 0.  The octets (bytes) of each word are transmitted most
+P15L21	   significant octet first.  The bits of each data field are numbered in
+P15L22	   the order of the bit stream representation of the encoding (least
+P15L23	   significant bit first).  The vertical bars indicate the boundaries
+P15L24	   between field fragments.
+P15L25	
+P15L26	
+P15L27	
+P15L28	
+P15L29	
+P15L30	
+P15L31	
+P15L32	
+P15L33	
+P15L34	
+P15L35	
+P15L36	
+P15L37	
+P15L38	
+P15L39	
+P15L40	
+P15L41	
+P15L42	
+P15L43	
+P15L44	
+P15L45	
+P15L46	
+P15L47	
+P15L48	
+P16L1	    0                   1                   2                   3
+P16L2	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P16L3	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L4	   |    LPC    |HDR|      LPC      |      LPC      |    ACL0   |LPC|
+P16L5	   |           |   |               |               |           |   |
+P16L6	   |0 0 0 0 0 0|0 0|1 1 1 1 0 0 0 0|2 2 1 1 1 1 1 1|0 0 0 0 0 0|2 2|
+P16L7	   |5 4 3 2 1 0|   |3 2 1 0 9 8 7 6|1 0 9 8 7 6 5 4|5 4 3 2 1 0|3 2|
+P16L8	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L9	   |  ACL2   |ACL|A| GAIN0 |ACL|ACL|    GAIN0      |    GAIN1      |
+P16L10	   |         | 1 |C|       | 3 | 2 |               |               |
+P16L11	   |0 0 0 0 0|0 0|0|0 0 0 0|0 0|0 0|1 1 0 0 0 0 0 0|0 0 0 0 0 0 0 0|
+P16L12	   |4 3 2 1 0|1 0|6|3 2 1 0|1 0|6 5|1 0 9 8 7 6 5 4|7 6 5 4 3 2 1 0|
+P16L13	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L14	   | GAIN2 | GAIN1 |     GAIN2     |     GAIN3     | GRID  | GAIN3 |
+P16L15	   |       |       |               |               |       |       |
+P16L16	   |0 0 0 0|1 1 0 0|1 1 0 0 0 0 0 0|0 0 0 0 0 0 0 0|0 0 0 0|1 1 0 0|
+P16L17	   |3 2 1 0|1 0 9 8|1 0 9 8 7 6 5 4|7 6 5 4 3 2 1 0|3 2 1 0|1 0 9 8|
+P16L18	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L19	   |   MSBPOS    |Z|POS|  MSBPOS   |     POS0      |POS|   POS0    |
+P16L20	   |             | | 0 |           |               | 1 |           |
+P16L21	   |0 0 0 0 0 0 0|0|0 0|1 1 1 0 0 0|0 0 0 0 0 0 0 0|0 0|1 1 1 1 1 1|
+P16L22	   |6 5 4 3 2 1 0| |1 0|2 1 0 9 8 7|9 8 7 6 5 4 3 2|1 0|5 4 3 2 1 0|
+P16L23	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L24	   |     POS1      | POS2  | POS1  |     POS2      | POS3  | POS2  |
+P16L25	   |               |       |       |               |       |       |
+P16L26	   |0 0 0 0 0 0 0 0|0 0 0 0|1 1 1 1|1 1 0 0 0 0 0 0|0 0 0 0|1 1 1 1|
+P16L27	   |9 8 7 6 5 4 3 2|3 2 1 0|3 2 1 0|1 0 9 8 7 6 5 4|3 2 1 0|5 4 3 2|
+P16L28	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L29	   |     POS3      |   PSIG0   |POS|PSIG2|  PSIG1  |  PSIG3  |PSIG2|
+P16L30	   |               |           | 3 |     |         |         |     |
+P16L31	   |1 1 0 0 0 0 0 0|0 0 0 0 0 0|1 1|0 0 0|0 0 0 0 0|0 0 0 0 0|0 0 0|
+P16L32	   |1 0 9 8 7 6 5 4|5 4 3 2 1 0|3 2|2 1 0|4 3 2 1 0|4 3 2 1 0|5 4 3|
+P16L33	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P16L34	
+P16L35	                  Figure 1: G.723 (6.3 kb/s) bit packing
+P16L36	
+P16L37	   For the 5.3 kb/s data rate, the header (HDR) bits are always "0 1",
+P16L38	   as shown in Fig. 2, to indicate operation at 5.3 kb/s.
+P16L39	
+P16L40	
+P16L41	
+P16L42	
+P16L43	
+P16L44	
+P16L45	
+P16L46	
+P16L47	
+P16L48	
+P17L1	    0                   1                   2                   3
+P17L2	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P17L3	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L4	   |    LPC    |HDR|      LPC      |      LPC      |   ACL0    |LPC|
+P17L5	   |           |   |               |               |           |   |
+P17L6	   |0 0 0 0 0 0|0 1|1 1 1 1 0 0 0 0|2 2 1 1 1 1 1 1|0 0 0 0 0 0|2 2|
+P17L7	   |5 4 3 2 1 0|   |3 2 1 0 9 8 7 6|1 0 9 8 7 6 5 4|5 4 3 2 1 0|3 2|
+P17L8	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L9	   |  ACL2   |ACL|A| GAIN0 |ACL|ACL|     GAIN0     |     GAIN1     |
+P17L10	   |         | 1 |C|       | 3 | 2 |               |               |
+P17L11	   |0 0 0 0 0|0 0|0|0 0 0 0|0 0|0 0|1 1 0 0 0 0 0 0|0 0 0 0 0 0 0 0|
+P17L12	   |4 3 2 1 0|1 0|6|3 2 1 0|1 0|6 5|1 0 9 8 7 6 5 4|7 6 5 4 3 2 1 0|
+P17L13	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L14	   | GAIN2 | GAIN1 |     GAIN2     |    GAIN3      | GRID  | GAIN3 |
+P17L15	   |       |       |               |               |       |       |
+P17L16	   |0 0 0 0|1 1 0 0|1 1 0 0 0 0 0 0|0 0 0 0 0 0 0 0|0 0 0 0|1 1 0 0|
+P17L17	   |3 2 1 0|1 0 9 8|1 0 9 8 7 6 5 4|7 6 5 4 3 2 1 0|4 3 2 1|1 0 9 8|
+P17L18	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L19	   |     POS0      | POS1  | POS0  |     POS1      |     POS2      |
+P17L20	   |               |       |       |               |               |
+P17L21	   |0 0 0 0 0 0 0 0|0 0 0 0|1 1 0 0|1 1 0 0 0 0 0 0|0 0 0 0 0 0 0 0|
+P17L22	   |7 6 5 4 3 2 1 0|3 2 1 0|1 0 9 8|1 0 9 8 7 6 5 4|7 6 5 4 3 2 1 0|
+P17L23	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L24	   | POS3  | POS2  |     POS3      | PSIG1 | PSIG0 | PSIG3 | PSIG2 |
+P17L25	   |       |       |               |       |       |       |       |
+P17L26	   |0 0 0 0|1 1 0 0|1 1 0 0 0 0 0 0|0 0 0 0|0 0 0 0|0 0 0 0|0 0 0 0|
+P17L27	   |3 2 1 0|1 0 9 8|1 0 9 8 7 6 5 4|3 2 1 0|3 2 1 0|3 2 1 0|3 2 1 0|
+P17L28	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L29	
+P17L30	                  Figure 2: G.723 (5.3 kb/s) bit packing
+P17L31	
+P17L32	   The packing of G.723.1 SID (silence) frames, which are indicated by
+P17L33	   the header (HDR) bits having the pattern "1 0", is depicted in Fig.
+P17L34	   3.
+P17L35	
+P17L36	    0                   1                   2                   3
+P17L37	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P17L38	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L39	   |    LPC    |HDR|      LPC      |      LPC      |   GAIN    |LPC|
+P17L40	   |           |   |               |               |           |   |
+P17L41	   |0 0 0 0 0 0|1 0|1 1 1 1 0 0 0 0|2 2 1 1 1 1 1 1|0 0 0 0 0 0|2 2|
+P17L42	   |5 4 3 2 1 0|   |3 2 1 0 9 8 7 6|1 0 9 8 7 6 5 4|5 4 3 2 1 0|3 2|
+P17L43	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P17L44	
+P17L45	                   Figure 3: G.723 SID mode bit packing
+P17L46	
+P17L47	
+P17L48	
+P18L1	4.5.4  G726-40, G726-32, G726-24, and G726-16
+P18L2	
+P18L3	   ITU-T Recommendation G.726 describes, among others, the algorithm
+P18L4	   recommended for conversion of a single 64 kbit/s A-law or mu-law PCM
+P18L5	   channel encoded at 8,000 samples/sec to and from a 40, 32, 24, or 16
+P18L6	   kbit/s channel.  The conversion is applied to the PCM stream using an
+P18L7	   Adaptive Differential Pulse Code Modulation (ADPCM) transcoding
+P18L8	   technique.  The ADPCM representation consists of a series of
+P18L9	   codewords with a one-to-one correspondence to the samples in the PCM
+P18L10	   stream.  The G726 data rates of 40, 32, 24, and 16 kbit/s have
+P18L11	   codewords of 5, 4, 3, and 2 bits, respectively.
+P18L12	
+P18L13	   The 16 and 24 kbit/s encodings do not provide toll quality speech.
+P18L14	   They are designed for used in overloaded Digital Circuit
+P18L15	   Multiplication Equipment (DCME).  ITU-T G.726 recommends that the 16
+P18L16	   and 24 kbit/s encodings should be alternated with higher data rate
+P18L17	   encodings to provide an average sample size of between 3.5 and 3.7
+P18L18	   bits per sample.
+P18L19	
+P18L20	   The encodings of G.726 are here denoted as G726-40, G726-32, G726-24,
+P18L21	   and G726-16.  Prior to 1990, G721 described the 32 kbit/s ADPCM
+P18L22	   encoding, and G723 described the 40, 32, and 16 kbit/s encodings.
+P18L23	   Thus, G726-32 designates the same algorithm as G721 in RFC 1890.
+P18L24	
+P18L25	   A stream of G726 codewords contains no information on the encoding
+P18L26	   being used, therefore transitions between G726 encoding types are not
+P18L27	   permitted within a sequence of packed codewords.  Applications MUST
+P18L28	   determine the encoding type of packed codewords from the RTP payload
+P18L29	   identifier.
+P18L30	
+P18L31	   No payload-specific header information SHALL be included as part of
+P18L32	   the audio data.  A stream of G726 codewords MUST be packed into
+P18L33	   octets as follows:  the first codeword is placed into the first octet
+P18L34	   such that the least significant bit of the codeword aligns with the
+P18L35	   least significant bit in the octet, the second codeword is then
+P18L36	   packed so that its least significant bit coincides with the least
+P18L37	   significant unoccupied bit in the octet.  When a complete codeword
+P18L38	   cannot be placed into an octet, the bits overlapping the octet
+P18L39	   boundary are placed into the least significant bits of the next
+P18L40	   octet.  Packing MUST end with a completely packed final octet.  The
+P18L41	   number of codewords packed will therefore be a multiple of 8, 2, 8,
+P18L42	   and 4 for G726-40, G726-32, G726-24, and G726-16, respectively.  An
+P18L43	   example of the packing scheme for G726-32 codewords is as shown,
+P18L44	   where bit 7 is the least significant bit of the first octet, and bit
+P18L45	   A3 is the least significant bit of the first codeword:
+P18L46	
+P18L47	
+P18L48	
+P19L1	          0                   1
+P19L2	          0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+P19L3	         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+P19L4	         |B B B B|A A A A|D D D D|C C C C| ...
+P19L5	         |0 1 2 3|0 1 2 3|0 1 2 3|0 1 2 3|
+P19L6	         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+P19L7	
+P19L8	   An example of the packing scheme for G726-24 codewords follows, where
+P19L9	   again bit 7 is the least significant bit of the first octet, and bit
+P19L10	   A2 is the least significant bit of the first codeword:
+P19L11	
+P19L12	          0                   1                   2
+P19L13	          0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
+P19L14	         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+P19L15	         |C C|B B B|A A A|F|E E E|D D D|C|H H H|G G G|F F| ...
+P19L16	         |1 2|0 1 2|0 1 2|2|0 1 2|0 1 2|0|0 1 2|0 1 2|0 1|
+P19L17	         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+P19L18	
+P19L19	   Note that the "little-endian" direction in which samples are packed
+P19L20	   into octets in the G726-16, -24, -32 and -40 payload formats
+P19L21	   specified here is consistent with ITU-T Recommendation X.420, but is
+P19L22	   the opposite of what is specified in ITU-T Recommendation I.366.2
+P19L23	   Annex E for ATM AAL2 transport.  A second set of RTP payload formats
+P19L24	   matching the packetization of I.366.2 Annex E and identified by MIME
+P19L25	   subtypes AAL2-G726-16, -24, -32 and -40 will be specified in a
+P19L26	   separate document.
+P19L27	
+P19L28	4.5.5 G728
+P19L29	
+P19L30	   G728 is specified in ITU-T Recommendation G.728, "Coding of speech at
+P19L31	   16 kbit/s using low-delay code excited linear prediction".
+P19L32	
+P19L33	   A G.278 encoder translates 5 consecutive audio samples into a 10-bit
+P19L34	   codebook index, resulting in a bit rate of 16 kb/s for audio sampled
+P19L35	   at 8,000 samples per second.  The group of five consecutive samples
+P19L36	   is called a vector.  Four consecutive vectors, labeled V1 to V4
+P19L37	   (where V1 is to be played first by the receiver), build one G.728
+P19L38	   frame.  The four vectors of 40 bits are packed into 5 octets, labeled
+P19L39	   B1 through B5.  B1 SHALL be placed first in the RTP packet.
+P19L40	
+P19L41	   Referring to the figure below, the principle for bit order is
+P19L42	   "maintenance of bit significance".  Bits from an older vector are
+P19L43	   more significant than bits from newer vectors.  The MSB of the frame
+P19L44	   goes to the MSB of B1 and the LSB of the frame goes to LSB of B5.
+P19L45	
+P19L46	
+P19L47	
+P19L48	
+P20L1	                   1         2         3        3
+P20L2	         0         0         0         0        9
+P20L3	         ++++++++++++++++++++++++++++++++++++++++
+P20L4	         <---V1---><---V2---><---V3---><---V4---> vectors
+P20L5	         <--B1--><--B2--><--B3--><--B4--><--B5--> octets
+P20L6	         <------------- frame 1 ---------------->
+P20L7	
+P20L8	   In particular, B1 contains the eight most significant bits of V1,
+P20L9	   with the MSB of V1 being the MSB of B1.  B2 contains the two least
+P20L10	   significant bits of V1, the more significant of the two in its MSB,
+P20L11	   and the six most significant bits of V2.  B1 SHALL be placed first in
+P20L12	   the RTP packet and B5 last.
+P20L13	
+P20L14	4.5.6 G729
+P20L15	
+P20L16	   G729 is specified in ITU-T Recommendation G.729, "Coding of speech at
+P20L17	   8 kbit/s using conjugate structure-algebraic code excited linear
+P20L18	   prediction (CS-ACELP)".  A reduced-complexity version of the G.729
+P20L19	   algorithm is specified in Annex A to Rec. G.729.  The speech coding
+P20L20	   algorithms in the main body of G.729 and in G.729 Annex A are fully
+P20L21	   interoperable with each other, so there is no need to further
+P20L22	   distinguish between them.  An implementation that signals or accepts
+P20L23	   use of G729 payload format may implement either G.729 or G.729A
+P20L24	   unless restricted by additional signaling specified elsewhere related
+P20L25	   specifically to the encoding rather than the payload format.  The
+P20L26	   G.729 and G.729 Annex A codecs were optimized to represent speech
+P20L27	   with high quality, where G.729 Annex A trades some speech quality for
+P20L28	   an approximate 50% complexity reduction [10].  See the next Section
+P20L29	   (4.5.7) for other data rates added in later G.729 Annexes.  For all
+P20L30	   data rates, the sampling frequency (and RTP timestamp clock rate) is
+P20L31	   8,000 Hz.
+P20L32	
+P20L33	   A voice activity detector (VAD) and comfort noise generator (CNG)
+P20L34	   algorithm in Annex B of G.729 is RECOMMENDED for digital simultaneous
+P20L35	   voice and data applications and can be used in conjunction with G.729
+P20L36	   or G.729 Annex A.  A G.729 or G.729 Annex A frame contains 10 octets,
+P20L37	   while the G.729 Annex B comfort noise frame occupies 2 octets.
+P20L38	   Receivers MUST accept comfort noise frames if restriction of their
+P20L39	   use has not been signaled.  The MIME registration for G729 in RFC
+P20L40	   3555 [7] specifies a parameter that MAY be used with MIME or SDP to
+P20L41	   restrict the use of comfort noise frames.
+P20L42	
+P20L43	   A G729 RTP packet may consist of zero or more G.729 or G.729 Annex A
+P20L44	   frames, followed by zero or one G.729 Annex B frames.  The presence
+P20L45	   of a comfort noise frame can be deduced from the length of the RTP
+P20L46	   payload.  The default packetization interval is 20 ms (two frames),
+P20L47	   but in some situations it may be desirable to send 10 ms packets.  An
+P20L48	
+P21L1	   example would be a transition from speech to comfort noise in the
+P21L2	   first 10 ms of the packet.  For some applications, a longer
+P21L3	   packetization interval may be required to reduce the packet rate.
+P21L4	
+P21L5	       0                   1                   2                   3
+P21L6	       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P21L7	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P21L8	      |L|      L1     |    L2   |    L3   |       P1      |P|    C1   |
+P21L9	      |0|             |         |         |               |0|         |
+P21L10	      | |0 1 2 3 4 5 6|0 1 2 3 4|0 1 2 3 4|0 1 2 3 4 5 6 7| |0 1 2 3 4|
+P21L11	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P21L12	      |       C1      |  S1   | GA1 |  GB1  |    P2   |      C2       |
+P21L13	      |          1 1 1|       |     |       |         |               |
+P21L14	      |5 6 7 8 9 0 1 2|0 1 2 3|0 1 2|0 1 2 3|0 1 2 3 4|0 1 2 3 4 5 6 7|
+P21L15	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P21L16	      |   C2    |  S2   | GA2 |  GB2  |
+P21L17	      |    1 1 1|       |     |       |
+P21L18	      |8 9 0 1 2|0 1 2 3|0 1 2|0 1 2 3|
+P21L19	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P21L20	
+P21L21	                    Figure 4: G.729 and G.729A bit packing
+P21L22	
+P21L23	   The transmitted parameters of a G.729/G.729A 10-ms frame, consisting
+P21L24	   of 80 bits, are defined in Recommendation G.729, Table 8/G.729.  The
+P21L25	   mapping of the these parameters is given below in Fig. 4.  The
+P21L26	   diagrams show the bit packing in "network byte order", also known as
+P21L27	   big-endian order.  The bits of each 32-bit word are numbered 0 to 31,
+P21L28	   with the most significant bit on the left and numbered 0.  The octets
+P21L29	   (bytes) of each word are transmitted most significant octet first.
+P21L30	   The bits of each data field are numbered in the order as produced by
+P21L31	   the G.729 C code reference implementation.
+P21L32	
+P21L33	   The packing of the G.729 Annex B comfort noise frame is shown in Fig.
+P21L34	   5.
+P21L35	
+P21L36	          0                   1
+P21L37	          0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+P21L38	         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P21L39	         |L|  LSF1   |  LSF2 |   GAIN  |R|
+P21L40	         |S|         |       |         |E|
+P21L41	         |F|         |       |         |S|
+P21L42	         |0|0 1 2 3 4|0 1 2 3|0 1 2 3 4|V|    RESV = Reserved (zero)
+P21L43	         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P21L44	
+P21L45	                       Figure 5: G.729 Annex B bit packing
+P21L46	
+P21L47	
+P21L48	
+P22L1	4.5.7 G729D and G729E
+P22L2	
+P22L3	   Annexes D and E to ITU-T Recommendation G.729 provide additional data
+P22L4	   rates.  Because the data rate is not signaled in the bitstream, the
+P22L5	   different data rates are given distinct RTP encoding names which are
+P22L6	   mapped to distinct payload type numbers.  G729D indicates a 6.4
+P22L7	   kbit/s coding mode (G.729 Annex D, for momentary reduction in channel
+P22L8	   capacity), while G729E indicates an 11.8 kbit/s mode (G.729 Annex E,
+P22L9	   for improved performance with a wide range of narrow-band input
+P22L10	   signals, e.g., music and background noise).  Annex E has two
+P22L11	   operating modes, backward adaptive and forward adaptive, which are
+P22L12	   signaled by the first two bits in each frame (the most significant
+P22L13	   two bits of the first octet).
+P22L14	
+P22L15	   The voice activity detector (VAD) and comfort noise generator (CNG)
+P22L16	   algorithm specified in Annex B of G.729 may be used with Annex D and
+P22L17	   Annex E frames in addition to G.729 and G.729 Annex A frames.  The
+P22L18	   algorithm details for the operation of Annexes D and E with the Annex
+P22L19	   B CNG are specified in G.729 Annexes F and G.  Note that Annexes F
+P22L20	   and G do not introduce any new encodings.  Receivers MUST accept
+P22L21	   comfort noise frames if restriction of their use has not been
+P22L22	   signaled.  The MIME registrations for G729D and G729E in RFC 3555 [7]
+P22L23	   specify a parameter that MAY be used with MIME or SDP to restrict the
+P22L24	   use of comfort noise frames.
+P22L25	
+P22L26	   For G729D, an RTP packet may consist of zero or more G.729 Annex D
+P22L27	   frames, followed by zero or one G.729 Annex B frame.  Similarly, for
+P22L28	   G729E, an RTP packet may consist of zero or more G.729 Annex E
+P22L29	   frames, followed by zero or one G.729 Annex B frame.  The presence of
+P22L30	   a comfort noise frame can be deduced from the length of the RTP
+P22L31	   payload.
+P22L32	
+P22L33	   A single RTP packet must contain frames of only one data rate,
+P22L34	   optionally followed by one comfort noise frame.  The data rate may be
+P22L35	   changed from packet to packet by changing the payload type number.
+P22L36	   G.729 Annexes D, E and H describe what the encoding and decoding
+P22L37	   algorithms must do to accommodate a change in data rate.
+P22L38	
+P22L39	   For G729D, the bits of a G.729 Annex D frame are formatted as shown
+P22L40	   below in Fig. 6 (cf.  Table D.1/G.729).  The frame length is 64 bits.
+P22L41	
+P22L42	
+P22L43	
+P22L44	
+P22L45	
+P22L46	
+P22L47	
+P22L48	
+P23L1	       0                   1                   2                   3
+P23L2	       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P23L3	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L4	      |L|      L1     |    L2   |    L3   |        P1     |     C1    |
+P23L5	      |0|             |         |         |               |           |
+P23L6	      | |0 1 2 3 4 5 6|0 1 2 3 4|0 1 2 3 4|0 1 2 3 4 5 6 7|0 1 2 3 4 5|
+P23L7	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L8	      | C1  |S1 | GA1 | GB1 |  P2   |        C2       |S2 | GA2 | GB2 |
+P23L9	      |     |   |     |     |       |                 |   |     |     |
+P23L10	      |6 7 8|0 1|0 1 2|0 1 2|0 1 2 3|0 1 2 3 4 5 6 7 8|0 1|0 1 2|0 1 2|
+P23L11	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L12	
+P23L13	                     Figure 6: G.729 Annex D bit packing
+P23L14	
+P23L15	   The net bit rate for the G.729 Annex E algorithm is 11.8 kbit/s and a
+P23L16	   total of 118 bits are used.  Two bits are appended as "don't care"
+P23L17	   bits to complete an integer number of octets for the frame.  For
+P23L18	   G729E, the bits of a data frame are formatted as shown in the next
+P23L19	   two diagrams (cf. Table E.1/G.729).  The fields for the G729E forward
+P23L20	   adaptive mode are packed as shown in Fig. 7.
+P23L21	
+P23L22	       0                   1                   2                   3
+P23L23	       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P23L24	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L25	      |0 0|L|      L1     |    L2   |    L3   |        P1     |P| C0_1|
+P23L26	      |   |0|             |         |         |               |0|     |
+P23L27	      |   | |0 1 2 3 4 5 6|0 1 2 3 4|0 1 2 3 4|0 1 2 3 4 5 6 7| |0 1 2|
+P23L28	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L29	      |       |   C1_1      |     C2_1    |   C3_1      |    C4_1     |
+P23L30	      |       |             |             |             |             |
+P23L31	      |3 4 5 6|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2 3 4 5 6|
+P23L32	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L33	      | GA1 |  GB1  |    P2   |   C0_2      |     C1_2    |   C2_2    |
+P23L34	      |     |       |         |             |             |           |
+P23L35	      |0 1 2|0 1 2 3|0 1 2 3 4|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2 3 4 5|
+P23L36	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L37	      | |    C3_2     |     C4_2    | GA2 | GB2   |DC |
+P23L38	      | |             |             |     |       |   |
+P23L39	      |6|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2|0 1 2 3|0 1|
+P23L40	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P23L41	
+P23L42	         Figure 7: G.729 Annex E (forward adaptive mode) bit packing
+P23L43	
+P23L44	   The fields for the G729E backward adaptive mode are packed as shown
+P23L45	   in Fig. 8.
+P23L46	
+P23L47	
+P23L48	
+P24L1	       0                   1                   2                   3
+P24L2	       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P24L3	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L4	      |1 1|       P1      |P|       C0_1              |     C1_1      |
+P24L5	      |   |               |0|                    1 1 1|               |
+P24L6	      |   |0 1 2 3 4 5 6 7|0|0 1 2 3 4 5 6 7 8 9 0 1 2|0 1 2 3 4 5 6 7|
+P24L7	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L8	      |   |  C2_1       | C3_1        | C4_1        |GA1  | GB1   |P2 |
+P24L9	      |   |             |             |             |     |       |   |
+P24L10	      |8 9|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2|0 1 2 3|0 1|
+P24L11	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L12	      |     |          C0_2           |       C1_2        |    C2_2   |
+P24L13	      |     |                    1 1 1|                   |           |
+P24L14	      |2 3 4|0 1 2 3 4 5 6 7 8 9 0 1 2|0 1 2 3 4 5 6 7 8 9|0 1 2 3 4 5|
+P24L15	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L16	      | |    C3_2     |     C4_2    | GA2 | GB2   |DC |
+P24L17	      | |             |             |     |       |   |
+P24L18	      |6|0 1 2 3 4 5 6|0 1 2 3 4 5 6|0 1 2|0 1 2 3|0 1|
+P24L19	      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L20	
+P24L21	         Figure 8: G.729 Annex E (backward adaptive mode) bit packing
+P24L22	
+P24L23	4.5.8 GSM
+P24L24	
+P24L25	   GSM (Group Speciale Mobile) denotes the European GSM 06.10 standard
+P24L26	   for full-rate speech transcoding, ETS 300 961, which is based on
+P24L27	   RPE/LTP (residual pulse excitation/long term prediction) coding at a
+P24L28	   rate of 13 kb/s [11,12,13].  The text of the standard can be obtained
+P24L29	   from:
+P24L30	
+P24L31	   ETSI (European Telecommunications Standards Institute)
+P24L32	   ETSI Secretariat: B.P.152
+P24L33	   F-06561 Valbonne Cedex
+P24L34	   France
+P24L35	   Phone: +33 92 94 42 00
+P24L36	   Fax:   +33 93 65 47 16
+P24L37	
+P24L38	   Blocks of 160 audio samples are compressed into 33 octets, for an
+P24L39	   effective data rate of 13,200 b/s.
+P24L40	
+P24L41	4.5.8.1  General Packaging Issues
+P24L42	
+P24L43	   The GSM standard (ETS 300 961) specifies the bit stream produced by
+P24L44	   the codec, but does not specify how these bits should be packed for
+P24L45	   transmission.  The packetization specified here has subsequently been
+P24L46	   adopted in ETSI Technical Specification TS 101 318.  Some software
+P24L47	   implementations of the GSM codec use a different packing than that
+P24L48	   specified here.
+P25L1	               field  field name  bits  field  field name  bits
+P25L2	               ________________________________________________
+P25L3	               1      LARc[0]     6     39     xmc[22]     3
+P25L4	               2      LARc[1]     6     40     xmc[23]     3
+P25L5	               3      LARc[2]     5     41     xmc[24]     3
+P25L6	               4      LARc[3]     5     42     xmc[25]     3
+P25L7	               5      LARc[4]     4     43     Nc[2]       7
+P25L8	               6      LARc[5]     4     44     bc[2]       2
+P25L9	               7      LARc[6]     3     45     Mc[2]       2
+P25L10	               8      LARc[7]     3     46     xmaxc[2]    6
+P25L11	               9      Nc[0]       7     47     xmc[26]     3
+P25L12	               10     bc[0]       2     48     xmc[27]     3
+P25L13	               11     Mc[0]       2     49     xmc[28]     3
+P25L14	               12     xmaxc[0]    6     50     xmc[29]     3
+P25L15	               13     xmc[0]      3     51     xmc[30]     3
+P25L16	               14     xmc[1]      3     52     xmc[31]     3
+P25L17	               15     xmc[2]      3     53     xmc[32]     3
+P25L18	               16     xmc[3]      3     54     xmc[33]     3
+P25L19	               17     xmc[4]      3     55     xmc[34]     3
+P25L20	               18     xmc[5]      3     56     xmc[35]     3
+P25L21	               19     xmc[6]      3     57     xmc[36]     3
+P25L22	               20     xmc[7]      3     58     xmc[37]     3
+P25L23	               21     xmc[8]      3     59     xmc[38]     3
+P25L24	               22     xmc[9]      3     60     Nc[3]       7
+P25L25	               23     xmc[10]     3     61     bc[3]       2
+P25L26	               24     xmc[11]     3     62     Mc[3]       2
+P25L27	               25     xmc[12]     3     63     xmaxc[3]    6
+P25L28	               26     Nc[1]       7     64     xmc[39]     3
+P25L29	               27     bc[1]       2     65     xmc[40]     3
+P25L30	               28     Mc[1]       2     66     xmc[41]     3
+P25L31	               29     xmaxc[1]    6     67     xmc[42]     3
+P25L32	               30     xmc[13]     3     68     xmc[43]     3
+P25L33	               31     xmc[14]     3     69     xmc[44]     3
+P25L34	               32     xmc[15]     3     70     xmc[45]     3
+P25L35	               33     xmc[16]     3     71     xmc[46]     3
+P25L36	               34     xmc[17]     3     72     xmc[47]     3
+P25L37	               35     xmc[18]     3     73     xmc[48]     3
+P25L38	               36     xmc[19]     3     74     xmc[49]     3
+P25L39	               37     xmc[20]     3     75     xmc[50]     3
+P25L40	               38     xmc[21]     3     76     xmc[51]     3
+P25L41	
+P25L42	                      Table 2: Ordering of GSM variables
+P25L43	
+P25L44	
+P25L45	
+P25L46	
+P25L47	
+P25L48	
+P26L1	   Octet  Bit 0   Bit 1   Bit 2   Bit 3   Bit 4   Bit 5   Bit 6   Bit 7
+P26L2	   _____________________________________________________________________
+P26L3	       0    1       1       0       1    LARc0.0 LARc0.1 LARc0.2 LARc0.3
+P26L4	       1 LARc0.4 LARc0.5 LARc1.0 LARc1.1 LARc1.2 LARc1.3 LARc1.4 LARc1.5
+P26L5	       2 LARc2.0 LARc2.1 LARc2.2 LARc2.3 LARc2.4 LARc3.0 LARc3.1 LARc3.2
+P26L6	       3 LARc3.3 LARc3.4 LARc4.0 LARc4.1 LARc4.2 LARc4.3 LARc5.0 LARc5.1
+P26L7	       4 LARc5.2 LARc5.3 LARc6.0 LARc6.1 LARc6.2 LARc7.0 LARc7.1 LARc7.2
+P26L8	       5  Nc0.0   Nc0.1   Nc0.2   Nc0.3   Nc0.4   Nc0.5   Nc0.6  bc0.0
+P26L9	       6  bc0.1   Mc0.0   Mc0.1  xmaxc00 xmaxc01 xmaxc02 xmaxc03 xmaxc04
+P26L10	       7 xmaxc05 xmc0.0  xmc0.1  xmc0.2  xmc1.0  xmc1.1  xmc1.2  xmc2.0
+P26L11	       8 xmc2.1  xmc2.2  xmc3.0  xmc3.1  xmc3.2  xmc4.0  xmc4.1  xmc4.2
+P26L12	       9 xmc5.0  xmc5.1  xmc5.2  xmc6.0  xmc6.1  xmc6.2  xmc7.0  xmc7.1
+P26L13	      10 xmc7.2  xmc8.0  xmc8.1  xmc8.2  xmc9.0  xmc9.1  xmc9.2  xmc10.0
+P26L14	      11 xmc10.1 xmc10.2 xmc11.0 xmc11.1 xmc11.2 xmc12.0 xmc12.1 xcm12.2
+P26L15	      12  Nc1.0   Nc1.1   Nc1.2   Nc1.3   Nc1.4   Nc1.5   Nc1.6   bc1.0
+P26L16	      13  bc1.1   Mc1.0   Mc1.1  xmaxc10 xmaxc11 xmaxc12 xmaxc13 xmaxc14
+P26L17	      14 xmax15  xmc13.0 xmc13.1 xmc13.2 xmc14.0 xmc14.1 xmc14.2 xmc15.0
+P26L18	      15 xmc15.1 xmc15.2 xmc16.0 xmc16.1 xmc16.2 xmc17.0 xmc17.1 xmc17.2
+P26L19	      16 xmc18.0 xmc18.1 xmc18.2 xmc19.0 xmc19.1 xmc19.2 xmc20.0 xmc20.1
+P26L20	      17 xmc20.2 xmc21.0 xmc21.1 xmc21.2 xmc22.0 xmc22.1 xmc22.2 xmc23.0
+P26L21	      18 xmc23.1 xmc23.2 xmc24.0 xmc24.1 xmc24.2 xmc25.0 xmc25.1 xmc25.2
+P26L22	      19  Nc2.0   Nc2.1   Nc2.2   Nc2.3   Nc2.4   Nc2.5   Nc2.6   bc2.0
+P26L23	      20  bc2.1   Mc2.0   Mc2.1  xmaxc20 xmaxc21 xmaxc22 xmaxc23 xmaxc24
+P26L24	      21 xmaxc25 xmc26.0 xmc26.1 xmc26.2 xmc27.0 xmc27.1 xmc27.2 xmc28.0
+P26L25	      22 xmc28.1 xmc28.2 xmc29.0 xmc29.1 xmc29.2 xmc30.0 xmc30.1 xmc30.2
+P26L26	      23 xmc31.0 xmc31.1 xmc31.2 xmc32.0 xmc32.1 xmc32.2 xmc33.0 xmc33.1
+P26L27	      24 xmc33.2 xmc34.0 xmc34.1 xmc34.2 xmc35.0 xmc35.1 xmc35.2 xmc36.0
+P26L28	      25 Xmc36.1 xmc36.2 xmc37.0 xmc37.1 xmc37.2 xmc38.0 xmc38.1 xmc38.2
+P26L29	      26  Nc3.0   Nc3.1   Nc3.2   Nc3.3   Nc3.4   Nc3.5   Nc3.6   bc3.0
+P26L30	      27  bc3.1   Mc3.0   Mc3.1  xmaxc30 xmaxc31 xmaxc32 xmaxc33 xmaxc34
+P26L31	      28 xmaxc35 xmc39.0 xmc39.1 xmc39.2 xmc40.0 xmc40.1 xmc40.2 xmc41.0
+P26L32	      29 xmc41.1 xmc41.2 xmc42.0 xmc42.1 xmc42.2 xmc43.0 xmc43.1 xmc43.2
+P26L33	      30 xmc44.0 xmc44.1 xmc44.2 xmc45.0 xmc45.1 xmc45.2 xmc46.0 xmc46.1
+P26L34	      31 xmc46.2 xmc47.0 xmc47.1 xmc47.2 xmc48.0 xmc48.1 xmc48.2 xmc49.0
+P26L35	      32 xmc49.1 xmc49.2 xmc50.0 xmc50.1 xmc50.2 xmc51.0 xmc51.1 xmc51.2
+P26L36	
+P26L37	                        Table 3: GSM payload format
+P26L38	
+P26L39	   In the GSM packing used by RTP, the bits SHALL be packed beginning
+P26L40	   from the most significant bit.  Every 160 sample GSM frame is coded
+P26L41	   into one 33 octet (264 bit) buffer.  Every such buffer begins with a
+P26L42	   4 bit signature (0xD), followed by the MSB encoding of the fields of
+P26L43	   the frame.  The first octet thus contains 1101 in the 4 most
+P26L44	   significant bits (0-3) and the 4 most significant bits of F1 (0-3) in
+P26L45	   the 4 least significant bits (4-7).  The second octet contains the 2
+P26L46	   least significant bits of F1 in bits 0-1, and F2 in bits 2-7, and so
+P26L47	   on.  The order of the fields in the frame is described in Table 2.
+P26L48	
+P27L1	4.5.8.2   GSM Variable Names and Numbers
+P27L2	
+P27L3	   In the RTP encoding we have the bit pattern described in Table 3,
+P27L4	   where F.i signifies the ith bit of the field F, bit 0 is the most
+P27L5	   significant bit, and the bits of every octet are numbered from 0 to 7
+P27L6	   from most to least significant.
+P27L7	
+P27L8	4.5.9 GSM-EFR
+P27L9	
+P27L10	   GSM-EFR denotes GSM 06.60 enhanced full rate speech transcoding,
+P27L11	   specified in ETS 300 726 which is available from ETSI at the address
+P27L12	   given in Section 4.5.8.  This codec has a frame length of 244 bits.
+P27L13	   For transmission in RTP, each codec frame is packed into a 31 octet
+P27L14	   (248 bit) buffer beginning with a 4-bit signature 0xC in a manner
+P27L15	   similar to that specified here for the original GSM 06.10 codec.  The
+P27L16	   packing is specified in ETSI Technical Specification TS 101 318.
+P27L17	
+P27L18	4.5.10 L8
+P27L19	
+P27L20	   L8 denotes linear audio data samples, using 8-bits of precision with
+P27L21	   an offset of 128, that is, the most negative signal is encoded as
+P27L22	   zero.
+P27L23	
+P27L24	4.5.11 L16
+P27L25	
+P27L26	   L16 denotes uncompressed audio data samples, using 16-bit signed
+P27L27	   representation with 65,535 equally divided steps between minimum and
+P27L28	   maximum signal level, ranging from -32,768 to 32,767.  The value is
+P27L29	   represented in two's complement notation and transmitted in network
+P27L30	   byte order (most significant byte first).
+P27L31	
+P27L32	   The MIME registration for L16 in RFC 3555 [7] specifies parameters
+P27L33	   that MAY be used with MIME or SDP to indicate that analog pre-
+P27L34	   emphasis was applied to the signal before quantization or to indicate
+P27L35	   that a multiple-channel audio stream follows a different channel
+P27L36	   ordering convention than is specified in Section 4.1.
+P27L37	
+P27L38	4.5.12 LPC
+P27L39	
+P27L40	   LPC designates an experimental linear predictive encoding contributed
+P27L41	   by Ron Frederick, which is based on an implementation written by Ron
+P27L42	   Zuckerman posted to the Usenet group comp.dsp on June 26, 1992.  The
+P27L43	   codec generates 14 octets for every frame.  The framesize is set to
+P27L44	   20 ms, resulting in a bit rate of 5,600 b/s.
+P27L45	
+P27L46	
+P27L47	
+P27L48	
+P28L1	4.5.13 MPA
+P28L2	
+P28L3	   MPA denotes MPEG-1 or MPEG-2 audio encapsulated as elementary
+P28L4	   streams.  The encoding is defined in ISO standards ISO/IEC 11172-3
+P28L5	   and 13818-3.  The encapsulation is specified in RFC 2250 [14].
+P28L6	
+P28L7	   The encoding may be at any of three levels of complexity, called
+P28L8	   Layer I, II and III.  The selected layer as well as the sampling rate
+P28L9	   and channel count are indicated in the payload.  The RTP timestamp
+P28L10	   clock rate is always 90,000, independent of the sampling rate.
+P28L11	   MPEG-1 audio supports sampling rates of 32, 44.1, and 48 kHz (ISO/IEC
+P28L12	   11172-3, section 1.1; "Scope").  MPEG-2 supports sampling rates of
+P28L13	   16, 22.05 and 24 kHz.  The number of samples per frame is fixed, but
+P28L14	   the frame size will vary with the sampling rate and bit rate.
+P28L15	
+P28L16	   The MIME registration for MPA in RFC 3555 [7] specifies parameters
+P28L17	   that MAY be used with MIME or SDP to restrict the selection of layer,
+P28L18	   channel count, sampling rate, and bit rate.
+P28L19	
+P28L20	4.5.14 PCMA and PCMU
+P28L21	
+P28L22	   PCMA and PCMU are specified in ITU-T Recommendation G.711.  Audio
+P28L23	   data is encoded as eight bits per sample, after logarithmic scaling.
+P28L24	   PCMU denotes mu-law scaling, PCMA A-law scaling.  A detailed
+P28L25	   description is given by Jayant and Noll [15].  Each G.711 octet SHALL
+P28L26	   be octet-aligned in an RTP packet.  The sign bit of each G.711 octet
+P28L27	   SHALL correspond to the most significant bit of the octet in the RTP
+P28L28	   packet (i.e., assuming the G.711 samples are handled as octets on the
+P28L29	   host machine, the sign bit SHALL be the most significant bit of the
+P28L30	   octet as defined by the host machine format).  The 56 kb/s and 48
+P28L31	   kb/s modes of G.711 are not applicable to RTP, since PCMA and PCMU
+P28L32	   MUST always be transmitted as 8-bit samples.
+P28L33	
+P28L34	   See Section 4.1 regarding silence suppression.
+P28L35	
+P28L36	4.5.15 QCELP
+P28L37	
+P28L38	   The Electronic Industries Association (EIA) & Telecommunications
+P28L39	   Industry Association (TIA) standard IS-733, "TR45: High Rate Speech
+P28L40	   Service Option for Wideband Spread Spectrum Communications Systems",
+P28L41	   defines the QCELP audio compression algorithm for use in wireless
+P28L42	   CDMA applications.  The QCELP CODEC compresses each 20 milliseconds
+P28L43	   of 8,000 Hz, 16-bit sampled input speech into one of four different
+P28L44	   size output frames:  Rate 1 (266 bits), Rate 1/2 (124 bits), Rate 1/4
+P28L45	   (54 bits) or Rate 1/8 (20 bits).  For typical speech patterns, this
+P28L46	   results in an average output of 6.8 kb/s for normal mode and 4.7 kb/s
+P28L47	   for reduced rate mode.  The packetization of the QCELP audio codec is
+P28L48	   described in [16].
+P29L1	4.5.16 RED
+P29L2	
+P29L3	   The redundant audio payload format "RED" is specified by RFC 2198
+P29L4	   [17].  It defines a means by which multiple redundant copies of an
+P29L5	   audio packet may be transmitted in a single RTP stream.  Each packet
+P29L6	   in such a stream contains, in addition to the audio data for that
+P29L7	   packetization interval, a (more heavily compressed) copy of the data
+P29L8	   from a previous packetization interval.  This allows an approximation
+P29L9	   of the data from lost packets to be recovered upon decoding of a
+P29L10	   subsequent packet, giving much improved sound quality when compared
+P29L11	   with silence substitution for lost packets.
+P29L12	
+P29L13	4.5.17 VDVI
+P29L14	
+P29L15	   VDVI is a variable-rate version of DVI4, yielding speech bit rates of
+P29L16	   between 10 and 25 kb/s.  It is specified for single-channel operation
+P29L17	   only.  Samples are packed into octets starting at the most-
+P29L18	   significant bit.  The last octet is padded with 1 bits if the last
+P29L19	   sample does not fill the last octet.  This padding is distinct from
+P29L20	   the valid codewords.  The receiver needs to detect the padding
+P29L21	   because there is no explicit count of samples in the packet.
+P29L22	
+P29L23	   It uses the following encoding:
+P29L24	
+P29L25	            DVI4 codeword  VDVI bit pattern
+P29L26	            _______________________________
+P29L27	                        0  00
+P29L28	                        1  010
+P29L29	                        2  1100
+P29L30	                        3  11100
+P29L31	                        4  111100
+P29L32	                        5  1111100
+P29L33	                        6  11111100
+P29L34	                        7  11111110
+P29L35	                        8  10
+P29L36	                        9  011
+P29L37	                       10  1101
+P29L38	                       11  11101
+P29L39	                       12  111101
+P29L40	                       13  1111101
+P29L41	                       14  11111101
+P29L42	                       15  11111111
+P29L43	
+P29L44	
+P29L45	
+P29L46	
+P29L47	
+P29L48	
+P30L1	5.  Video
+P30L2	
+P30L3	   The following sections describe the video encodings that are defined
+P30L4	   in this memo and give their abbreviated names used for
+P30L5	   identification.  These video encodings and their payload types are
+P30L6	   listed in Table 5.
+P30L7	
+P30L8	   All of these video encodings use an RTP timestamp frequency of 90,000
+P30L9	   Hz, the same as the MPEG presentation time stamp frequency.  This
+P30L10	   frequency yields exact integer timestamp increments for the typical
+P30L11	   24 (HDTV), 25 (PAL), and 29.97 (NTSC) and 30 Hz (HDTV) frame rates
+P30L12	   and 50, 59.94 and 60 Hz field rates.  While 90 kHz is the RECOMMENDED
+P30L13	   rate for future video encodings used within this profile, other rates
+P30L14	   MAY be used.  However, it is not sufficient to use the video frame
+P30L15	   rate (typically between 15 and 30 Hz) because that does not provide
+P30L16	   adequate resolution for typical synchronization requirements when
+P30L17	   calculating the RTP timestamp corresponding to the NTP timestamp in
+P30L18	   an RTCP SR packet.  The timestamp resolution MUST also be sufficient
+P30L19	   for the jitter estimate contained in the receiver reports.
+P30L20	
+P30L21	   For most of these video encodings, the RTP timestamp encodes the
+P30L22	   sampling instant of the video image contained in the RTP data packet.
+P30L23	   If a video image occupies more than one packet, the timestamp is the
+P30L24	   same on all of those packets.  Packets from different video images
+P30L25	   are distinguished by their different timestamps.
+P30L26	
+P30L27	   Most of these video encodings also specify that the marker bit of the
+P30L28	   RTP header SHOULD be set to one in the last packet of a video frame
+P30L29	   and otherwise set to zero.  Thus, it is not necessary to wait for a
+P30L30	   following packet with a different timestamp to detect that a new
+P30L31	   frame should be displayed.
+P30L32	
+P30L33	5.1  CelB
+P30L34	
+P30L35	   The CELL-B encoding is a proprietary encoding proposed by Sun
+P30L36	   Microsystems.  The byte stream format is described in RFC 2029 [18].
+P30L37	
+P30L38	5.2 JPEG
+P30L39	
+P30L40	   The encoding is specified in ISO Standards 10918-1 and 10918-2.  The
+P30L41	   RTP payload format is as specified in RFC 2435 [19].
+P30L42	
+P30L43	5.3 H261
+P30L44	
+P30L45	   The encoding is specified in ITU-T Recommendation H.261, "Video codec
+P30L46	   for audiovisual services at p x 64 kbit/s".  The packetization and
+P30L47	   RTP-specific properties are described in RFC 2032 [20].
+P30L48	
+P31L1	5.4 H263
+P31L2	
+P31L3	   The encoding is specified in the 1996 version of ITU-T Recommendation
+P31L4	   H.263, "Video coding for low bit rate communication".  The
+P31L5	   packetization and RTP-specific properties are described in RFC 2190
+P31L6	   [21].  The H263-1998 payload format is RECOMMENDED over this one for
+P31L7	   use by new implementations.
+P31L8	
+P31L9	5.5 H263-1998
+P31L10	
+P31L11	   The encoding is specified in the 1998 version of ITU-T Recommendation
+P31L12	   H.263, "Video coding for low bit rate communication".  The
+P31L13	   packetization and RTP-specific properties are described in RFC 2429
+P31L14	   [22].  Because the 1998 version of H.263 is a superset of the 1996
+P31L15	   syntax, this payload format can also be used with the 1996 version of
+P31L16	   H.263, and is RECOMMENDED for this use by new implementations.  This
+P31L17	   payload format does not replace RFC 2190, which continues to be used
+P31L18	   by existing implementations, and may be required for backward
+P31L19	   compatibility in new implementations.  Implementations using the new
+P31L20	   features of the 1998 version of H.263 MUST use the payload format
+P31L21	   described in RFC 2429.
+P31L22	
+P31L23	5.6 MPV
+P31L24	
+P31L25	   MPV designates the use of MPEG-1 and MPEG-2 video encoding elementary
+P31L26	   streams as specified in ISO Standards ISO/IEC 11172 and 13818-2,
+P31L27	   respectively.  The RTP payload format is as specified in RFC 2250
+P31L28	   [14], Section 3.
+P31L29	
+P31L30	   The MIME registration for MPV in RFC 3555 [7] specifies a parameter
+P31L31	   that MAY be used with MIME or SDP to restrict the selection of the
+P31L32	   type of MPEG video.
+P31L33	
+P31L34	5.7 MP2T
+P31L35	
+P31L36	   MP2T designates the use of MPEG-2 transport streams, for either audio
+P31L37	   or video.  The RTP payload format is described in RFC 2250 [14],
+P31L38	   Section 2.
+P31L39	
+P31L40	
+P31L41	
+P31L42	
+P31L43	
+P31L44	
+P31L45	
+P31L46	
+P31L47	
+P31L48	
+P32L1	5.8 nv
+P32L2	
+P32L3	   The encoding is implemented in the program `nv', version 4, developed
+P32L4	   at Xerox PARC by Ron Frederick.  Further information is available
+P32L5	   from the author:
+P32L6	
+P32L7	   Ron Frederick
+P32L8	   Blue Coat Systems Inc.
+P32L9	   650 Almanor Avenue
+P32L10	   Sunnyvale, CA 94085
+P32L11	   United States
+P32L12	   EMail: ronf@bluecoat.com
+P32L13	
+P32L14	6.  Payload Type Definitions
+P32L15	
+P32L16	   Tables 4 and 5 define this profile's static payload type values for
+P32L17	   the PT field of the RTP data header.  In addition, payload type
+P32L18	   values in the range 96-127 MAY be defined dynamically through a
+P32L19	   conference control protocol, which is beyond the scope of this
+P32L20	   document.  For example, a session directory could specify that for a
+P32L21	   given session, payload type 96 indicates PCMU encoding, 8,000 Hz
+P32L22	   sampling rate, 2 channels.  Entries in Tables 4 and 5 with payload
+P32L23	   type "dyn" have no static payload type assigned and are only used
+P32L24	   with a dynamic payload type.  Payload type 2 was assigned to G721 in
+P32L25	   RFC 1890 and to its equivalent successor G726-32 in draft versions of
+P32L26	   this specification, but its use is now deprecated and that static
+P32L27	   payload type is marked reserved due to conflicting use for the
+P32L28	   payload formats G726-32 and AAL2-G726-32 (see Section 4.5.4).
+P32L29	   Payload type 13 indicates the Comfort Noise (CN) payload format
+P32L30	   specified in RFC 3389 [9].  Payload type 19 is marked "reserved"
+P32L31	   because some draft versions of this specification assigned that
+P32L32	   number to an earlier version of the comfort noise payload format.
+P32L33	   The payload type range 72-76 is marked "reserved" so that RTCP and
+P32L34	   RTP packets can be reliably distinguished (see Section "Summary of
+P32L35	   Protocol Constants" of the RTP protocol specification).
+P32L36	
+P32L37	   The payload types currently defined in this profile are assigned to
+P32L38	   exactly one of three categories or media types:  audio only, video
+P32L39	   only and those combining audio and video.  The media types are marked
+P32L40	   in Tables 4 and 5 as "A", "V" and "AV", respectively.  Payload types
+P32L41	   of different media types SHALL NOT be interleaved or multiplexed
+P32L42	   within a single RTP session, but multiple RTP sessions MAY be used in
+P32L43	   parallel to send multiple media types.  An RTP source MAY change
+P32L44	   payload types within the same media type during a session.  See the
+P32L45	   section "Multiplexing RTP Sessions" of RFC 3550 for additional
+P32L46	   explanation.
+P32L47	
+P32L48	
+P33L1	               PT   encoding    media type  clock rate   channels
+P33L2	                    name                    (Hz)
+P33L3	               ___________________________________________________
+P33L4	               0    PCMU        A            8,000       1
+P33L5	               1    reserved    A
+P33L6	               2    reserved    A
+P33L7	               3    GSM         A            8,000       1
+P33L8	               4    G723        A            8,000       1
+P33L9	               5    DVI4        A            8,000       1
+P33L10	               6    DVI4        A           16,000       1
+P33L11	               7    LPC         A            8,000       1
+P33L12	               8    PCMA        A            8,000       1
+P33L13	               9    G722        A            8,000       1
+P33L14	               10   L16         A           44,100       2
+P33L15	               11   L16         A           44,100       1
+P33L16	               12   QCELP       A            8,000       1
+P33L17	               13   CN          A            8,000       1
+P33L18	               14   MPA         A           90,000       (see text)
+P33L19	               15   G728        A            8,000       1
+P33L20	               16   DVI4        A           11,025       1
+P33L21	               17   DVI4        A           22,050       1
+P33L22	               18   G729        A            8,000       1
+P33L23	               19   reserved    A
+P33L24	               20   unassigned  A
+P33L25	               21   unassigned  A
+P33L26	               22   unassigned  A
+P33L27	               23   unassigned  A
+P33L28	               dyn  G726-40     A            8,000       1
+P33L29	               dyn  G726-32     A            8,000       1
+P33L30	               dyn  G726-24     A            8,000       1
+P33L31	               dyn  G726-16     A            8,000       1
+P33L32	               dyn  G729D       A            8,000       1
+P33L33	               dyn  G729E       A            8,000       1
+P33L34	               dyn  GSM-EFR     A            8,000       1
+P33L35	               dyn  L8          A            var.        var.
+P33L36	               dyn  RED         A                        (see text)
+P33L37	               dyn  VDVI        A            var.        1
+P33L38	
+P33L39	               Table 4: Payload types (PT) for audio encodings
+P33L40	
+P33L41	
+P33L42	
+P33L43	
+P33L44	
+P33L45	
+P33L46	
+P33L47	
+P33L48	
+P34L1	               PT      encoding    media type  clock rate
+P34L2	                       name                    (Hz)
+P34L3	               _____________________________________________
+P34L4	               24      unassigned  V
+P34L5	               25      CelB        V           90,000
+P34L6	               26      JPEG        V           90,000
+P34L7	               27      unassigned  V
+P34L8	               28      nv          V           90,000
+P34L9	               29      unassigned  V
+P34L10	               30      unassigned  V
+P34L11	               31      H261        V           90,000
+P34L12	               32      MPV         V           90,000
+P34L13	               33      MP2T        AV          90,000
+P34L14	               34      H263        V           90,000
+P34L15	               35-71   unassigned  ?
+P34L16	               72-76   reserved    N/A         N/A
+P34L17	               77-95   unassigned  ?
+P34L18	               96-127  dynamic     ?
+P34L19	               dyn     H263-1998   V           90,000
+P34L20	
+P34L21	               Table 5: Payload types (PT) for video and combined
+P34L22	                        encodings
+P34L23	
+P34L24	   Session participants agree through mechanisms beyond the scope of
+P34L25	   this specification on the set of payload types allowed in a given
+P34L26	   session.  This set MAY, for example, be defined by the capabilities
+P34L27	   of the applications used, negotiated by a conference control protocol
+P34L28	   or established by agreement between the human participants.
+P34L29	
+P34L30	   Audio applications operating under this profile SHOULD, at a minimum,
+P34L31	   be able to send and/or receive payload types 0 (PCMU) and 5 (DVI4).
+P34L32	   This allows interoperability without format negotiation and ensures
+P34L33	   successful negotiation with a conference control protocol.
+P34L34	
+P34L35	7.  RTP over TCP and Similar Byte Stream Protocols
+P34L36	
+P34L37	   Under special circumstances, it may be necessary to carry RTP in
+P34L38	   protocols offering a byte stream abstraction, such as TCP, possibly
+P34L39	   multiplexed with other data.  The application MUST define its own
+P34L40	   method of delineating RTP and RTCP packets (RTSP [23] provides an
+P34L41	   example of such an encapsulation specification).
+P34L42	
+P34L43	8.  Port Assignment
+P34L44	
+P34L45	   As specified in the RTP protocol definition, RTP data SHOULD be
+P34L46	   carried on an even UDP port number and the corresponding RTCP packets
+P34L47	   SHOULD be carried on the next higher (odd) port number.
+P34L48	
+P35L1	   Applications operating under this profile MAY use any such UDP port
+P35L2	   pair.  For example, the port pair MAY be allocated randomly by a
+P35L3	   session management program.  A single fixed port number pair cannot
+P35L4	   be required because multiple applications using this profile are
+P35L5	   likely to run on the same host, and there are some operating systems
+P35L6	   that do not allow multiple processes to use the same UDP port with
+P35L7	   different multicast addresses.
+P35L8	
+P35L9	   However, port numbers 5004 and 5005 have been registered for use with
+P35L10	   this profile for those applications that choose to use them as the
+P35L11	   default pair.  Applications that operate under multiple profiles MAY
+P35L12	   use this port pair as an indication to select this profile if they
+P35L13	   are not subject to the constraint of the previous paragraph.
+P35L14	   Applications need not have a default and MAY require that the port
+P35L15	   pair be explicitly specified.  The particular port numbers were
+P35L16	   chosen to lie in the range above 5000 to accommodate port number
+P35L17	   allocation practice within some versions of the Unix operating
+P35L18	   system, where port numbers below 1024 can only be used by privileged
+P35L19	   processes and port numbers between 1024 and 5000 are automatically
+P35L20	   assigned by the operating system.
+P35L21	
+P35L22	9.  Changes from RFC 1890
+P35L23	
+P35L24	   This RFC revises RFC 1890.  It is mostly backwards-compatible with
+P35L25	   RFC 1890 except for functions removed because two interoperable
+P35L26	   implementations were not found.  The additions to RFC 1890 codify
+P35L27	   existing practice in the use of payload formats under this profile.
+P35L28	   Since this profile may be used without using any of the payload
+P35L29	   formats listed here, the addition of new payload formats in this
+P35L30	   revision does not affect backwards compatibility.  The changes are
+P35L31	   listed below, categorized into functional and non-functional changes.
+P35L32	
+P35L33	   Functional changes:
+P35L34	
+P35L35	   o  Section 11, "IANA Considerations" was added to specify the
+P35L36	      registration of the name for this profile.  That appendix also
+P35L37	      references a new Section 3 "Registering Additional Encodings"
+P35L38	      which establishes a policy that no additional registration of
+P35L39	      static payload types for this profile will be made beyond those
+P35L40	      added in this revision and included in Tables 4 and 5.  Instead,
+P35L41	      additional encoding names may be registered as MIME subtypes for
+P35L42	      binding to dynamic payload types.  Non-normative references were
+P35L43	      added to RFC 3555 [7] where MIME subtypes for all the listed
+P35L44	      payload formats are registered, some with optional parameters for
+P35L45	      use of the payload formats.
+P35L46	
+P35L47	
+P35L48	
+P36L1	   o  Static payload types 4, 16, 17 and 34 were added to incorporate
+P36L2	      IANA registrations made since the publication of RFC 1890, along
+P36L3	      with the corresponding payload format descriptions for G723 and
+P36L4	      H263.
+P36L5	
+P36L6	   o  Following working group discussion, static payload types 12 and 18
+P36L7	      were added along with the corresponding payload format
+P36L8	      descriptions for QCELP and G729.  Static payload type 13 was
+P36L9	      assigned to the Comfort Noise (CN) payload format defined in RFC
+P36L10	      3389.  Payload type 19 was marked reserved because it had been
+P36L11	      temporarily allocated to an earlier version of Comfort Noise
+P36L12	      present in some draft revisions of this document.
+P36L13	
+P36L14	   o  The payload format for G721 was renamed to G726-32 following the
+P36L15	      ITU-T renumbering, and the payload format description for G726 was
+P36L16	      expanded to include the -16, -24 and -40 data rates.  Because of
+P36L17	      confusion regarding draft revisions of this document, some
+P36L18	      implementations of these G726 payload formats packed samples into
+P36L19	      octets starting with the most significant bit rather than the
+P36L20	      least significant bit as specified here.  To partially resolve
+P36L21	      this incompatibility, new payload formats named AAL2-G726-16, -24,
+P36L22	      -32 and -40 will be specified in a separate document (see note in
+P36L23	      Section 4.5.4), and use of static payload type 2 is deprecated as
+P36L24	      explained in Section 6.
+P36L25	
+P36L26	   o  Payload formats G729D and G729E were added following the ITU-T
+P36L27	      addition of Annexes D and E to Recommendation G.729.  Listings
+P36L28	      were added for payload formats GSM-EFR, RED, and H263-1998
+P36L29	      published in other documents subsequent to RFC 1890.  These
+P36L30	      additional payload formats are referenced only by dynamic payload
+P36L31	      type numbers.
+P36L32	
+P36L33	   o  The descriptions of the payload formats for G722, G728, GSM, VDVI
+P36L34	      were expanded.
+P36L35	
+P36L36	   o  The payload format for 1016 audio was removed and its static
+P36L37	      payload type assignment 1 was marked "reserved" because two
+P36L38	      interoperable implementations were not found.
+P36L39	
+P36L40	   o  Requirements for congestion control were added in Section 2.
+P36L41	
+P36L42	   o  This profile follows the suggestion in the revised RTP spec that
+P36L43	      RTCP bandwidth may be specified separately from the session
+P36L44	      bandwidth and separately for active senders and passive receivers.
+P36L45	
+P36L46	   o  The mapping of a user pass-phrase string into an encryption key
+P36L47	      was deleted from Section 2 because two interoperable
+P36L48	      implementations were not found.
+P37L1	   o  The "quadrophonic" sample ordering convention for four-channel
+P37L2	      audio was removed to eliminate an ambiguity as noted in Section
+P37L3	      4.1.
+P37L4	
+P37L5	   Non-functional changes:
+P37L6	
+P37L7	   o  In Section 4.1, it is now explicitly stated that silence
+P37L8	      suppression is allowed for all audio payload formats.  (This has
+P37L9	      always been the case and derives from a fundamental aspect of
+P37L10	      RTP's design and the motivations for packet audio, but was not
+P37L11	      explicit stated before.)  The use of comfort noise is also
+P37L12	      explained.
+P37L13	
+P37L14	   o  In Section 4.1, the requirement level for setting of the marker
+P37L15	      bit on the first packet after silence for audio was changed from
+P37L16	      "is" to "SHOULD be", and clarified that the marker bit is set only
+P37L17	      when packets are intentionally not sent.
+P37L18	
+P37L19	   o  Similarly, text was added to specify that the marker bit SHOULD be
+P37L20	      set to one on the last packet of a video frame, and that video
+P37L21	      frames are distinguished by their timestamps.
+P37L22	
+P37L23	   o  RFC references are added for payload formats published after RFC
+P37L24	      1890.
+P37L25	
+P37L26	   o  The security considerations and full copyright sections were
+P37L27	      added.
+P37L28	
+P37L29	   o  According to Peter Hoddie of Apple, only pre-1994 Macintosh used
+P37L30	      the 22254.54 rate and none the 11127.27 rate, so the latter was
+P37L31	      dropped from the discussion of suggested sampling frequencies.
+P37L32	
+P37L33	   o  Table 1 was corrected to move some values from the "ms/packet"
+P37L34	      column to the "default ms/packet" column where they belonged.
+P37L35	
+P37L36	   o  Since the Interactive Multimedia Association ceased operations, an
+P37L37	      alternate resource was provided for a referenced IMA document.
+P37L38	
+P37L39	   o  A note has been added for G722 to clarify a discrepancy between
+P37L40	      the actual sampling rate and the RTP timestamp clock rate.
+P37L41	
+P37L42	   o  Small clarifications of the text have been made in several places,
+P37L43	      some in response to questions from readers.  In particular:
+P37L44	
+P37L45	      -  A definition for "media type" is given in Section 1.1 to allow
+P37L46	         the explanation of multiplexing RTP sessions in Section 6 to be
+P37L47	         more clear regarding the multiplexing of multiple media.
+P37L48	
+P38L1	      -  The explanation of how to determine the number of audio frames
+P38L2	         in a packet from the length was expanded.
+P38L3	
+P38L4	      -  More description of the allocation of bandwidth to SDES items
+P38L5	         is given.
+P38L6	
+P38L7	      -  A note was added that the convention for the order of channels
+P38L8	         specified in Section 4.1 may be overridden by a particular
+P38L9	         encoding or payload format specification.
+P38L10	
+P38L11	      -  The terms MUST, SHOULD, MAY, etc. are used as defined in RFC
+P38L12	         2119.
+P38L13	
+P38L14	   o  A second author for this document was added.
+P38L15	
+P38L16	10. Security Considerations
+P38L17	
+P38L18	   Implementations using the profile defined in this specification are
+P38L19	   subject to the security considerations discussed in the RTP
+P38L20	   specification [1].  This profile does not specify any different
+P38L21	   security services.  The primary function of this profile is to list a
+P38L22	   set of data compression encodings for audio and video media.
+P38L23	
+P38L24	   Confidentiality of the media streams is achieved by encryption.
+P38L25	   Because the data compression used with the payload formats described
+P38L26	   in this profile is applied end-to-end, encryption may be performed
+P38L27	   after compression so there is no conflict between the two operations.
+P38L28	
+P38L29	   A potential denial-of-service threat exists for data encodings using
+P38L30	   compression techniques that have non-uniform receiver-end
+P38L31	   computational load.  The attacker can inject pathological datagrams
+P38L32	   into the stream which are complex to decode and cause the receiver to
+P38L33	   be overloaded.
+P38L34	
+P38L35	   As with any IP-based protocol, in some circumstances a receiver may
+P38L36	   be overloaded simply by the receipt of too many packets, either
+P38L37	   desired or undesired.  Network-layer authentication MAY be used to
+P38L38	   discard packets from undesired sources, but the processing cost of
+P38L39	   the authentication itself may be too high.  In a multicast
+P38L40	   environment, source pruning is implemented in IGMPv3 (RFC 3376) [24]
+P38L41	   and in multicast routing protocols to allow a receiver to select
+P38L42	   which sources are allowed to reach it.
+P38L43	
+P38L44	
+P38L45	
+P38L46	
+P38L47	
+P38L48	
+P39L1	11. IANA Considerations
+P39L2	
+P39L3	   The RTP specification establishes a registry of profile names for use
+P39L4	   by higher-level control protocols, such as the Session Description
+P39L5	   Protocol (SDP), RFC 2327 [6], to refer to transport methods.  This
+P39L6	   profile registers the name "RTP/AVP".
+P39L7	
+P39L8	   Section 3 establishes the policy that no additional registration of
+P39L9	   static RTP payload types for this profile will be made beyond those
+P39L10	   added in this document revision and included in Tables 4 and 5.  IANA
+P39L11	   may reference that section in declining to accept any additional
+P39L12	   registration requests.  In Tables 4 and 5, note that types 1 and 2
+P39L13	   have been marked reserved and the set of "dyn" payload types included
+P39L14	   has been updated.  These changes are explained in Sections 6 and 9.
+P39L15	
+P39L16	12.  References
+P39L17	
+P39L18	12.1 Normative References
+P39L19	
+P39L20	   [1]  Schulzrinne, H., Casner, S., Frederick, R. and V. Jacobson,
+P39L21	        "RTP:  A Transport Protocol for Real-Time Applications", RFC
+P39L22	        3550, July 2003.
+P39L23	
+P39L24	   [2]  Bradner, S., "Key Words for Use in RFCs to Indicate Requirement
+P39L25	        Levels", BCP 14, RFC 2119, March 1997.
+P39L26	
+P39L27	   [3]  Apple Computer, "Audio Interchange File Format AIFF-C", August
+P39L28	        1991.  (also ftp://ftp.sgi.com/sgi/aiff-c.9.26.91.ps.Z).
+P39L29	
+P39L30	12.2 Informative References
+P39L31	
+P39L32	   [4]  Braden, R., Clark, D. and S. Shenker, "Integrated Services in
+P39L33	        the Internet Architecture: an Overview", RFC 1633, June 1994.
+P39L34	
+P39L35	   [5]  Blake, S., Black, D., Carlson, M., Davies, E., Wang, Z. and W.
+P39L36	        Weiss, "An Architecture for Differentiated Service", RFC 2475,
+P39L37	        December 1998.
+P39L38	
+P39L39	   [6]  Handley, M. and V. Jacobson, "SDP: Session Description
+P39L40	        Protocol", RFC 2327, April 1998.
+P39L41	
+P39L42	   [7]  Casner, S. and P. Hoschka, "MIME Type Registration of RTP
+P39L43	        Payload Types", RFC 3555, July 2003.
+P39L44	
+P39L45	   [8]  Freed, N., Klensin, J. and J. Postel, "Multipurpose Internet
+P39L46	        Mail Extensions (MIME) Part Four: Registration Procedures", BCP
+P39L47	        13, RFC 2048, November 1996.
+P39L48	
+P40L1	   [9]  Zopf, R., "Real-time Transport Protocol (RTP) Payload for
+P40L2	        Comfort Noise (CN)", RFC 3389, September 2002.
+P40L3	
+P40L4	   [10] Deleam, D. and J.-P. Petit, "Real-time implementations of the
+P40L5	        recent ITU-T low bit rate speech coders on the TI TMS320C54X
+P40L6	        DSP: results, methodology, and applications", in Proc. of
+P40L7	        International Conference on Signal Processing, Technology, and
+P40L8	        Applications (ICSPAT) , (Boston, Massachusetts), pp. 1656--1660,
+P40L9	        October 1996.
+P40L10	
+P40L11	   [11] Mouly, M. and M.-B. Pautet, The GSM system for mobile
+P40L12	        communications Lassay-les-Chateaux, France: Europe Media
+P40L13	        Duplication, 1993.
+P40L14	
+P40L15	   [12] Degener, J., "Digital Speech Compression", Dr. Dobb's Journal,
+P40L16	        December 1994.
+P40L17	
+P40L18	   [13] Redl, S., Weber, M. and M. Oliphant, An Introduction to GSM
+P40L19	        Boston: Artech House, 1995.
+P40L20	
+P40L21	   [14] Hoffman, D., Fernando, G., Goyal, V. and M. Civanlar, "RTP
+P40L22	        Payload Format for MPEG1/MPEG2 Video", RFC 2250, January 1998.
+P40L23	
+P40L24	   [15] Jayant, N. and P. Noll, Digital Coding of Waveforms--Principles
+P40L25	        and Applications to Speech and Video Englewood Cliffs, New
+P40L26	        Jersey: Prentice-Hall, 1984.
+P40L27	
+P40L28	   [16] McKay, K., "RTP Payload Format for PureVoice(tm) Audio", RFC
+P40L29	        2658, August 1999.
+P40L30	
+P40L31	   [17] Perkins, C., Kouvelas, I., Hodson, O., Hardman, V., Handley, M.,
+P40L32	        Bolot, J.-C., Vega-Garcia, A. and S. Fosse-Parisis, "RTP Payload
+P40L33	        for Redundant Audio Data", RFC 2198, September 1997.
+P40L34	
+P40L35	   [18] Speer, M. and D. Hoffman, "RTP Payload Format of Sun's CellB
+P40L36	        Video Encoding", RFC 2029, October 1996.
+P40L37	
+P40L38	   [19] Berc, L., Fenner, W., Frederick, R., McCanne, S. and P. Stewart,
+P40L39	        "RTP Payload Format for JPEG-Compressed Video", RFC 2435,
+P40L40	        October 1998.
+P40L41	
+P40L42	   [20] Turletti, T. and C. Huitema, "RTP Payload Format for H.261 Video
+P40L43	        Streams", RFC 2032, October 1996.
+P40L44	
+P40L45	   [21] Zhu, C., "RTP Payload Format for H.263 Video Streams", RFC 2190,
+P40L46	        September 1997.
+P40L47	
+P40L48	
+P41L1	   [22] Bormann, C., Cline, L., Deisher, G., Gardos, T., Maciocco, C.,
+P41L2	        Newell, D., Ott, J., Sullivan, G., Wenger, S. and C. Zhu, "RTP
+P41L3	        Payload Format for the 1998 Version of ITU-T Rec. H.263 Video
+P41L4	        (H.263+)", RFC 2429, October 1998.
+P41L5	
+P41L6	   [23] Schulzrinne, H., Rao, A. and R. Lanphier, "Real Time Streaming
+P41L7	        Protocol (RTSP)", RFC 2326, April 1998.
+P41L8	
+P41L9	   [24] Cain, B., Deering, S., Kouvelas, I., Fenner, B. and A.
+P41L10	        Thyagarajan, "Internet Group Management Protocol, Version 3",
+P41L11	        RFC 3376, October 2002.
+P41L12	
+P41L13	13. Current Locations of Related Resources
+P41L14	
+P41L15	   Note:  Several sections below refer to the ITU-T Software Tool
+P41L16	   Library (STL).  It is available from the ITU Sales Service, Place des
+P41L17	   Nations, CH-1211 Geneve 20, Switzerland (also check
+P41L18	   http://www.itu.int).  The ITU-T STL is covered by a license defined
+P41L19	   in ITU-T Recommendation G.191, "Software tools for speech and audio
+P41L20	   coding standardization".
+P41L21	
+P41L22	   DVI4
+P41L23	
+P41L24	   An archived copy of the document IMA Recommended Practices for
+P41L25	   Enhancing Digital Audio Compatibility in Multimedia Systems (version
+P41L26	   3.0), which describes the IMA ADPCM algorithm, is available at:
+P41L27	
+P41L28	      http://www.cs.columbia.edu/~hgs/audio/dvi/
+P41L29	
+P41L30	   An implementation is available from Jack Jansen at
+P41L31	
+P41L32	      ftp://ftp.cwi.nl/local/pub/audio/adpcm.shar
+P41L33	
+P41L34	   G722
+P41L35	
+P41L36	   An implementation of the G.722 algorithm is available as part of the
+P41L37	   ITU-T STL, described above.
+P41L38	
+P41L39	   G723
+P41L40	
+P41L41	   The reference C code implementation defining the G.723.1 algorithm
+P41L42	   and its Annexes A, B, and C are available as an integral part of
+P41L43	   Recommendation G.723.1 from the ITU Sales Service, address listed
+P41L44	   above.  Both the algorithm and C code are covered by a specific
+P41L45	   license.  The ITU-T Secretariat should be contacted to obtain such
+P41L46	   licensing information.
+P41L47	
+P41L48	
+P42L1	   G726
+P42L2	
+P42L3	   G726 is specified in the ITU-T Recommendation G.726, "40, 32, 24, and
+P42L4	   16 kb/s Adaptive Differential Pulse Code Modulation (ADPCM)".  An
+P42L5	   implementation of the G.726 algorithm is available as part of the
+P42L6	   ITU-T STL, described above.
+P42L7	
+P42L8	   G729
+P42L9	
+P42L10	   The reference C code implementation defining the G.729 algorithm and
+P42L11	   its Annexes A through I are available as an integral part of
+P42L12	   Recommendation G.729 from the ITU Sales Service, listed above.  Annex
+P42L13	   I contains the integrated C source code for all G.729 operating
+P42L14	   modes.  The G.729 algorithm and associated C code are covered by a
+P42L15	   specific license.  The contact information for obtaining the license
+P42L16	   is available from the ITU-T Secretariat.
+P42L17	
+P42L18	   GSM
+P42L19	
+P42L20	   A reference implementation was written by Carsten Bormann and Jutta
+P42L21	   Degener (then at TU Berlin, Germany).  It is available at
+P42L22	
+P42L23	      http://www.dmn.tzi.org/software/gsm/
+P42L24	
+P42L25	   Although the RPE-LTP algorithm is not an ITU-T standard, there is a C
+P42L26	   code implementation of the RPE-LTP algorithm available as part of the
+P42L27	   ITU-T STL.  The STL implementation is an adaptation of the TU Berlin
+P42L28	   version.
+P42L29	
+P42L30	   LPC
+P42L31	
+P42L32	   An implementation is available at
+P42L33	
+P42L34	      ftp://parcftp.xerox.com/pub/net-research/lpc.tar.Z
+P42L35	
+P42L36	   PCMU, PCMA
+P42L37	
+P42L38	   An implementation of these algorithms is available as part of the
+P42L39	   ITU-T STL, described above.
+P42L40	
+P42L41	14. Acknowledgments
+P42L42	
+P42L43	   The comments and careful review of Simao Campos, Richard Cox and AVT
+P42L44	   Working Group participants are gratefully acknowledged.  The GSM
+P42L45	   description was adopted from the IMTC Voice over IP Forum Service
+P42L46	   Interoperability Implementation Agreement (January 1997).  Fred Burg
+P42L47	   and Terry Lyons helped with the G.729 description.
+P42L48	
+P43L1	15. Intellectual Property Rights Statement
+P43L2	
+P43L3	   The IETF takes no position regarding the validity or scope of any
+P43L4	   intellectual property or other rights that might be claimed to
+P43L5	   pertain to the implementation or use of the technology described in
+P43L6	   this document or the extent to which any license under such rights
+P43L7	   might or might not be available; neither does it represent that it
+P43L8	   has made any effort to identify any such rights.  Information on the
+P43L9	   IETF's procedures with respect to rights in standards-track and
+P43L10	   standards-related documentation can be found in BCP-11.  Copies of
+P43L11	   claims of rights made available for publication and any assurances of
+P43L12	   licenses to be made available, or the result of an attempt made to
+P43L13	   obtain a general license or permission for the use of such
+P43L14	   proprietary rights by implementors or users of this specification can
+P43L15	   be obtained from the IETF Secretariat.
+P43L16	
+P43L17	   The IETF invites any interested party to bring to its attention any
+P43L18	   copyrights, patents or patent applications, or other proprietary
+P43L19	   rights which may cover technology that may be required to practice
+P43L20	   this standard.  Please address the information to the IETF Executive
+P43L21	   Director.
+P43L22	
+P43L23	16. Authors' Addresses
+P43L24	
+P43L25	   Henning Schulzrinne
+P43L26	   Department of Computer Science
+P43L27	   Columbia University
+P43L28	   1214 Amsterdam Avenue
+P43L29	   New York, NY 10027
+P43L30	   United States
+P43L31	
+P43L32	   EMail: schulzrinne@cs.columbia.edu
+P43L33	
+P43L34	
+P43L35	   Stephen L. Casner
+P43L36	   Packet Design
+P43L37	   3400 Hillview Avenue, Building 3
+P43L38	   Palo Alto, CA 94304
+P43L39	   United States
+P43L40	
+P43L41	   EMail: casner@acm.org
+P43L42	
+P43L43	
+P43L44	
+P43L45	
+P43L46	
+P43L47	
+P43L48	
+P44L1	17. Full Copyright Statement
+P44L2	
+P44L3	   Copyright (C) The Internet Society (2003).  All Rights Reserved.
+P44L4	
+P44L5	   This document and translations of it may be copied and furnished to
+P44L6	   others, and derivative works that comment on or otherwise explain it
+P44L7	   or assist in its implementation may be prepared, copied, published
+P44L8	   and distributed, in whole or in part, without restriction of any
+P44L9	   kind, provided that the above copyright notice and this paragraph are
+P44L10	   included on all such copies and derivative works.  However, this
+P44L11	   document itself may not be modified in any way, such as by removing
+P44L12	   the copyright notice or references to the Internet Society or other
+P44L13	   Internet organizations, except as needed for the purpose of
+P44L14	   developing Internet standards in which case the procedures for
+P44L15	   copyrights defined in the Internet Standards process must be
+P44L16	   followed, or as required to translate it into languages other than
+P44L17	   English.
+P44L18	
+P44L19	   The limited permissions granted above are perpetual and will not be
+P44L20	   revoked by the Internet Society or its successors or assigns.
+P44L21	
+P44L22	   This document and the information contained herein is provided on an
+P44L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P44L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P44L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P44L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P44L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P44L28	
+P44L29	Acknowledgement
+P44L30	
+P44L31	   Funding for the RFC Editor function is currently provided by the
+P44L32	   Internet Society.
+P44L33	
+P44L34	
+P44L35	
+P44L36	
+P44L37	
+P44L38	
+P44L39	
+P44L40	
+P44L41	
+P44L42	
+P44L43	
+P44L44	
+P44L45	
+P44L46	
+P44L47	
+P44L48	

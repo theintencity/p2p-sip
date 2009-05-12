@@ -1,0 +1,385 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007-2008, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC3921 (XMPP IM and presence for client)</b></DIV><PRE>
+<span class="p_commentline"># This is still incomplete</span>
+
+<span class="p_word">import</span> time, sys, select, multitask, traceback
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>: sys.path.append(<span class="p_string">'../external'</span>); sys.path.append(<span class="p_string">'../std'</span>)
+<span class="p_word">from</span> simplexml <span class="p_word">import</span> XML, XMLList
+<span class="p_word">from</span> rfc3920 <span class="p_word">import</span> Connection, JID, Stanza, bind, authenticate
+
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Private utility definitions</span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+_debug = True
+<span class="p_word">def</span> Property(func): <span class="p_word">return</span> property(doc=func.__doc__, **func()) <span class="p_commentline"># This is used as decorator to define a property.</span>
+<span class="p_word">def</span> respond(*args): <span class="p_word">raise</span> StopIteration, tuple(args) <span class="p_word">if</span> len(args) != <span class="p_number">1</span> <span class="p_word">else</span> args <span class="p_commentline"># a generator function calls respond to return a response</span>
+F = <span class="p_word">lambda</span> x: x <span class="p_word">and</span> x[<span class="p_number">0</span>] <span class="p_word">or</span> <span class="p_word">None</span> <span class="p_commentline"># return first of a list or None if empty</span>
+
+<span class="p_word">def</span> child(tag): <span class="p_commentline"># define a python attribute as an XML child tag.</span>
+    <span class="p_word">def</span> func():
+        <span class="p_word">def</span> fget(self): <span class="p_word">return</span> F(self(tag))
+        <span class="p_word">def</span> fset(self, value):
+            <span class="p_word">if</span> value <span class="p_word">is</span> <span class="p_word">None</span>: fdel(self) <span class="p_commentline"># None is treated as delete</span>
+            <span class="p_word">else</span>:
+                elem = isinstance(value, XML) <span class="p_word">and</span> value <span class="p_word">or</span> XML(tag=tag, children=[unicode(value)])
+                self.children |= elem
+            <span class="p_word">return</span> elem
+        <span class="p_word">def</span> fdel(self): <span class="p_word">del</span> self.children[tag]
+        <span class="p_word">return</span> dict(fget=fget, fset=fset, fdel=fdel)
+    func = property(**func())
+    <span class="p_word">return</span> func
+        
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Data Structures        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">class</span> Message(Stanza):
+    <span class="p_triple">'''A single instant message is represented using Message object'''</span>
+    types = (<span class="p_string">'chat'</span>, <span class="p_string">'error'</span>, <span class="p_string">'groupchat'</span>, <span class="p_string">'headline'</span>, <span class="p_string">'normal'</span>, <span class="p_word">None</span>) 
+    subject, thread, body = child(<span class="p_string">'subject'</span>), child(<span class="p_string">'thread'</span>), child(<span class="p_string">'body'</span>)
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, **kwargs):
+        super(Message, self).__init__(value=value, **kwargs); self.tag = <span class="p_string">'message'</span>
+        self.direction, self.time = <span class="p_word">None</span>, time.time() <span class="p_commentline"># these are not XML attributes</span>
+        <span class="p_word">for</span> k,v <span class="p_word">in</span> kwargs.iteritems(): self.__setattr__(k, str(v)) <span class="p_commentline"># should include type, to, frm, subject, thread, body</span>
+        
+<span class="p_word">class</span> Presence(Stanza):
+    <span class="p_triple">'''A single presence request.'''</span>
+    types = (<span class="p_string">'unavailable'</span>, <span class="p_string">'subscribe'</span>, <span class="p_string">'subscribed'</span>, <span class="p_string">'unsubscribe'</span>, <span class="p_string">'unsubscribed'</span>, <span class="p_string">'probe'</span>, <span class="p_string">'error'</span>, <span class="p_word">None</span>)
+    shows = (<span class="p_string">'away'</span>, <span class="p_string">'chat'</span>, <span class="p_string">'dnd'</span>, <span class="p_string">'xa'</span>, <span class="p_word">None</span>)
+    show, status, priority = child(<span class="p_string">'show'</span>), child(<span class="p_string">'status'</span>), child(<span class="p_string">'priority'</span>)
+    <span class="p_word">def</span> __init__(self, **kwargs):
+        Stanza.__init__(self, tag=<span class="p_string">'presence'</span>)
+        <span class="p_word">for</span> k,v <span class="p_word">in</span> kwargs.iteritems(): 
+            <span class="p_word">if</span> v <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: self.__setattr__(k, str(v)) <span class="p_commentline"># should include type, to, frm, show, status, priority</span>
+
+<span class="p_word">class</span> Contact(XML):
+    <span class="p_triple">'''Maintain the contact information in XML'''</span>
+    subscriptions = (<span class="p_string">'none'</span>, <span class="p_string">'from'</span>, <span class="p_string">'to'</span>, <span class="p_string">'both'</span>)
+    asks = (<span class="p_string">'subscribe'</span>, <span class="p_string">'unsubscribe'</span>)
+    group = child(<span class="p_string">'group'</span>)
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, tag=<span class="p_string">'item'</span>, jid=<span class="p_word">None</span>, name=<span class="p_word">None</span>, subscription=<span class="p_word">None</span>, ask=<span class="p_word">None</span>, **kwargs):
+        super(Contact, self).__init__(value=value, tag=tag, **kwargs)
+        <span class="p_word">if</span> <span class="p_word">not</span> value:
+            <span class="p_word">for</span> a <span class="p_word">in</span> (<span class="p_string">'jid'</span>, <span class="p_string">'name'</span>, <span class="p_string">'subscription'</span>, <span class="p_string">'ask'</span>):
+                <span class="p_word">if</span> locals()[a]: self.attrs[a] = locals()[a]
+    <span class="p_word">def</span> __getattribute__(self, key):
+        <span class="p_word">if</span> key <span class="p_word">in</span> (<span class="p_string">'jid'</span>): <span class="p_word">return</span> JID(self.attrs.get(key))
+        <span class="p_word">else</span>: <span class="p_word">return</span> XML.__getattribute__(self, key)
+
+<span class="p_word">class</span> Query(XML):
+    <span class="p_triple">'''A roster extension 'query' tag in jabber:iq:roster namespace. children can be a list of Contact/XML.'''</span>
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, tag=<span class="p_string">'query'</span>, type=<span class="p_string">'get'</span>, xmlns=<span class="p_string">'jabber:iq:roster'</span>, **kwargs):
+        super(Query, self).__init__(value=value, tag=tag, xmlns=xmlns, **kwargs)
+        <span class="p_word">if</span> <span class="p_word">not</span> value <span class="p_word">and</span> type: self._.type = type
+
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Low level control as event listener        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">class</span> Connector(XMLList):
+    <span class="p_triple">'''A connector that uses a Connection and processes certain subset of events.'''</span>
+    <span class="p_word">def</span> __init__(self, **kwargs):  <span class="p_commentline"># jid</span>
+        self.__dict__.update(kwargs)
+        self._init, self._filter = False, <span class="p_word">None</span>
+    <span class="p_word">def</span> __getattr__(self, key): <span class="p_word">return</span> <span class="p_word">None</span> <span class="p_commentline"># override method to prevent exceptions on attribute read</span>
+    
+    <span class="p_word">def</span> connected(self, old, new): <span class="p_word">pass</span> <span class="p_commentline"># should be overridden by sub-class</span>
+    <span class="p_word">def</span> process(self, data): <span class="p_word">pass</span>       <span class="p_commentline"># should be overridden by sub-class</span>
+    
+    @Property
+    <span class="p_word">def</span> connection():
+        <span class="p_word">def</span> fget(self): <span class="p_word">return</span> self._connection
+        <span class="p_word">def</span> fset(self, value):
+            <span class="p_word">if</span> value != self._connection:
+                <span class="p_word">if</span> <span class="p_word">not</span> isinstance(value, Connection): <span class="p_word">raise</span> ValueError(<span class="p_string">'Invalid connection property'</span>)
+                old, self._connection = self._connection, value
+                <span class="p_word">if</span> self._filter <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> old <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                    old.detach(self._filter, self.process)
+                <span class="p_word">if</span> self._filter <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                    value.attach(self._filter, self.process)
+                self.connected(old, value); 
+        <span class="p_word">return</span> locals()
+    
+    @Property
+    <span class="p_word">def</span> filter():
+        <span class="p_word">def</span> fget(self): <span class="p_word">return</span> self._filter
+        <span class="p_word">def</span> fset(self, value):
+            <span class="p_word">if</span> value != self._filter:
+                <span class="p_word">if</span> <span class="p_word">not</span> callable(value): <span class="p_word">raise</span> ValueError(<span class="p_string">'Invalid filter: must be function'</span>)
+                old, self._filter = self._filter, value
+                <span class="p_word">if</span> self._connection <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> old <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                    self._connection.detach(self._filter, self.process)
+                <span class="p_word">if</span> self._connection <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                    self._connection.attach(self._filter, self.process)
+        <span class="p_word">return</span> locals()
+    
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Instant Message Management</span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+            
+<span class="p_word">class</span> History(Connector):
+    <span class="p_triple">'''Message history is used to maintain the conversation history in a group or one-to-one'''</span>
+    <span class="p_word">def</span> __init__(self, **kwargs):  <span class="p_commentline"># type, to, frm</span>
+        super(History, self).__init__(**kwargs)
+        self._init, self._queue = False, multitask.SmartQueue()
+    
+    <span class="p_word">def</span> __repr__(self): <span class="p_word">return</span> <span class="p_string">u'&lt;History to="%s" from="%s" type="%s" len="%d" /&gt;'</span>%(self.to, self.frm, self.type, len(self)) <span class="p_commentline"># override method to return concise information</span>
+    <span class="p_commentline"># adding a new history item should initialize if needed, hence override these methods</span>
+    <span class="p_word">def</span> __setitem__(self, key, value): result = super(History, self).__setitem__(key, value); self._initialize(); <span class="p_word">return</span> result
+    <span class="p_word">def</span> append(self, item): super(History, self).append(item); self._initialize()
+    <span class="p_word">def</span> extend(self, list): super(History, self).extend(list); self._initialize()
+    
+    <span class="p_word">def</span> send(self, msg, **kwargs):
+        <span class="p_word">if</span> <span class="p_word">not</span> self.connection: <span class="p_word">raise</span> IOError, <span class="p_string">'history.connection is not set before send'</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(msg, Message): msg = Message(); Message.__init__(msg)
+        <span class="p_word">for</span> x <span class="p_word">in</span> (<span class="p_string">'to'</span>, <span class="p_string">'type'</span>): <span class="p_word">exec</span> <span class="p_string">'if not msg.%s and self.%s: msg.%s = self.%s'</span>%(x,x,x,x)
+        <span class="p_word">yield</span> self.connection.put(msg)
+        result = Message(value=str(msg), direction=<span class="p_string">'send'</span>) <span class="p_commentline"># construct a new</span>
+        self.append(result)
+        respond(result)
+    
+    <span class="p_word">def</span> recv(self, **kwargs):
+        result = <span class="p_word">yield</span> self._queue.get(**kwargs)
+        respond(result)
+    
+    <span class="p_word">def</span> connected(self, old, new):
+        <span class="p_word">if</span> new <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+            <span class="p_word">def</span> filter(data): <span class="p_commentline"># filter out the instant messages</span>
+                <span class="p_word">if</span> data.tag != <span class="p_string">'message'</span>: <span class="p_word">return</span> False
+                to, frm, type = self.to, self.frm, self.type
+                <span class="p_word">return</span> (<span class="p_word">not</span> frm <span class="p_word">or</span> frm == data.attrs[<span class="p_string">'to'</span>]) <span class="p_word">and</span> (<span class="p_word">not</span> to <span class="p_word">or</span> to == data.attrs[<span class="p_string">'from'</span>]) <span class="p_word">and</span> (<span class="p_word">not</span> type <span class="p_word">or</span> type == data.attrs[<span class="p_string">'type'</span>])
+            self.filter = filter
+        <span class="p_word">else</span>: self.filter = <span class="p_word">None</span>
+        
+    <span class="p_word">def</span> process(self, data): <span class="p_commentline"># process incoming message</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(data, Message): data = Message(str(data))
+        self.append(data)
+        <span class="p_word">def</span> add(self, data): 
+            <span class="p_word">if</span> self._queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">yield</span> self._queue.put(data)
+        multitask.add(add(self, data))
+        
+    <span class="p_word">def</span> _initialize(self): <span class="p_commentline"># configure this history if not already initialized</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self._init <span class="p_word">and</span> len(self) &gt; <span class="p_number">0</span>:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'history initialized'</span>
+            self._init = True
+            item = super(History, self).__getitem__(<span class="p_number">0</span>)
+            <span class="p_word">if</span> item.direction == <span class="p_string">'send'</span>: self.to, self.frm, self.type = item.to, item.frm, item.type
+            <span class="p_word">else</span>: self.to, self.frm, self.type = item.frm, item.to, item.type
+    
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Roster Management        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">class</span> Roster(Connector):
+    <span class="p_triple">'''User's contact list is maintained as an XMLList (list) of Contact objects.'''</span>
+    <span class="p_word">def</span> __init__(self, **kwargs):
+        super(Roster, self).__init__(**kwargs)
+        self.presence = <span class="p_word">None</span>
+    <span class="p_word">def</span> __repr__(self): <span class="p_word">return</span> <span class="p_string">u'&lt;Roster jid="%s" len="%d" /&gt;'</span>%(self.jid, len(self)) <span class="p_commentline"># override method to return concise information</span>
+    
+    @property
+    <span class="p_word">def</span> jid(self):
+        <span class="p_word">return</span> self.connection <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> self.connection.jid <span class="p_word">or</span> JID()
+    
+    @Property
+    <span class="p_word">def</span> presence():
+        <span class="p_triple">'''Represents local user's presence as a read-write attribute.'''</span>
+        <span class="p_word">def</span> fget(self): <span class="p_word">return</span> self._presence
+        <span class="p_word">def</span> fset(self, value): 
+            self._presence = value
+            <span class="p_word">if</span> self.connection <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                <span class="p_word">def</span> sendPresence(value): 
+                    <span class="p_word">if</span> self.connection <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">yield</span> self.connection.put(msg=value)
+                multitask.add(sendPresence(value))
+        <span class="p_word">return</span> locals()
+
+    <span class="p_word">def</span> fetch(self):
+        <span class="p_triple">'''Fetch the roster on startup. This is called when connected.'''</span>
+        type, result = <span class="p_word">yield</span> self.connection.iq(type=<span class="p_string">'get'</span>, msg=XML(tag=<span class="p_string">'query'</span>, xmlns=<span class="p_string">'jabber:iq:roster'</span>))
+        <span class="p_word">if</span> type == <span class="p_string">'error'</span>: respond()
+        <span class="p_word">else</span>: 
+            self[:] = result() <span class="p_word">if</span> result <span class="p_word">else</span> [] <span class="p_commentline"># update is called with XMLList of query</span>
+            <span class="p_word">if</span> _debug: <span class="p_string">'roster fetched='</span>, self
+    
+    <span class="p_word">def</span> addItem(self, item):
+        <span class="p_triple">'''Add or update an item (Contact) to the roster. Returns True or False.'''</span>
+        type, result = <span class="p_word">yield</span> self.connection.iq(type=<span class="p_string">'set'</span>, msg=Query(children=[item]))
+        respond(type == <span class="p_string">'result'</span>)
+        
+    <span class="p_word">def</span> deleteItem(self, item):
+        <span class="p_triple">'''Delete an item (Contact) from the roster. Returns True or False.'''</span>
+        item = Contact(subscription=<span class="p_string">'remove'</span>, jid=item.jid)
+        
+        type, reult = <span class="p_word">yield</span> self.connection.iq(type=<span class="p_string">'set'</span>, msg=Query(children=[item]))
+        respond(type = <span class="p_string">'result'</span>)
+    
+    <span class="p_commentline"># define additional methods for subscribe, subscribed, unsubscribe and unsubscribed</span>
+    <span class="p_word">for</span> func <span class="p_word">in</span> (<span class="p_string">'subscribe'</span>, <span class="p_string">'subscribed'</span>, <span class="p_string">'unsubscribe'</span>, <span class="p_string">'unsubscribed'</span>):
+        <span class="p_word">exec</span> <span class="p_string">"def %s(self, jid): yield self.connection.put(Presence(to=JID(jid).bareJID, type='%s'))"</span>%(func, func)
+    
+    <span class="p_word">def</span> connected(self, old, new): <span class="p_commentline"># connection or disconnection callback</span>
+        <span class="p_word">if</span> new <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: 
+            <span class="p_word">def</span> filter(data):
+                <span class="p_word">if</span> data.tag == <span class="p_string">'presence'</span>: <span class="p_word">return</span> True
+                <span class="p_word">elif</span> data.tag == <span class="p_string">'iq'</span> <span class="p_word">and</span> data.type == <span class="p_string">'set'</span>: query = F(data(<span class="p_string">'query'</span>)); <span class="p_word">return</span> query <span class="p_word">and</span> query.xmlns == <span class="p_string">'jabber:iq:roster'</span>
+                <span class="p_word">else</span>: <span class="p_word">return</span> False
+            self.filter = filter
+            multitask.add(self.fetch()) <span class="p_commentline"># when connected, install the onRosterSet listener and fetch the roster</span>
+            self.presence = Presence()
+        <span class="p_word">else</span>:
+            self.filter = <span class="p_word">None</span>
+            self.presence = <span class="p_word">None</span>
+            self.clear()
+        
+    <span class="p_word">def</span> process(self, data): <span class="p_commentline"># callback to process a incoming event</span>
+        <span class="p_word">if</span> data.tag == <span class="p_string">'presence'</span>: 
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'presence update='</span>, data
+            data = Presence(value=data)
+            <span class="p_word">if</span> <span class="p_word">not</span> data.type: <span class="p_word">pass</span> <span class="p_commentline"># available</span>
+            <span class="p_word">elif</span> data.type == <span class="p_string">'unavailable'</span>: <span class="p_word">pass</span> <span class="p_commentline"># not available</span>
+            <span class="p_word">elif</span> data.type == <span class="p_string">'subscribe'</span>: <span class="p_word">pass</span> <span class="p_commentline"># incoming subscription</span>
+            <span class="p_word">elif</span> data.type == <span class="p_string">'subscribed'</span>: <span class="p_word">pass</span> <span class="p_commentline"># outgoing subscription successful</span>
+            <span class="p_word">elif</span> data.type == <span class="p_string">'unsubscribe'</span>: <span class="p_word">pass</span> <span class="p_commentline"># incoming unsubscription</span>
+            <span class="p_word">elif</span> data.type == <span class="p_string">'unsubscribed'</span>: <span class="p_word">pass</span> <span class="p_commentline"># outgoing unsubscription completed</span>
+        <span class="p_word">elif</span> data <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'roster update='</span>, type(data), data
+            <span class="p_commentline"># TODO: first reply with a success</span>
+            <span class="p_word">for</span> item <span class="p_word">in</span> data(<span class="p_string">'item'</span>):
+                <span class="p_word">if</span> item.subscription == <span class="p_string">'remove'</span>: <span class="p_word">del</span> self[<span class="p_word">lambda</span> x: x.jid == item.jid] <span class="p_commentline"># remove</span>
+                <span class="p_word">else</span>: self[<span class="p_word">lambda</span> x: x.jid == item.jid] = item <span class="p_commentline"># replace or add</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'roster update='</span>, self
+
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># High level User class        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">class</span> User(Connection):
+    <span class="p_triple">'''A User object represents a single local user with methods, login, logout, etc.'''</span>
+    <span class="p_word">def</span> __init__(self, **kwargs):
+        super(User, self).__init__(**kwargs)
+        self.roster, self._chat = Roster(), {}
+    
+    <span class="p_word">def</span> login(self):
+        <span class="p_word">if</span> <span class="p_word">not</span> self.username <span class="p_word">or</span> <span class="p_word">not</span> self.server <span class="p_word">or</span> <span class="p_word">not</span> self.password: respond(<span class="p_word">None</span>, <span class="p_string">'missing username, server or password'</span>)
+        result, error = <span class="p_word">yield</span> self.connect()
+        <span class="p_word">if</span> error: <span class="p_word">yield</span> self.disconnect(); respond(result, error)
+        result, error = <span class="p_word">yield</span> self.authenticate()
+        <span class="p_word">if</span> error: <span class="p_word">yield</span> self.disconnect(); respond(result, error)
+        result, error = <span class="p_word">yield</span> self.bind()
+        <span class="p_word">if</span> error: <span class="p_word">yield</span> self.disconnect(); respond(result, error)
+        
+        self.attach(<span class="p_word">lambda</span> x: <span class="p_word">not</span> x <span class="p_word">or</span> x.tag == <span class="p_string">'message'</span>, self.process)
+        
+        self.roster = Roster()
+        self.roster.connection = self
+        
+        respond(self.status, <span class="p_word">None</span>)
+        
+    <span class="p_word">def</span> logout(self):
+        <span class="p_word">if</span> self.connected:
+            self.roster.clear() 
+            <span class="p_word">yield</span> self.disconnect()
+        self._chat.clear()
+    
+    <span class="p_word">def</span> chat(self, to):
+        <span class="p_word">if</span> to <span class="p_word">not</span> <span class="p_word">in</span> self._chat:
+            history = History(frm=self.jid, to=to)
+            history.connection = self
+            self._chat[to] = history 
+        <span class="p_word">return</span> self._chat[to]
+    
+    <span class="p_word">def</span> process(self, data):
+        <span class="p_word">if</span> <span class="p_word">not</span> data: multitask.add(logout())
+        <span class="p_commentline"># TODO: check if a chat exists for this user? otherwise add one</span>
+    
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># TESTING        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">def</span> _testData():
+    c = Contact(jid=<span class="p_string">'kundan10@gmail.com'</span>, name=<span class="p_string">'Kundan Singh'</span>)
+    q = Query(type=<span class="p_string">'set'</span>);
+    q.children += c
+    <span class="p_word">print</span> q
+    <span class="p_word">yield</span>
+
+<span class="p_word">def</span> testMessage():
+    m1 = Message(type=<span class="p_string">'chat'</span>, to=<span class="p_string">'kundan10@gmail.com'</span>, frm=<span class="p_string">'kundansingh99@gmail.com'</span>, subject=<span class="p_string">'Hello'</span>, direction=<span class="p_string">'recv'</span>)
+    <span class="p_word">print</span> <span class="p_string">'m1='</span>, m1
+    h1 = History()
+    h1 += m1
+    <span class="p_word">print</span> <span class="p_string">'h1+=m1='</span>, h1
+    h1.connection = Connection()
+    m2 = Message(body=<span class="p_string">'Hi'</span>)
+    m3 = <span class="p_word">yield</span> h1.send(m2)
+    <span class="p_word">print</span> <span class="p_string">'m3='</span>, m3
+    <span class="p_word">print</span> <span class="p_string">'h1+=m3='</span>, h1
+    <span class="p_word">yield</span>
+
+<span class="p_word">def</span> testIM(): <span class="p_commentline"># TODO: rename this with prefix _ to enable testing</span>
+    <span class="p_triple">'''Test the IM sending part of this module'''</span>
+    <span class="p_commentline"># TODO: change the following to your account and password</span>
+    conn = Connection(server=<span class="p_string">'gmail.com'</span>, username=<span class="p_string">'kundansingh99'</span>, password=<span class="p_string">'mypass'</span>)
+    type, error = <span class="p_word">yield</span> conn.connect() 
+    <span class="p_word">if</span> error:  <span class="p_word">print</span> <span class="p_string">'error='</span>, error; respond()
+    mechanism, error = <span class="p_word">yield</span> authenticate(conn)
+    <span class="p_word">if</span> error: <span class="p_word">print</span> <span class="p_string">'error='</span>, error; respond()
+    jid, error = <span class="p_word">yield</span> bind(conn)
+    <span class="p_word">if</span> error: <span class="p_word">print</span> <span class="p_string">'error='</span>, error; respond()
+    
+    h1 = History(); h1.connection = conn
+    m1 = <span class="p_word">yield</span> h1.send(Message(type=<span class="p_string">'chat'</span>, to=<span class="p_string">'kundan10@gmail.com'</span>, body=<span class="p_string">'Hello'</span>))
+    <span class="p_word">print</span> <span class="p_string">'history='</span>, h1
+    
+    <span class="p_word">yield</span> conn.disconnect()
+    <span class="p_word">print</span> <span class="p_string">'testIM exiting'</span>
+
+<span class="p_word">def</span> testPresence(): <span class="p_commentline"># TODO: rename this with prefix _ to enable testing</span>
+    <span class="p_commentline"># TODO: change the following to your account and password</span>
+    u1 = User(server=<span class="p_string">'gmail.com'</span>, username=<span class="p_string">'kundansingh99'</span>, password=<span class="p_string">'mypass'</span>)
+    result, error = <span class="p_word">yield</span> u1.login()
+    
+    <span class="p_word">yield</span> multitask.sleep(<span class="p_number">1</span>)
+    u1.roster.presence = Presence(show=<span class="p_string">'dnd'</span>, status=<span class="p_string">'Online'</span>)
+
+    h1 = u1.chat(<span class="p_string">'kundan10@gmail.com'</span>)
+    <span class="p_word">yield</span> h1.send(Message(body=<span class="p_string">'Hello How are you?'</span>))
+
+    count = <span class="p_number">5</span>
+    <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">5</span>):
+        <span class="p_word">try</span>:
+            msg = <span class="p_word">yield</span> h1.recv(timeout=<span class="p_number">120</span>)
+            <span class="p_word">print</span> msg
+            <span class="p_word">print</span> <span class="p_string">'%s: %s'</span>%(msg.frm, msg.body.cdata)
+            <span class="p_word">yield</span> h1.send(Message(body=<span class="p_string">'You said "%s"'</span>%(msg.body.cdata)))
+        <span class="p_word">except</span> Exception, e:
+            <span class="p_word">print</span> str(type(e)), e
+            <span class="p_word">break</span>
+        
+    <span class="p_word">yield</span> u1.logout()
+    <span class="p_word">print</span> <span class="p_string">'testPresence exiting'</span>
+
+<span class="p_word">def</span> testClose(): <span class="p_word">yield</span> multitask.sleep(<span class="p_number">25</span>); exit()
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest; doctest.testmod()    <span class="p_commentline"># first run doctest,</span>
+    <span class="p_word">for</span> f <span class="p_word">in</span> dir():      <span class="p_commentline"># then run all _test* functions</span>
+        <span class="p_word">if</span> str(f).find(<span class="p_string">'_test'</span>) == <span class="p_number">0</span> <span class="p_word">and</span> callable(eval(f)):
+            multitask.add(globals()[f]())
+    <span class="p_word">try</span>: multitask.run()
+    <span class="p_word">except</span> KeyboardInterrupt: <span class="p_word">pass</span>
+    <span class="p_word">except</span> select.error: <span class="p_word">print</span> <span class="p_string">'select error'</span>; <span class="p_word">pass</span>
+    sys.exit()
+
+
+  </PRE></BODY>
+</HTML>

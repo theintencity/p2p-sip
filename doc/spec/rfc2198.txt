@@ -1,0 +1,531 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                        C. Perkins
+P1L5	Request for Comments: 2198                                  I. Kouvelas
+P1L6	Category: Standards Track                                     O. Hodson
+P1L7	                                                             V. Hardman
+P1L8	                                              University College London
+P1L9	                                                             M. Handley
+P1L10	                                                                    ISI
+P1L11	                                                             J.C. Bolot
+P1L12	                                                         A. Vega-Garcia
+P1L13	                                                       S. Fosse-Parisis
+P1L14	                                                 INRIA Sophia Antipolis
+P1L15	                                                         September 1997
+P1L16	
+P1L17	
+P1L18	                  RTP Payload for Redundant Audio Data
+P1L19	
+P1L20	Status of this Memo
+P1L21	
+P1L22	   This document specifies an Internet standards track protocol for the
+P1L23	   Internet community, and requests discussion and suggestions for
+P1L24	   improvements.  Please refer to the current edition of the "Internet
+P1L25	   Official Protocol Standards" (STD 1) for the standardization state
+P1L26	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L27	
+P1L28	Abstract
+P1L29	
+P1L30	   This document describes a payload format for use with the real-time
+P1L31	   transport protocol (RTP), version 2, for encoding redundant audio
+P1L32	   data.  The primary motivation for the scheme described herein is the
+P1L33	   development of audio conferencing tools for use with lossy packet
+P1L34	   networks such as the Internet Mbone, although this scheme is not
+P1L35	   limited to such applications.
+P1L36	
+P1L37	1  Introduction
+P1L38	
+P1L39	   If multimedia conferencing is to become widely used by the Internet
+P1L40	   Mbone community, users must perceive the quality to be sufficiently
+P1L41	   good for most applications.  We have identified a number of problems
+P1L42	   which impair the quality of conferences, the most significant of
+P1L43	   which is packet loss.  This is a persistent problem, particularly
+P1L44	   given the increasing popularity, and therefore increasing load, of
+P1L45	   the Internet.  The disruption of speech intelligibility even at low
+P1L46	   loss rates which is currently experienced may convince a whole
+P1L47	   generation of users that multimedia conferencing over the Internet is
+P1L48	   not viable.  The addition of redundancy to the data stream is offered
+P1L49	   as a solution [1].  If a packet is lost then the missing information
+P1L50	   may be reconstructed at the receiver from the redundant data that
+P1L51	   arrives in the following packet(s), provided that the average number
+P2L1	   of consecutively lost packets is small.  Recent work [4,5] shows that
+P2L2	   packet loss patterns in the Internet are such that this scheme
+P2L3	   typically functions well.
+P2L4	
+P2L5	   This document describes an RTP payload format for the transmission of
+P2L6	   audio data encoded in such a redundant fashion.  Section 2 presents
+P2L7	   the requirements and motivation leading to the definition of this
+P2L8	   payload format, and does not form part of the payload format
+P2L9	   definition.  Sections 3 onwards define the RTP payload format for
+P2L10	   redundant audio data.
+P2L11	
+P2L12	2  Requirements/Motivation
+P2L13	
+P2L14	   The requirements for a redundant encoding scheme under RTP are as
+P2L15	   follows:
+P2L16	
+P2L17	     o Packets have to carry a primary encoding and one or more
+P2L18	       redundant encodings.
+P2L19	
+P2L20	     o As a multitude of encodings may be used for redundant
+P2L21	       information, each block of redundant encoding has to have an
+P2L22	       encoding type identifier.
+P2L23	
+P2L24	     o As the use of variable size encodings is desirable, each encoded
+P2L25	       block in the packet has to have a length indicator.
+P2L26	
+P2L27	     o The RTP header provides a timestamp field that corresponds to
+P2L28	       the time of creation of the encoded data.  When redundant
+P2L29	       encodings are used this timestamp field can refer to the time of
+P2L30	       creation of the primary encoding data.  Redundant blocks of data
+P2L31	       will correspond to different time intervals than the primary
+P2L32	       data, and hence each block of redundant encoding will require its
+P2L33	       own timestamp.  To reduce the number of bytes needed to carry the
+P2L34	       timestamp, it can be encoded as the difference of the timestamp
+P2L35	       for the redundant encoding and the timestamp of the primary.
+P2L36	
+P2L37	   There are two essential means by which redundant audio may be added
+P2L38	   to the standard RTP specification:  a header extension may hold the
+P2L39	   redundancy, or one, or more, additional payload types may be defined.
+P2L40	
+P2L41	   Including all the redundancy information for a packet in a header
+P2L42	   extension would make it easy for applications that do not implement
+P2L43	   redundancy to discard it and just process the primary encoding data.
+P2L44	   There are, however, a number of disadvantages with this scheme:
+P2L45	
+P2L46	
+P2L47	
+P2L48	
+P3L1	     o There is a large overhead from the number of bytes needed for
+P3L2	       the extension header (4) and the possible padding that is needed
+P3L3	       at the end of the extension to round up to a four byte  boundary
+P3L4	       (up to 3 bytes).  For many applications this overhead is
+P3L5	       unacceptable.
+P3L6	
+P3L7	     o Use of the header extension limits applications to a single
+P3L8	       redundant encoding, unless further structure is introduced into
+P3L9	       the extension.  This would result in further overhead.
+P3L10	
+P3L11	   For these reasons, the use of RTP header extension to hold redundant
+P3L12	   audio encodings is disregarded.
+P3L13	
+P3L14	   The RTP profile for audio and video conferences [3] lists a set of
+P3L15	   payload types and provides for a dynamic range of 32 encodings that
+P3L16	   may be defined through a conference control protocol.  This leads to
+P3L17	   two possible schemes for assigning additional RTP payload types for
+P3L18	   redundant audio applications:
+P3L19	
+P3L20	     1.A dynamic encoding scheme may be defined, for each combination
+P3L21	       of primary/redundant payload types, using the RTP dynamic payload
+P3L22	       type range.
+P3L23	
+P3L24	     2.A single fixed payload type may be defined to represent a packet
+P3L25	       with redundancy.  This may then be assigned to either a static
+P3L26	       RTP payload type, or the payload type for this may be assigned
+P3L27	       dynamically.
+P3L28	
+P3L29	   It is possible to define a set of payload types that signify a
+P3L30	   particular combination of primary and secondary encodings for each of
+P3L31	   the 32 dynamic payload types provided.  This would be a slightly
+P3L32	   restrictive yet feasible solution for packets with a single block of
+P3L33	   redundancy as the number of possible combinations is not too large.
+P3L34	   However the need for multiple blocks of redundancy greatly increases
+P3L35	   the number of encoding combinations and makes this solution not
+P3L36	   viable.
+P3L37	
+P3L38	   A modified version of the above solution could be to decide prior to
+P3L39	   the beginning of a conference on a set a 32 encoding combinations
+P3L40	   that will be used for the duration of the conference.  All tools in
+P3L41	   the conference can be initialized with this working set of encoding
+P3L42	   combinations.  Communication of the working set could be made through
+P3L43	   the use of an external, out of band, mechanism.  Setup is complicated
+P3L44	   as great care needs to be taken in starting tools with identical
+P3L45	   parameters.  This scheme is more efficient as only one byte is used
+P3L46	   to identify combinations of encodings.
+P3L47	
+P3L48	
+P4L1	   It is felt that the complication inherent in distributing the mapping
+P4L2	   of payload types onto combinations of redundant data preclude the use
+P4L3	   of this mechanism.
+P4L4	
+P4L5	   A more flexible solution is to have a single payload type which
+P4L6	   signifies a packet with redundancy. That packet then becomes a
+P4L7	   container, encapsulating multiple payloads into a single RTP packet.
+P4L8	   Such a scheme is flexible, since any amount of redundancy may be
+P4L9	   encapsulated within a single packet.  There is, however, a small
+P4L10	   overhead since each encapsulated payload must be preceded by a header
+P4L11	   indicating the type of data enclosed.  This is the preferred
+P4L12	   solution, since it is both flexible, extensible, and has a relatively
+P4L13	   low overhead.  The remainder of this document describes this
+P4L14	   solution.
+P4L15	
+P4L16	3  Payload Format Specification
+P4L17	
+P4L18	   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+P4L19	   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+P4L20	   document are to be interpreted as described in RFC2119 [7].
+P4L21	
+P4L22	   The assignment of an RTP payload type for this new packet format is
+P4L23	   outside the scope of this document, and will not be specified here.
+P4L24	   It is expected that the RTP profile for a particular class of
+P4L25	   applications will assign a payload type for this encoding, or if that
+P4L26	   is not done then a payload type in the dynamic range shall be chosen.
+P4L27	
+P4L28	   An RTP packet containing redundant data shall have a standard RTP
+P4L29	   header, with payload type indicating redundancy.  The other fields of
+P4L30	   the RTP header relate to the primary data block of the redundant
+P4L31	   data.
+P4L32	
+P4L33	   Following the RTP header are a number of additional headers, defined
+P4L34	   in the figure below, which specify the contents of each of the
+P4L35	   encodings carried by the packet.  Following these additional headers
+P4L36	   are a number of data blocks, which contain the standard RTP payload
+P4L37	   data for these encodings.  It is noted that all the headers are
+P4L38	   aligned to a 32 bit boundary, but that the payload data will
+P4L39	   typically not be aligned.  If multiple redundant encodings are
+P4L40	   carried in a packet, they should correspond to different time
+P4L41	   intervals:  there is no reason to include multiple copies of data for
+P4L42	   a single time interval within a packet.
+P4L43	
+P4L44	    0                   1                    2                   3
+P4L45	    0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P4L46	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P4L47	   |F|   block PT  |  timestamp offset         |   block length    |
+P4L48	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P5L1	   The bits in the header are specified as follows:
+P5L2	
+P5L3	
+P5L4	   F: 1 bit First bit in header indicates whether another header block
+P5L5	       follows.  If 1 further header blocks follow, if 0 this is the
+P5L6	       last header block.
+P5L7	
+P5L8	   block PT: 7 bits RTP payload type for this block.
+P5L9	
+P5L10	   timestamp offset:  14 bits Unsigned offset of timestamp of this block
+P5L11	       relative to timestamp given in RTP header.  The use of an unsigned
+P5L12	       offset implies that redundant data must be sent after the primary
+P5L13	       data, and is hence a time to be subtracted from the current
+P5L14	       timestamp to determine the timestamp of the data for which this
+P5L15	       block is the redundancy.
+P5L16	
+P5L17	   block length:  10 bits Length in bytes of the corresponding data
+P5L18	       block excluding header.
+P5L19	
+P5L20	   It is noted that the use of an unsigned timestamp offset limits the
+P5L21	   use of redundant data slightly:  it is not possible to send
+P5L22	   redundancy before the primary encoding.  This may affect schemes
+P5L23	   where a low bandwidth coding suitable for redundancy is produced
+P5L24	   early in the encoding process, and hence could feasibly be
+P5L25	   transmitted early.  However, the addition of a sign bit would
+P5L26	   unacceptably reduce the range of the timestamp offset, and increasing
+P5L27	   the size of the field above 14 bits limits the block length field.
+P5L28	   It seems that limiting redundancy to be transmitted after the primary
+P5L29	   will cause fewer problems than limiting the size of the other fields.
+P5L30	
+P5L31	   The timestamp offset for a redundant block is measured in the same
+P5L32	   units as the timestamp of the primary encoding (ie:  audio samples,
+P5L33	   with the same clock rate as the primary).  The implication of this is
+P5L34	   that the redundant encoding MUST be sampled at the same rate as the
+P5L35	   primary.
+P5L36	
+P5L37	   It is further noted that the block length and timestamp offset are 10
+P5L38	   bits, and 14 bits respectively; rather than the more obvious 8 and 16
+P5L39	   bits.  Whilst such an encoding complicates parsing the header
+P5L40	   information slightly, and adds some additional processing overhead,
+P5L41	   there are a number of problems involved with the more obvious choice:
+P5L42	   An 8 bit block length field is sufficient for most, but not all,
+P5L43	   possible encodings:  for example 80ms PCM and DVI audio packets
+P5L44	   comprise more than 256 bytes, and cannot be encoded with a single
+P5L45	   byte length field.  It is possible to impose additional structure on
+P5L46	   the block length field (for example the high bit set could imply the
+P5L47	   lower 7 bits code a length in words, rather than bytes), however such
+P5L48	   schemes are complex.  The use of a 10 bit block length field retains
+P6L1	   simplicity and provides an enlarged range, at the expense of a
+P6L2	   reduced range of timestamp values.
+P6L3	
+P6L4	   The primary encoding block header is placed last in the packet.  It
+P6L5	   is therefore possible to omit the timestamp and block-length fields
+P6L6	   from the header of this block, since they may be determined from the
+P6L7	   RTP header and overall packet length.  The header for the primary
+P6L8	   (final) block comprises only a zero F bit, and the block payload type
+P6L9	   information, a total of 8 bits.  This is illustrated in the figure
+P6L10	   below:
+P6L11	
+P6L12	                      0 1 2 3 4 5 6 7
+P6L13	                     +-+-+-+-+-+-+-+-+
+P6L14	                     |0|   Block PT  |
+P6L15	                     +-+-+-+-+-+-+-+-+
+P6L16	
+P6L17	   The final header is followed, immediately, by the data blocks, stored
+P6L18	   in the same order as the headers.  There is no padding or other
+P6L19	   delimiter between the data blocks, and they are typically not 32 bit
+P6L20	   aligned.  Again, this choice was made to reduce bandwidth overheads,
+P6L21	   at the expense of additional decoding time.
+P6L22	
+P6L23	   The choice of encodings used should reflect the bandwidth
+P6L24	   requirements of those encodings.  It is expected that the redundant
+P6L25	   encoding shall use significantly less bandwidth that the primary
+P6L26	   encoding:  the exception being the case where the primary is very
+P6L27	   low-bandwidth and has high processing requirement, in which case a
+P6L28	   copy of the primary MAY be used as the redundancy.  The redundant
+P6L29	   encoding MUST NOT be higher bandwidth than the primary.
+P6L30	
+P6L31	   The use of multiple levels of redundancy is rarely necessary.
+P6L32	   However, in those cases which require it, the bandwidth required by
+P6L33	   each level of redundancy is expected to be significantly less than
+P6L34	   that of the previous level.
+P6L35	
+P6L36	4  Limitations
+P6L37	
+P6L38	   The RTP marker bit is not preserved for redundant data blocks.  Hence
+P6L39	   if the primary (containing this marker) is lost, the marker is lost.
+P6L40	   It is believed that this will not cause undue problems:  even if the
+P6L41	   marker bit was transmitted with the redundant information, there
+P6L42	   would still be the possibility of its loss, so applications would
+P6L43	   still have to be written with this in mind.
+P6L44	
+P6L45	   In addition, CSRC information is not preserved for redundant data.
+P6L46	   The CSRC data in the RTP header of a redundant audio packet relates
+P6L47	   to the primary only.  Since CSRC data in an audio stream is expected
+P6L48	   to change relatively infrequently, it is recommended that
+P7L1	   applications which require this information assume that the CSRC data
+P7L2	   in the RTP header may be applied to the reconstructed redundant data.
+P7L3	
+P7L4	5  Relation to SDP
+P7L5	
+P7L6	   When a redundant payload is used, it may need to be bound to an RTP
+P7L7	   dynamic payload type.  This may be achieved through any out-of-band
+P7L8	   mechanism, but one common way is to communicate this binding using
+P7L9	   the Session Description Protocol (SDP) [6].  SDP has a mechanism for
+P7L10	   binding a dynamic payload types to particular codec, sample rate, and
+P7L11	   number of channels using the "rtpmap" attribute.  An example of its
+P7L12	   use (using the RTP audio/video profile [3]) is:
+P7L13	
+P7L14	       m=audio 12345 RTP/AVP 121 0 5
+P7L15	       a=rtpmap:121 red/8000/1
+P7L16	
+P7L17	   This specifies that an audio stream using RTP is using payload types
+P7L18	   121 (a dynamic payload type), 0 (PCM u-law) and 5 (DVI). The "rtpmap"
+P7L19	   attribute is used to bind payload type 121 to codec "red" indicating
+P7L20	   this codec is actually a redundancy frame, 8KHz, and monaural.  When
+P7L21	   used with SDP, the term "red" is used to indicate the redundancy
+P7L22	   format discussed in this document.
+P7L23	
+P7L24	   In this case the additional formats of PCM and DVI are specified.
+P7L25	   The receiver must therefore be prepared to use these formats.  Such a
+P7L26	   specification means the sender will send redundancy by default, but
+P7L27	   also may send PCM or DVI. However, with a redundant payload we
+P7L28	   additionally take this to mean that no codec other than PCM or DVI
+P7L29	   will be used in the redundant encodings.  Note that the additional
+P7L30	   payload formats defined in the "m=" field may themselves be dynamic
+P7L31	   payload types, and if so a number of additional "a=" attributes may
+P7L32	   be required to describe these dynamic payload types.
+P7L33	
+P7L34	   To receive a redundant stream, this is all that is required.  However
+P7L35	   to send a redundant stream, the sender needs to know which codecs are
+P7L36	   recommended for the primary and secondary (and tertiary, etc)
+P7L37	   encodings.  This information is specific to the redundancy format,
+P7L38	   and is specified using an additional attribute "fmtp" which conveys
+P7L39	   format-specific information.  A session directory does not parse the
+P7L40	   values specified in an fmtp attribute but merely hands it to the
+P7L41	   media tool unchanged.  For redundancy, we define the format
+P7L42	   parameters to be a slash "/" separated list of RTP payload types.
+P7L43	
+P7L44	   Thus a complete example is:
+P7L45	
+P7L46	       m=audio 12345 RTP/AVP 121 0 5
+P7L47	       a=rtpmap:121 red/8000/1
+P7L48	       a=fmtp:121 0/5
+P8L1	   This specifies that the default format for senders is redundancy with
+P8L2	   PCM as the primary encoding and DVI as the secondary encoding.
+P8L3	   Encodings cannot be specified in the fmtp attribute unless they are
+P8L4	   also specified as valid encodings on the media ("m=") line.
+P8L5	
+P8L6	6  Security Considerations
+P8L7	
+P8L8	   RTP packets containing redundant information are subject to the
+P8L9	   security considerations discussed in the RTP specification [2], and
+P8L10	   any appropriate RTP profile (for example [3]).  This implies that
+P8L11	   confidentiality of the media streams is achieved by encryption.
+P8L12	   Encryption of a redundant data stream may occur in two ways:
+P8L13	
+P8L14	     1.The entire stream is to be secured, and all participants are
+P8L15	       expected to have keys to decode the entire stream.  In this case,
+P8L16	       nothing special need be done, and encryption is performed in the
+P8L17	       usual manner.
+P8L18	
+P8L19	     2.A portion of the stream is to be encrypted with a different
+P8L20	       key to the remainder.  In this case a redundant copy of the last
+P8L21	       packet of that portion cannot be sent, since there is no
+P8L22	       following packet which is encrypted with the correct key in which
+P8L23	       to send it.  Similar limitations may occur when
+P8L24	       enabling/disabling encryption.
+P8L25	
+P8L26	   The choice between these two is a matter for the encoder only.
+P8L27	   Decoders can decrypt either form without modification.
+P8L28	
+P8L29	   Whilst the addition of low-bandwidth redundancy to an audio stream is
+P8L30	   an effective means by which that stream may be protected against
+P8L31	   packet loss, application designers should be aware that the addition
+P8L32	   of large amounts of redundancy will increase network congestion, and
+P8L33	   hence packet loss, leading to a worsening of the problem which the
+P8L34	   use of redundancy was intended to solve.  At its worst, this can lead
+P8L35	   to excessive network congestion and may constitute a denial of
+P8L36	   service attack.
+P8L37	
+P8L38	
+P8L39	
+P8L40	
+P8L41	
+P8L42	
+P8L43	
+P8L44	
+P8L45	
+P8L46	
+P8L47	
+P8L48	
+P9L1	7  Example Packet
+P9L2	
+P9L3	   An RTP audio data packet containing a DVI4 (8KHz) primary, and a
+P9L4	   single block of redundancy encoded using 8KHz LPC (both 20ms
+P9L5	   packets), as defined in the RTP audio/video profile [3] is
+P9L6	   illustrated:
+P9L7	
+P9L8	    0                   1                    2                   3
+P9L9	    0 1 2 3 4 5 6 7 8 9 0 1 2 3  4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P9L10	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P9L11	   |V=2|P|X| CC=0  |M|      PT     |   sequence number of primary  |
+P9L12	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P9L13	   |              timestamp  of primary encoding                   |
+P9L14	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P9L15	   |           synchronization source (SSRC) identifier            |
+P9L16	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P9L17	   |1| block PT=7  |  timestamp offset         |   block length    |
+P9L18	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P9L19	   |0| block PT=5  |                                               |
+P9L20	   +-+-+-+-+-+-+-+-+                                               +
+P9L21	   |                                                               |
+P9L22	   +                LPC encoded redundant data (PT=7)              +
+P9L23	   |                (14 bytes)                                     |
+P9L24	   +                                               +---------------+
+P9L25	   |                                               |               |
+P9L26	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
+P9L27	   |                                                               |
+P9L28	   +                                                               +
+P9L29	   |                                                               |
+P9L30	   +                                                               +
+P9L31	   |                                                               |
+P9L32	   +                                                               +
+P9L33	   |                DVI4 encoded primary data (PT=5)               |
+P9L34	   +                (84 bytes, not to scale)                       +
+P9L35	   /                                                               /
+P9L36	   +                                                               +
+P9L37	   |                                                               |
+P9L38	   +                                                               +
+P9L39	   |                                                               |
+P9L40	   +                                               +---------------+
+P9L41	   |                                               |
+P9L42	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P9L43	
+P9L44	
+P9L45	
+P9L46	
+P9L47	
+P9L48	
+P10L1	8  Authors' Addresses
+P10L2	
+P10L3	   Colin Perkins/Isidor Kouvelas/Orion Hodson/Vicky Hardman
+P10L4	   Department of Computer Science
+P10L5	   University College London
+P10L6	   London WC1E 6BT
+P10L7	   United Kingdom
+P10L8	
+P10L9	   EMail:  {c.perkins|i.kouvelas|o.hodson|v.hardman}@cs.ucl.ac.uk
+P10L10	
+P10L11	
+P10L12	   Mark Handley
+P10L13	   USC Information Sciences Institute
+P10L14	   c/o MIT Laboratory for Computer Science
+P10L15	   545 Technology Square
+P10L16	   Cambridge, MA 02139, USA
+P10L17	
+P10L18	   EMail:  mjh@isi.edu
+P10L19	
+P10L20	
+P10L21	   Jean-Chrysostome Bolot/Andres Vega-Garcia/Sacha Fosse-Parisis
+P10L22	   INRIA Sophia Antipolis
+P10L23	   2004 Route des Lucioles, BP 93
+P10L24	   06902 Sophia Antipolis
+P10L25	   France
+P10L26	
+P10L27	   EMail:  {bolot|avega|sfosse}@sophia.inria.fr
+P10L28	
+P10L29	
+P10L30	
+P10L31	
+P10L32	
+P10L33	
+P10L34	
+P10L35	
+P10L36	
+P10L37	
+P10L38	
+P10L39	
+P10L40	
+P10L41	
+P10L42	
+P10L43	
+P10L44	
+P10L45	
+P10L46	
+P10L47	
+P10L48	
+P11L1	9  References
+P11L2	
+P11L3	   [1] V.J. Hardman, M.A. Sasse, M. Handley and A. Watson; Reliable
+P11L4	   Audio for Use over the Internet; Proceedings INET'95, Honalulu, Oahu,
+P11L5	   Hawaii, September 1995.  http://www.isoc.org/in95prc/
+P11L6	
+P11L7	   [2] Schulzrinne, H., Casner, S., Frederick R., and V. Jacobson, "RTP:
+P11L8	   A Transport Protocol for Real-Time Applications", RFC 1889, January
+P11L9	   1996.
+P11L10	
+P11L11	   [3] Schulzrinne, H., "RTP Profile for Audio and Video Conferences
+P11L12	   with Minimal Control", RFC 1890, January 1996.
+P11L13	
+P11L14	   [4] M. Yajnik, J. Kurose and D. Towsley; Packet loss correlation in
+P11L15	   the MBone multicast network; IEEE Globecom Internet workshop, London,
+P11L16	   November 1996
+P11L17	
+P11L18	   [5] J.-C. Bolot and A. Vega-Garcia; The case for FEC-based error
+P11L19	   control for packet audio in the Internet; ACM Multimedia Systems,
+P11L20	   1997
+P11L21	
+P11L22	   [6] Handley, M., and V. Jacobson, "SDP: Session Description Protocol
+P11L23	   (draft 03.2)", Work in Progress.
+P11L24	
+P11L25	   [7] Bradner, S., "Key words for use in RFCs to indicate requirement
+P11L26	   levels", RFC 2119, March 1997.
+P11L27	
+P11L28	
+P11L29	
+P11L30	
+P11L31	
+P11L32	
+P11L33	
+P11L34	
+P11L35	
+P11L36	
+P11L37	
+P11L38	
+P11L39	
+P11L40	
+P11L41	
+P11L42	
+P11L43	
+P11L44	
+P11L45	
+P11L46	
+P11L47	
+P11L48	

@@ -1,0 +1,60 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC3551 (RTP AVP)</b></DIV><PRE>
+<span class="p_triple">'''
+Define the RTP static payload types as per <a href="http://www.rfc-editor.org/rfc/rfc3551.txt">RFC 3551</a>. type and desc are two main functions.
+
+&gt;&gt;&gt; print type('GSM/8000')
+3
+&gt;&gt;&gt; print desc(3)
+('GSM', 8000, 1, 3, 'GSM/8000')
+
+&gt;&gt;&gt; for x in range(0, len(_types)):
+...    name, rate, count, pt, d = desc(x)
+...    assert(pt == x)
+...    if d: assert(x == type(d))
+...    if d: print '%d=&gt;%s'%(pt, d),     
+0=&gt;PCMU/8000 3=&gt;GSM/8000 4=&gt;G723/8000 5=&gt;DVI4/8000 6=&gt;DVI4/16000 7=&gt;LPC/8000 8=&gt;PCMA/8000 9=&gt;G722/8000 10=&gt;L16/44100/2 11=&gt;L16/44100 12=&gt;QCELP/8000 13=&gt;CN/8000 14=&gt;MPA/90000 15=&gt;G728/8000 16=&gt;DVI4/11025 17=&gt;DVI4/22050 18=&gt;G729/8000 25=&gt;CelB/90000 26=&gt;JPEG/90000 28=&gt;nv/90000 31=&gt;H261/90000 32=&gt;MPV/90000 33=&gt;MP2T/90000 34=&gt;H263/90000
+'''</span>
+
+<span class="p_commentline"># static types: arranged in rows 0-5, 6-10, 11-15, ...</span>
+_types = [<span class="p_string">"PCMU/8000/1"</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_string">"GSM/8000/1"</span>, <span class="p_string">"G723/8000/1"</span>, <span class="p_string">"DVI4/8000/1"</span>, \
+  <span class="p_string">"DVI4/16000/1"</span>, <span class="p_string">"LPC/8000/1"</span>, <span class="p_string">"PCMA/8000/1"</span>, <span class="p_string">"G722/8000/1"</span>, <span class="p_string">"L16/44100/2"</span>,     \
+  <span class="p_string">"L16/44100/1"</span>, <span class="p_string">"QCELP/8000/1"</span>, <span class="p_string">"CN/8000/1"</span>, <span class="p_string">"MPA/90000/1"</span>, <span class="p_string">"G728/8000/1"</span>,      \
+  <span class="p_string">"DVI4/11025/1"</span>, <span class="p_string">"DVI4/22050/1"</span>, <span class="p_string">"G729/8000/1"</span>, <span class="p_word">None</span>, <span class="p_word">None</span>,                     \
+  <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_string">"CelB/90000/1"</span>,                                        \
+  <span class="p_string">"JPEG/90000/1"</span>,  <span class="p_word">None</span>, <span class="p_string">"nv/90000/1"</span>, <span class="p_word">None</span>, <span class="p_word">None</span>,                               \
+  <span class="p_string">"H261/90000/1"</span>, <span class="p_string">"MPV/90000/1"</span>, <span class="p_string">"MP2T/90000/1"</span>, <span class="p_string">"H263/90000/1"</span>]
+
+<span class="p_word">def</span> _type2desc(t):
+    <span class="p_word">if</span> _types[t]:
+        name, srate, scount = _types[t].split(<span class="p_string">'/'</span>)
+        <span class="p_word">return</span> (name, int(srate), int(scount), t, name + <span class="p_string">'/'</span> + srate + (<span class="p_string">''</span> <span class="p_word">if</span> scount == <span class="p_string">'1'</span> <span class="p_word">else</span> <span class="p_string">'/'</span> + scount))
+    <span class="p_word">else</span>:
+        <span class="p_word">return</span> (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, t, <span class="p_word">None</span>)
+
+_desc   = map(_type2desc, range(<span class="p_number">0</span>, len(_types))) 
+_lowers = [(x <span class="p_word">and</span> x.lower() <span class="p_word">or</span> <span class="p_word">None</span>) <span class="p_word">for</span> x <span class="p_word">in</span> _types]
+
+<span class="p_commentline"># return the type (int) for the description ('name/rate' or 'name/rate/count') or </span>
+<span class="p_commentline"># -1 if not found.</span>
+type = <span class="p_word">lambda</span> x:  _lowers.index(x.lower()) <span class="p_word">if</span> x <span class="p_word">and</span> (x.lower() <span class="p_word">in</span> _lowers) \
+          <span class="p_word">else</span> ((_lowers.index(x.lower()+<span class="p_string">'/1'</span>) <span class="p_word">if</span> x <span class="p_word">and</span> ((x.lower()+<span class="p_string">'/1'</span>) <span class="p_word">in</span> _lowers) <span class="p_word">else</span> -<span class="p_number">1</span>))
+
+<span class="p_commentline"># return the description ('name', rate, count, pt, 'name/rate/count') for the type (int)) or </span>
+<span class="p_commentline"># tuple (None, None, None, pt, None) if not found or not defined.</span>
+desc = <span class="p_word">lambda</span> x: _desc[x] <span class="p_word">if</span> x &gt;=<span class="p_number">0</span> <span class="p_word">and</span> x &lt; len(_desc) <span class="p_word">else</span> (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, x, <span class="p_word">None</span>)
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()
+
+  </PRE></BODY>
+</HTML>

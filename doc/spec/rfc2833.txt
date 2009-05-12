@@ -1,0 +1,1442 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                      H. Schulzrinne
+P1L5	Request for Comments: 2833                            Columbia University
+P1L6	Category: Standards Track                                      S. Petrack
+P1L7	                                                                  MetaTel
+P1L8	                                                                 May 2000
+P1L9	
+P1L10	
+P1L11	   RTP Payload for DTMF Digits, Telephony Tones and Telephony Signals
+P1L12	
+P1L13	Status of this Memo
+P1L14	
+P1L15	   This document specifies an Internet standards track protocol for the
+P1L16	   Internet community, and requests discussion and suggestions for
+P1L17	   improvements.  Please refer to the current edition of the "Internet
+P1L18	   Official Protocol Standards" (STD 1) for the standardization state
+P1L19	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L20	
+P1L21	Copyright Notice
+P1L22	
+P1L23	   Copyright (C) The Internet Society (2000).  All Rights Reserved.
+P1L24	
+P1L25	Abstract
+P1L26	
+P1L27	   This memo describes how to carry dual-tone multifrequency (DTMF)
+P1L28	   signaling, other tone signals and telephony events in RTP packets.
+P1L29	
+P1L30	1 Introduction
+P1L31	
+P1L32	   This memo defines two payload formats, one for carrying dual-tone
+P1L33	   multifrequency (DTMF) digits, other line and trunk signals (Section
+P1L34	   3), and a second one for general multi-frequency tones in RTP [1]
+P1L35	   packets (Section 4). Separate RTP payload formats are desirable since
+P1L36	   low-rate voice codecs cannot be guaranteed to reproduce these tone
+P1L37	   signals accurately enough for automatic recognition. Defining
+P1L38	   separate payload formats also permits higher redundancy while
+P1L39	   maintaining a low bit rate.
+P1L40	
+P1L41	   The payload formats described here may be useful in at least three
+P1L42	   applications: DTMF handling for gateways and end systems, as well as
+P1L43	   "RTP trunks". In the first application, the Internet telephony
+P1L44	   gateway detects DTMF on the incoming circuits and sends the RTP
+P1L45	   payload described here instead of regular audio packets. The gateway
+P1L46	   likely has the necessary digital signal processors and algorithms, as
+P1L47	   it often needs to detect DTMF, e.g., for two-stage dialing. Having
+P1L48	   the gateway detect tones relieves the receiving Internet end system
+P1L49	   from having to do this work and also avoids that low bit-rate codecs
+P1L50	   like G.723.1 render DTMF tones unintelligible. Secondly, an Internet
+P2L1	   end system such as an "Internet phone" can emulate DTMF functionality
+P2L2	   without concerning itself with generating precise tone pairs and
+P2L3	   without imposing the burden of tone recognition on the receiver.
+P2L4	
+P2L5	   In the "RTP trunk" application, RTP is used to replace a normal
+P2L6	   circuit-switched trunk between two nodes. This is particularly of
+P2L7	   interest in a telephone network that is still mostly circuit-
+P2L8	   switched.  In this case, each end of the RTP trunk encodes audio
+P2L9	   channels into the appropriate encoding, such as G.723.1 or G.729.
+P2L10	   However, this encoding process destroys in-band signaling information
+P2L11	   which is carried using the least-significant bit ("robbed bit
+P2L12	   signaling") and may also interfere with in-band signaling tones, such
+P2L13	   as the MF digit tones. In addition, tone properties such as the phase
+P2L14	   reversals in the ANSam tone, will not survive speech coding. Thus,
+P2L15	   the gateway needs to remove the in-band signaling information from
+P2L16	   the bit stream. It can now either carry it out-of-band in a signaling
+P2L17	   transport mechanism yet to be defined, or it can use the mechanism
+P2L18	   described in this memorandum. (If the two trunk end points are within
+P2L19	   reach of the same media gateway controller, the media gateway
+P2L20	   controller can also handle the signaling.)  Carrying it in-band may
+P2L21	   simplify the time synchronization between audio packets and the tone
+P2L22	   or signal information. This is particularly relevant where duration
+P2L23	   and timing matter, as in the carriage of DTMF signals.
+P2L24	
+P2L25	1.1 Terminology
+P2L26	
+P2L27	   In this document, the key words "MUST", "MUST NOT", "REQUIRED",
+P2L28	   "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
+P2L29	   and "OPTIONAL" are to be interpreted as described in RFC 2119 [2] and
+P2L30	   indicate requirement levels for compliant implementations.
+P2L31	
+P2L32	2 Events vs. Tones
+P2L33	
+P2L34	   A gateway has two options for handling DTMF digits and events. First,
+P2L35	   it can simply measure the frequency components of the voice band
+P2L36	   signals and transmit this information to the RTP receiver (Section
+P2L37	   4). In this mode, the gateway makes no attempt to discern the meaning
+P2L38	   of the tones, but simply distinguishes tones from speech signals.
+P2L39	
+P2L40	   All tone signals in use in the PSTN and meant for human consumption
+P2L41	   are sequences of simple combinations of sine waves, either added or
+P2L42	   modulated. (There is at least one tone, the ANSam tone [3] used for
+P2L43	   indicating data transmission over voice lines, that makes use of
+P2L44	   periodic phase reversals.)
+P2L45	
+P2L46	   As a second option, a gateway can recognize the tones and translate
+P2L47	   them into a name, such as ringing or busy tone. The receiver then
+P2L48	   produces a tone signal or other indication appropriate to the signal.
+P3L1	   Generally, since the recognition of signals often depends on their
+P3L2	   on/off pattern or the sequence of several tones, this recognition can
+P3L3	   take several seconds. On the other hand, the gateway may have access
+P3L4	   to the actual signaling information that generates the tones and thus
+P3L5	   can generate the RTP packet immediately, without the detour through
+P3L6	   acoustic signals.
+P3L7	
+P3L8	   In the phone network, tones are generated at different places,
+P3L9	   depending on the switching technology and the nature of the tone.
+P3L10	   This determines, for example, whether a person making a call to a
+P3L11	   foreign country hears her local tones she is familiar with or the
+P3L12	   tones as used in the country called.
+P3L13	
+P3L14	   For analog lines, dial tone is always generated by the local switch.
+P3L15	   ISDN terminals may generate dial tone locally and then send a Q.931
+P3L16	   SETUP message containing the dialed digits. If the terminal just
+P3L17	   sends a SETUP message without any Called Party digits, then the
+P3L18	   switch does digit collection, provided by the terminal as KEYPAD
+P3L19	   messages, and provides dial tone over the B-channel. The terminal can
+P3L20	   either use the audio signal on the B-channel or can use the Q.931
+P3L21	   messages to trigger locally generated dial tone.
+P3L22	
+P3L23	   Ringing tone (also called ringback tone) is generated by the local
+P3L24	   switch at the callee, with a one-way voice path opened up as soon as
+P3L25	   the callee's phone rings. (This reduces the chance of clipping the
+P3L26	   called party's response just after answer. It also permits pre-answer
+P3L27	   announcements or in-band call-progress indications to reach the
+P3L28	   caller before or in lieu of a ringing tone.) Congestion tone and
+P3L29	   special information tones can be generated by any of the switches
+P3L30	   along the way, and may be generated by the caller's switch based on
+P3L31	   ISUP messages received. Busy tone is generated by the caller's
+P3L32	   switch, triggered by the appropriate ISUP message, for analog
+P3L33	   instruments, or the ISDN terminal.
+P3L34	
+P3L35	   Gateways which send signaling events via RTP MAY send both named
+P3L36	   signals (Section 3) and the tone representation (Section 4) as a
+P3L37	   single RTP session, using the redundancy mechanism defined in Section
+P3L38	   3.7 to interleave the two representations. It is generally a good
+P3L39	   idea to send both, since it allows the receiver to choose the
+P3L40	   appropriate rendering.
+P3L41	
+P3L42	   If a gateway cannot present a tone representation, it SHOULD send the
+P3L43	   audio tones as regular RTP audio packets (e.g., as payload format
+P3L44	   PCMU), in addition to the named signals.
+P3L45	
+P3L46	
+P3L47	
+P3L48	
+P4L1	3 RTP Payload Format for Named Telephone Events
+P4L2	
+P4L3	3.1 Introduction
+P4L4	
+P4L5	   The payload format for named telephone events described below is
+P4L6	   suitable for both gateway and end-to-end scenarios. In the gateway
+P4L7	   scenario, an Internet telephony gateway connecting a packet voice
+P4L8	   network to the PSTN recreates the DTMF tones or other telephony
+P4L9	   events and injects them into the PSTN. Since, for example, DTMF digit
+P4L10	   recognition takes several tens of milliseconds, the first few
+P4L11	   milliseconds of a digit will arrive as regular audio packets. Thus,
+P4L12	   careful time and power (volume) alignment between the audio samples
+P4L13	   and the events is needed to avoid generating spurious digits at the
+P4L14	   receiver.
+P4L15	
+P4L16	   DTMF digits and named telephone events are carried as part of the
+P4L17	   audio stream, and MUST use the same sequence number and time-stamp
+P4L18	   base as the regular audio channel to simplify the generation of audio
+P4L19	   waveforms at a gateway. The default clock frequency is 8,000 Hz, but
+P4L20	   the clock frequency can be redefined when assigning the dynamic
+P4L21	   payload type.
+P4L22	
+P4L23	   The payload format described here achieves a higher redundancy even
+P4L24	   in the case of sustained packet loss than the method proposed for the
+P4L25	   Voice over Frame Relay Implementation Agreement [4].
+P4L26	
+P4L27	   If an end system is directly connected to the Internet and does not
+P4L28	   need to generate tone signals again, time alignment and power levels
+P4L29	   are not relevant. These systems rely on PSTN gateways or Internet end
+P4L30	   systems to generate DTMF events and do not perform their own audio
+P4L31	   waveform analysis. An example of such a system is an Internet
+P4L32	   interactive voice-response (IVR) system.
+P4L33	
+P4L34	   In circumstances where exact timing alignment between the audio
+P4L35	   stream and the DTMF digits or other events is not important and data
+P4L36	   is sent unicast, such as the IVR example mentioned earlier, it may be
+P4L37	   preferable to use a reliable control protocol rather than RTP
+P4L38	   packets. In those circumstances, this payload format would not be
+P4L39	   used.
+P4L40	
+P4L41	3.2 Simultaneous Generation of Audio and Events
+P4L42	
+P4L43	   A source MAY send events and coded audio packets for the same time
+P4L44	   instants, using events as the redundant encoding for the audio
+P4L45	   stream, or it MAY block outgoing audio while event tones are active
+P4L46	   and only send named events as both the primary and redundant
+P4L47	   encodings.
+P4L48	
+P5L1	   Note that a period covered by an encoded tone may overlap in time
+P5L2	   with a period of audio encoded by other means. This is likely to
+P5L3	   occur at the onset of a tone and is necessary to avoid possible
+P5L4	   errors in the interpretation of the reproduced tone at the remote
+P5L5	   end.  Implementations supporting this payload format must be prepared
+P5L6	   to handle the overlap. It is RECOMMENDED that gateways only render
+P5L7	   the encoded tone since the audio may contain spurious tones
+P5L8	   introduced by the audio compression algorithm. However, it is
+P5L9	   anticipated that these extra tones in general should not interfere
+P5L10	   with recognition at the far end.
+P5L11	
+P5L12	3.3 Event Types
+P5L13	
+P5L14	   This payload format is used for five different types of signals:
+P5L15	
+P5L16	      o  DTMF tones (Section 3.10);
+P5L17	
+P5L18	      o  fax-related tones (Section 3.11);
+P5L19	
+P5L20	      o  standard subscriber line tones (Section 3.12);
+P5L21	
+P5L22	      o  country-specific subscriber line tones (Section 3.13) and;
+P5L23	
+P5L24	      o  trunk events (Section 3.14).
+P5L25	
+P5L26	   A compliant implementation MUST support the events listed in Table 1
+P5L27	   with the exception of "flash". If it uses some other, out-of-band
+P5L28	   mechanism for signaling line conditions, it does not have to
+P5L29	   implement the other events.
+P5L30	
+P5L31	   In some cases, an implementation may simply ignore certain events,
+P5L32	   such as fax tones, that do not make sense in a particular
+P5L33	   environment.  Section 3.9 specifies how an implementation can use the
+P5L34	   SDP "fmtp" parameter within an SDP description to indicate its
+P5L35	   inability to understand a particular event or range of events.
+P5L36	
+P5L37	   Depending on the available user interfaces, an implementation MAY
+P5L38	   render all tones in Table 5 the same or, preferably, use the tones
+P5L39	   conveyed by the concurrent "tone" payload or other RTP audio payload.
+P5L40	   Alternatively, it could provide a textual representation.
+P5L41	
+P5L42	   Note that end systems that emulate telephones only need to support
+P5L43	   the events described in Sections 3.10 and 3.12, while systems that
+P5L44	   receive trunk signaling need to implement those in Sections 3.10,
+P5L45	   3.11, 3.12 and 3.14, since MF trunks also carry most of the "line"
+P5L46	   signals. Systems that do not support fax or modem functionality do
+P5L47	   not need to render fax-related events described in Section 3.11.
+P5L48	
+P6L1	   The RTP payload format is designated as "telephone-event", the MIME
+P6L2	   type as "audio/telephone-event". The default timestamp rate is 8000
+P6L3	   Hz, but other rates may be defined. In accordance with current
+P6L4	   practice, this payload format does not have a static payload type
+P6L5	   number, but uses a RTP payload type number established dynamically
+P6L6	   and out-of-band.
+P6L7	
+P6L8	3.4 Use of RTP Header Fields
+P6L9	
+P6L10	      Timestamp: The RTP timestamp reflects the measurement point for
+P6L11	           the current packet. The event duration described in Section
+P6L12	           3.5 extends forwards from that time. The receiver calculates
+P6L13	           jitter for RTCP receiver reports based on all packets with a
+P6L14	           given timestamp. Note: The jitter value should primarily be
+P6L15	           used as a means for comparing the reception quality between
+P6L16	           two users or two time-periods, not as an absolute measure.
+P6L17	
+P6L18	      Marker bit: The RTP marker bit indicates the beginning of a new
+P6L19	           event.
+P6L20	
+P6L21	3.5 Payload Format
+P6L22	
+P6L23	   The payload format is shown in Fig. 1.
+P6L24	
+P6L25	    0                   1                   2                   3
+P6L26	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P6L27	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P6L28	   |     event     |E|R| volume    |          duration             |
+P6L29	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P6L30	
+P6L31	               Figure 1: Payload Format for Named Events
+P6L32	
+P6L33	      events: The events are encoded as shown in Sections 3.10 through
+P6L34	           3.14.
+P6L35	
+P6L36	      volume: For DTMF digits and other events representable as tones,
+P6L37	           this field describes the power level of the tone, expressed
+P6L38	           in dBm0 after dropping the sign. Power levels range from 0 to
+P6L39	           -63 dBm0. The range of valid DTMF is from 0 to -36 dBm0 (must
+P6L40	           accept); lower than -55 dBm0 must be rejected (TR-TSY-000181,
+P6L41	           ITU-T Q.24A). Thus, larger values denote lower volume. This
+P6L42	           value is defined only for DTMF digits. For other events, it
+P6L43	           is set to zero by the sender and is ignored by the receiver.
+P6L44	
+P6L45	
+P6L46	
+P6L47	
+P6L48	
+P7L1	      duration: Duration of this digit, in timestamp units. Thus, the
+P7L2	           event began at the instant identified by the RTP timestamp
+P7L3	           and has so far lasted as long as indicated by this parameter.
+P7L4	           The event may or may not have ended.
+P7L5	
+P7L6	           For a sampling rate of 8000 Hz, this field is sufficient to
+P7L7	           express event durations of up to approximately 8 seconds.
+P7L8	
+P7L9	      E: If set to a value of one, the "end" bit indicates that this
+P7L10	           packet contains the end of the event. Thus, the duration
+P7L11	           parameter above measures the complete duration of the event.
+P7L12	
+P7L13	           A sender MAY delay setting the end bit until retransmitting
+P7L14	           the last packet for a tone, rather than on its first
+P7L15	           transmission. This avoids having to wait to detect whether
+P7L16	           the tone has indeed ended.
+P7L17	
+P7L18	           Receiver implementations MAY use different algorithms to
+P7L19	           create tones, including the two described here. In the first,
+P7L20	           the receiver simply places a tone of the given duration in
+P7L21	           the audio playout buffer at the location indicated by the
+P7L22	           timestamp. As additional packets are received that extend the
+P7L23	           same tone, the waveform in the playout buffer is extended
+P7L24	           accordingly. (Care has to be taken if audio is mixed, i.e.,
+P7L25	           summed, in the playout buffer rather than simply copied.)
+P7L26	           Thus, if a packet in a tone lasting longer than the packet
+P7L27	           interarrival time gets lost and the playout delay is short, a
+P7L28	           gap in the tone may occur.  Alternatively, the receiver can
+P7L29	           start a tone and play it until it receives a packet with the
+P7L30	           "E" bit set, the next tone, distinguished by a different
+P7L31	           timestamp value or a given time period elapses. This is more
+P7L32	           robust against packet loss, but may extend the tone if all
+P7L33	           retransmissions of the last packet in an event are lost.
+P7L34	           Limiting the time period of extending the tone is necessary
+P7L35	           to avoid that a tone "gets stuck". Regardless of the
+P7L36	           algorithm used, the tone SHOULD NOT be extended by more than
+P7L37	           three packet interarrival times. A slight extension of tone
+P7L38	           durations and shortening of pauses is generally harmless.
+P7L39	
+P7L40	      R: This field is reserved for future use. The sender MUST set it
+P7L41	           to zero, the receiver MUST ignore it.
+P7L42	
+P7L43	
+P7L44	
+P7L45	
+P7L46	
+P7L47	
+P7L48	
+P8L1	3.6 Sending Event Packets
+P8L2	
+P8L3	   An audio source SHOULD start transmitting event packets as soon as it
+P8L4	   recognizes an event and every 50 ms thereafter or the packet interval
+P8L5	   for the audio codec used for this session, if known. (The sender does
+P8L6	   not need to maintain precise time intervals between event packets in
+P8L7	   order to maintain precise inter-event times, since the timing
+P8L8	   information is contained in the timestamp.)
+P8L9	
+P8L10	      Q.24 [5], Table A-1, indicates that all administrations surveyed
+P8L11	      use a minimum signal duration of 40 ms, with signaling velocity
+P8L12	      (tone and pause) of no less than 93 ms.
+P8L13	
+P8L14	   If an event continues for more than one period, the source generating
+P8L15	   the events should send a new event packet with the RTP timestamp
+P8L16	   value corresponding to the beginning of the event and the duration of
+P8L17	   the event increased correspondingly. (The RTP sequence number is
+P8L18	   incremented by one for each packet.) If there has been no new event
+P8L19	   in the last interval, the event SHOULD be retransmitted three times
+P8L20	   or until the next event is recognized. This ensures that the duration
+P8L21	   of the event can be recognized correctly even if the last packet for
+P8L22	   an event is lost.
+P8L23	
+P8L24	      DTMF digits and events are sent incrementally to avoid having the
+P8L25	      receiver wait for the completion of the event.  Since some tones
+P8L26	      are two seconds long, this would incur a substantial delay. The
+P8L27	      transmitter does not know if event length is important and thus
+P8L28	      needs to transmit immediately and incrementally. If the receiver
+P8L29	      application does not care about event length, the incremental
+P8L30	      transmission mechanism avoids delay. Some applications, such as
+P8L31	      gateways into the PSTN, care about both delays and event duration.
+P8L32	
+P8L33	3.7 Reliability
+P8L34	
+P8L35	   During an event, the RTP event payload format provides incremental
+P8L36	   updates on the event. The error resiliency depends on the playout
+P8L37	   delay at the receiver. For example, for a playout delay of 120 ms and
+P8L38	   a packet gap of 50 ms, two packets in a row can get lost without
+P8L39	   causing a gap in the tones generated at the receiver.
+P8L40	
+P8L41	   The audio redundancy mechanism described in RFC 2198 [6] MAY be used
+P8L42	   to recover from packet loss across events. The effective data rate is
+P8L43	   r times 64 bits (32 bits for the redundancy header and 32 bits for
+P8L44	   the telephone-event payload) every 50 ms or r times 1280 bits/second,
+P8L45	   where r is the number of redundant events carried in each packet. The
+P8L46	   value of r is an implementation trade-off, with a value of 5
+P8L47	   suggested.
+P8L48	
+P9L1	      The timestamp offset in this redundancy scheme has 14 bits, so
+P9L2	      that it allows a single packet to "cover" 2.048 seconds of
+P9L3	      telephone events at a sampling rate of 8000 Hz.  Including the
+P9L4	      starting time of previous events allows precise reconstruction of
+P9L5	      the tone sequence at a gateway.  The scheme is resilient to
+P9L6	      consecutive packet losses spanning this interval of 2.048 seconds
+P9L7	      or r digits, whichever is less. Note that for previous digits,
+P9L8	      only an average loudness can be represented.
+P9L9	
+P9L10	   An encoder MAY treat the event payload as a highly-compressed version
+P9L11	   of the current audio frame. In that mode, each RTP packet during an
+P9L12	   event would contain the current audio codec rendition (say, G.723.1
+P9L13	   or G.729) of this digit as well as the representation described in
+P9L14	   Section 3.5, plus any previous events seen earlier.
+P9L15	
+P9L16	      This approach allows dumb gateways that do not understand this
+P9L17	      format to function. See also the discussion in Section 1.
+P9L18	
+P9L19	3.8 Example
+P9L20	
+P9L21	   A typical RTP packet, where the user is just dialing the last digit
+P9L22	   of the DTMF sequence "911". The first digit was 200 ms long (1600
+P9L23	   timestamp units) and started at time 0, the second digit lasted 250
+P9L24	   ms (2000 timestamp units) and started at time 800 ms (6400 timestamp
+P9L25	   units), the third digit was pressed at time 1.4 s (11,200 timestamp
+P9L26	   units) and the packet shown was sent at 1.45 s (11,600 timestamp
+P9L27	   units).  The frame duration is 50 ms. To make the parts recognizable,
+P9L28	   the figure below ignores byte alignment. Timestamp and sequence
+P9L29	   number are assumed to have been zero at the beginning of the first
+P9L30	   digit. In this example, the dynamic payload types 96 and 97 have been
+P9L31	   assigned for the redundancy mechanism and the telephone event
+P9L32	   payload, respectively.
+P9L33	
+P9L34	
+P9L35	
+P9L36	
+P9L37	
+P9L38	
+P9L39	
+P9L40	
+P9L41	
+P9L42	
+P9L43	
+P9L44	
+P9L45	
+P9L46	
+P9L47	
+P9L48	
+P10L1	3.9 Indication of Receiver Capabilities using SDP
+P10L2	
+P10L3	    0                   1                   2                   3
+P10L4	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P10L5	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L6	   |V=2|P|X|  CC   |M|     PT      |       sequence number         |
+P10L7	   | 2 |0|0|   0   |0|     96      |              28               |
+P10L8	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L9	   |                           timestamp                           |
+P10L10	   |                             11200                             |
+P10L11	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L12	   |           synchronization source (SSRC) identifier            |
+P10L13	   |                            0x5234a8                           |
+P10L14	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L15	   |F|   block PT  |     timestamp offset      |   block length    |
+P10L16	   |1|     97      |            11200          |         4         |
+P10L17	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L18	   |F|   block PT  |     timestamp offset      |   block length    |
+P10L19	   |1|     97      |   11200 - 6400 = 4800     |         4         |
+P10L20	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L21	   |F|   Block PT  |
+P10L22	   |0|     97      |
+P10L23	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L24	   |     digit     |E R| volume    |          duration             |
+P10L25	   |       9       |1 0|     7     |             1600              |
+P10L26	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L27	   |     digit     |E R| volume    |          duration             |
+P10L28	   |       1       |1 0|    10     |             2000              |
+P10L29	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L30	   |     digit     |E R| volume    |          duration             |
+P10L31	   |       1       |0 0|    20     |              400              |
+P10L32	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L33	
+P10L34	          Figure 2: Example RTP packet after dialing "911"
+P10L35	
+P10L36	   Receivers MAY indicate which named events they can handle, for
+P10L37	   example, by using the Session Description Protocol (RFC 2327 [7]).
+P10L38	   The payload formats use the following fmtp format to list the event
+P10L39	   values that they can receive:
+P10L40	
+P10L41	   a=fmtp:<format> <list of values>
+P10L42	
+P10L43	   The list of values consists of comma-separated elements, which can be
+P10L44	   either a single decimal number or two decimal numbers separated by a
+P10L45	   hyphen (dash), where the second number is larger than the first. No
+P10L46	   whitespace is allowed between numbers or hyphens. The list does not
+P10L47	   have to be sorted.
+P10L48	
+P11L1	   For example, if the payload format uses the payload type number 100,
+P11L2	   and the implementation can handle the DTMF tones (events 0 through
+P11L3	   15) and the dial and ringing tones, it would include the following
+P11L4	   description in its SDP message:
+P11L5	
+P11L6	   a=fmtp:100 0-15,66,70
+P11L7	
+P11L8	   Since all implementations MUST be able to receive events 0 through
+P11L9	   15, listing these events in the a=fmtp line is OPTIONAL.
+P11L10	
+P11L11	   The corresponding MIME parameter is "events", so that the following
+P11L12	   sample media type definition corresponds to the SDP example above:
+P11L13	
+P11L14	   audio/telephone-event;events="0-11,66,67";rate="8000"
+P11L15	
+P11L16	3.10 DTMF Events
+P11L17	
+P11L18	   Table 1 summarizes the DTMF-related named events within the
+P11L19	   telephone-event payload format.
+P11L20	
+P11L21	                     Event  encoding (decimal)
+P11L22	                     _________________________
+P11L23	                     0--9                0--9
+P11L24	                     *                     10
+P11L25	                     #                     11
+P11L26	                     A--D              12--15
+P11L27	                     Flash                 16
+P11L28	
+P11L29	                     Table 1: DTMF named events
+P11L30	
+P11L31	3.11 Data Modem and Fax Events
+P11L32	
+P11L33	   Table 3.11 summarizes the events and tones that can appear on a
+P11L34	   subscriber line serving a fax machine or modem. The tones are
+P11L35	   described below, with additional detail in Table 7.
+P11L36	
+P11L37	      ANS: This 2100 +/- 15 Hz tone is used to disable echo
+P11L38	           suppression for data transmission [8,9]. For fax machines,
+P11L39	           Recommendation T.30 [9] refers to this tone as called
+P11L40	           terminal identification (CED) answer tone.
+P11L41	
+P11L42	      /ANS: This is the same signal as ANS, except that it reverses
+P11L43	           phase at an interval of 450 +/- 25 ms. It disables both
+P11L44	           echo cancellers and echo suppressors. (In the ITU
+P11L45	           Recommendation V.25 [8], this signal is rendered as ANS
+P11L46	           with a bar on top.)
+P11L47	
+P11L48	
+P12L1	      ANSam: The modified answer tone (ANSam) [3] is a sinewave signal
+P12L2	           at 2100 +/- 1 Hz without phase reversals, amplitude-modulated
+P12L3	           by a sinewave at 15 +/- 0.1 Hz. This tone is sent by modems
+P12L4	           if network echo canceller disabling is not required.
+P12L5	
+P12L6	      /ANSam: The modified answer tone with phase reversals (ANSam) [3]
+P12L7	           is a sinewave signal at 2100 +/- 1 Hz with phase reversals at
+P12L8	           intervals of 450 +/- 25 ms, amplitude-modulated by a sinewave
+P12L9	           at 15 +/- 0.1 Hz. This tone [10,8] is sent by modems [11] and
+P12L10	           faxes to disable echo suppressors.
+P12L11	
+P12L12	      CNG: After dialing the called fax machine's telephone number (and
+P12L13	           before it answers), the calling Group III fax machine
+P12L14	           (optionally) begins sending a CalliNG tone (CNG) consisting
+P12L15	           of an interrupted tone of 1100 Hz. [9]
+P12L16	
+P12L17	      CRdi: Capabilities Request (CRd), initiating side, [12] is a
+P12L18	           dual-tone signal with tones at 1375 Hz and 2002 Hz for 400
+P12L19	           ms, followed by a single tone at 1900 Hz for 100 ms. "This
+P12L20	           signal requests the remote station transition from telephony
+P12L21	           mode to an information transfer mode and requests the
+P12L22	           transmission of a capabilities list message by the remote
+P12L23	           station. In particular, CRdi is sent by the initiating
+P12L24	           station during the course of a call, or by the calling
+P12L25	           station at call establishment in response to a CRe or MRe."
+P12L26	
+P12L27	      CRdr: CRdr is the response tone to CRdi (see above). It consists
+P12L28	           of a dual-tone signal with tones at 1529 Hz and 2225 Hz for
+P12L29	           400 ms, followed by a single tone at 1900 Hz for 100 ms.
+P12L30	
+P12L31	      CRe: Capabilities Request (CRe) [12] is a dual-tone signal with
+P12L32	           tones at tones at 1375 Hz and 2002 Hz for 400 ms, followed by
+P12L33	           a single tone at 400 Hz for 100 ms. "This signal requests the
+P12L34	           remote station transition from telephony mode to an
+P12L35	           information transfer mode and requests the transmission of a
+P12L36	           capabilities list message by the remote station. In
+P12L37	           particular, CRe is sent by an automatic answering station at
+P12L38	           call establishment."
+P12L39	
+P12L40	      CT: "The calling tone [8] consists of a series of interrupted
+P12L41	           bursts of binary 1 signal or 1300 Hz, on for a duration of
+P12L42	           not less than 0.5 s and not more than 0.7 s and off for a
+P12L43	           duration of not less than 1.5 s and not more than 2.0 s."
+P12L44	           Modems not starting with the V.8 call initiation tone often
+P12L45	           use this tone.
+P12L46	
+P12L47	
+P12L48	
+P13L1	      ESi: Escape Signal (ESi) [12] is a dual-tone signal with tones at
+P13L2	           1375 Hz and 2002 Hz for 400 ms, followed by a single tone at
+P13L3	           980 Hz for 100 ms. "This signal requests the remote station
+P13L4	           transition from telephony mode to an information transfer
+P13L5	           mode. signal ESi is sent by the initiating station."
+P13L6	
+P13L7	      ESr: Escape Signal (ESr) [12] is a dual-tone signal with tones at
+P13L8	           1529 Hz and 2225 Hz for 400 ms, followed by a single tone at
+P13L9	           1650 Hz for 100 ms. Same as ESi, but sent by the responding
+P13L10	           station.
+P13L11	
+P13L12	      MRdi: Mode Request (MRd), initiating side, [12] is a dual-tone
+P13L13	           signal with tones at 1375 Hz and 2002 Hz for 400 ms followed
+P13L14	           by a single tone at 1150 Hz for 100 ms. "This signal requests
+P13L15	           the remote station transition from telephony mode to an
+P13L16	           information transfer mode and requests the transmission of a
+P13L17	           mode select message by the remote station. In particular,
+P13L18	           signal MRd is sent by the initiating station during the
+P13L19	           course of a call, or by the calling station at call
+P13L20	           establishment in response to an MRe." [12]
+P13L21	
+P13L22	      MRdr: MRdr is the response tone to MRdi (see above). It consists
+P13L23	           of a dual-tone signal with tones at 1529 Hz and 2225 Hz for
+P13L24	           400 ms, followed by a single tone at 1150 Hz for 100 ms.
+P13L25	
+P13L26	      MRe: Mode Request (MRe) [12] is a dual-tone signal with tones at
+P13L27	           1375 Hz and 2002 Hz for 400 ms, followed by a single tone at
+P13L28	           650 Hz for 100 ms. "This signal requests the remote station
+P13L29	           transition from telephony mode to an information transfer
+P13L30	           mode and requests the transmission of a mode select message
+P13L31	           by the remote station. In particular, signal MRe is sent by
+P13L32	           an automatic answering station at call establishment." [12]
+P13L33	
+P13L34	      V.21: V.21 describes a 300 b/s full-duplex modem that employs
+P13L35	           frequency shift keying (FSK). It is used by Group 3 fax
+P13L36	           machines to exchange T.30 information. The calling transmits
+P13L37	           on channel 1 and receives on channel 2; the answering modem
+P13L38	           transmits on channel 2 and receives on channel 1. Each bit
+P13L39	           value has a distinct tone, so that V.21 signaling comprises a
+P13L40	           total of four distinct tones.
+P13L41	
+P13L42	
+P13L43	
+P13L44	
+P13L45	
+P13L46	
+P13L47	
+P13L48	
+P14L1	   In summary, procedures in Table 2 are used.
+P14L2	
+P14L3	           Procedure                      indications
+P14L4	           ___________________________________________________
+P14L5	           V.25 and V.8                   ANS
+P14L6	           V.25, echo canceller disabled  ANS, /ANS, ANS, /ANS
+P14L7	           V.8                            ANSam
+P14L8	           V.8, echo canceller disabled   /ANSam
+P14L9	
+P14L10	      Table 2: Use of ANS, ANSam and /ANSam in V.x recommendations
+P14L11	
+P14L12	
+P14L13	           Event                    encoding (decimal)
+P14L14	           ___________________________________________________
+P14L15	           Answer tone (ANS)                        32
+P14L16	           /ANS                                     33
+P14L17	           ANSam                                    34
+P14L18	           /ANSam                                   35
+P14L19	           Calling tone (CNG)                       36
+P14L20	           V.21 channel 1, "0" bit                  37
+P14L21	           V.21 channel 1, "1" bit                  38
+P14L22	           V.21 channel 2, "0" bit                  39
+P14L23	           V.21 channel 2, "1" bit                  40
+P14L24	           CRdi                                     41
+P14L25	           CRdr                                     42
+P14L26	           CRe                                      43
+P14L27	           ESi                                      44
+P14L28	           ESr                                      45
+P14L29	           MRdi                                     46
+P14L30	           MRdr                                     47
+P14L31	           MRe                                      48
+P14L32	           CT                                       49
+P14L33	
+P14L34	                Table 3: Data and fax named events
+P14L35	
+P14L36	3.12 Line Events
+P14L37	
+P14L38	   Table 4 summarizes the events and tones that can appear on a
+P14L39	   subscriber line.
+P14L40	
+P14L41	   ITU Recommendation E.182 [13] defines when certain tones should be
+P14L42	   used. It defines the following standard tones that are heard by the
+P14L43	   caller:
+P14L44	
+P14L45	      Dial tone: The exchange is ready to receive address information.
+P14L46	
+P14L47	
+P14L48	
+P15L1	      PABX internal dial tone: The PABX is ready to receive address
+P15L2	           information.
+P15L3	
+P15L4	      Special dial tone: Same as dial tone, but the caller's line is
+P15L5	           subject to a specific condition, such as call diversion or a
+P15L6	           voice mail is available (e.g., "stutter dial tone").
+P15L7	
+P15L8	      Second dial tone: The network has accepted the address
+P15L9	           information, but additional information is required.
+P15L10	
+P15L11	      Ring: This named signal event causes the recipient to generate an
+P15L12	           alerting signal ("ring"). The actual tone or other indication
+P15L13	           used to render this named event is left up to the receiver.
+P15L14	           (This differs from the ringing tone, below, heard by the
+P15L15	           caller
+P15L16	
+P15L17	      Ringing tone: The call has been placed to the callee and a calling
+P15L18	           signal (ringing) is being transmitted to the callee. This
+P15L19	           tone is also called "ringback".
+P15L20	
+P15L21	      Special ringing tone: A special service, such as call forwarding
+P15L22	           or call waiting, is active at the called number.
+P15L23	
+P15L24	      Busy tone: The called telephone number is busy.
+P15L25	
+P15L26	      Congestion tone: Facilities necessary for the call are temporarily
+P15L27	           unavailable.
+P15L28	
+P15L29	      Calling card service tone: The calling card service tone consists
+P15L30	           of 60 ms of the sum of 941 Hz and 1477 Hz tones (DTMF '#'),
+P15L31	           followed by 940 ms of 350 Hz and 440 Hz (U.S.  dial tone),
+P15L32	           decaying exponentially with a time constant of 200 ms.
+P15L33	
+P15L34	      Special information tone: The callee cannot be reached, but the
+P15L35	           reason is neither "busy" nor "congestion". This tone should
+P15L36	           be used before all call failure announcements, for the
+P15L37	           benefit of automatic equipment.
+P15L38	
+P15L39	      Comfort tone: The call is being processed. This tone may be used
+P15L40	           during long post-dial delays, e.g., in international
+P15L41	           connections.
+P15L42	
+P15L43	      Hold tone: The caller has been placed on hold.
+P15L44	
+P15L45	      Record tone: The caller has been connected to an automatic
+P15L46	           answering device and is requested to begin speaking.
+P15L47	
+P15L48	
+P16L1	      Caller waiting tone: The called station is busy, but has call
+P16L2	           waiting service.
+P16L3	
+P16L4	      Pay tone: The caller, at a payphone, is reminded to deposit
+P16L5	           additional coins.
+P16L6	
+P16L7	      Positive indication tone: The supplementary service has been
+P16L8	           activated.
+P16L9	
+P16L10	      Negative indication tone: The supplementary service could not be
+P16L11	           activated.
+P16L12	
+P16L13	      Off-hook warning tone: The caller has left the instrument off-hook
+P16L14	           for an extended period of time.
+P16L15	
+P16L16	   The following tones can be heard by either calling or called party
+P16L17	   during a conversation:
+P16L18	
+P16L19	      Call waiting tone: Another party wants to reach the subscriber.
+P16L20	
+P16L21	      Warning tone: The call is being recorded. This tone is not
+P16L22	           required in all jurisdictions.
+P16L23	
+P16L24	      Intrusion tone: The call is being monitored, e.g., by an operator.
+P16L25	
+P16L26	      CPE alerting signal: A tone used to alert a device to an arriving
+P16L27	           in-band FSK data transmission. A CPE alerting signal is a
+P16L28	           combined 2130 and 2750 Hz tone, both with tolerances of 0.5%
+P16L29	           and a duration of 80 to.  80 ms. The CPE alerting signal is
+P16L30	           used with ADSI services and Call Waiting ID services [14].
+P16L31	
+P16L32	   The following tones are heard by operators:
+P16L33	
+P16L34	      Payphone recognition tone: The person making the call or being
+P16L35	           called is using a payphone (and thus it is ill-advised to
+P16L36	           allow collect calls to such a person).
+P16L37	
+P16L38	
+P16L39	
+P16L40	
+P16L41	
+P16L42	
+P16L43	
+P16L44	
+P16L45	
+P16L46	
+P16L47	
+P16L48	
+P17L1	          Event                      encoding (decimal)
+P17L2	          _____________________________________________
+P17L3	          Off Hook                                  64
+P17L4	          On Hook                                   65
+P17L5	          Dial tone                                 66
+P17L6	          PABX internal dial tone                   67
+P17L7	          Special dial tone                         68
+P17L8	          Second dial tone                          69
+P17L9	          Ringing tone                              70
+P17L10	          Special ringing tone                      71
+P17L11	          Busy tone                                 72
+P17L12	          Congestion tone                           73
+P17L13	          Special information tone                  74
+P17L14	          Comfort tone                              75
+P17L15	          Hold tone                                 76
+P17L16	          Record tone                               77
+P17L17	          Caller waiting tone                       78
+P17L18	          Call waiting tone                         79
+P17L19	          Pay tone                                  80
+P17L20	          Positive indication tone                  81
+P17L21	          Negative indication tone                  82
+P17L22	          Warning tone                              83
+P17L23	          Intrusion tone                            84
+P17L24	          Calling card service tone                 85
+P17L25	          Payphone recognition tone                 86
+P17L26	          CPE alerting signal (CAS)                 87
+P17L27	          Off-hook warning tone                     88
+P17L28	          Ring                                      89
+P17L29	
+P17L30	                   Table 4: E.182 line events
+P17L31	
+P17L32	3.13 Extended Line Events
+P17L33	
+P17L34	   Table 5 summarizes country-specific events and tones that can appear
+P17L35	   on a subscriber line.
+P17L36	
+P17L37	3.14 Trunk Events
+P17L38	
+P17L39	   Table 6 summarizes the events and tones that can appear on a trunk.
+P17L40	   Note that trunk can also carry line events (Section 3.12), as MF
+P17L41	   signaling does not include backward signals [15].
+P17L42	
+P17L43	      ABCD transitional: 4-bit signaling used by digital trunks. For N-
+P17L44	           state signaling, the first N values are used.
+P17L45	
+P17L46	
+P17L47	
+P17L48	
+P18L1	       Event                            encoding (decimal)
+P18L2	       ___________________________________________________
+P18L3	       Acceptance tone                                  96
+P18L4	       Confirmation tone                                97
+P18L5	       Dial tone, recall                                98
+P18L6	       End of three party service tone                  99
+P18L7	       Facilities tone                                 100
+P18L8	       Line lockout tone                               101
+P18L9	       Number unobtainable tone                        102
+P18L10	       Offering tone                                   103
+P18L11	       Permanent signal tone                           104
+P18L12	       Preemption tone                                 105
+P18L13	       Queue tone                                      106
+P18L14	       Refusal tone                                    107
+P18L15	       Route tone                                      108
+P18L16	       Valid tone                                      109
+P18L17	       Waiting tone                                    110
+P18L18	       Warning tone (end of period)                    111
+P18L19	       Warning Tone (PIP tone)                         112
+P18L20	
+P18L21	            Table 5: Country-specific Line events
+P18L22	
+P18L23	           The T1 ESF (extended super frame format) allows 2, 4, and 16
+P18L24	           state signaling bit options. These signaling bits are named
+P18L25	           A, B, C, and D.  Signaling information is sent as robbed bits
+P18L26	           in frames 6, 12, 18, and 24 when using ESF T1 framing. A D4
+P18L27	           superframe only transmits 4-state signaling with A and B
+P18L28	           bits. On the CEPT E1 frame, all signaling is carried in
+P18L29	           timeslot 16, and two channels of 16-state (ABCD) signaling
+P18L30	           are sent per frame.
+P18L31	
+P18L32	           Since this information is a state rather than a changing
+P18L33	           signal, implementations SHOULD use the following triple-
+P18L34	           redundancy mechanism, similar to the one specified in ITU-T
+P18L35	           Rec. I.366.2 [16], Annex L. At the time of a transition, the
+P18L36	           same ABCD information is sent 3 times at an interval of 5 ms.
+P18L37	           If another transition occurs during this time, then this
+P18L38	           continues. After a period of no change, the ABCD information
+P18L39	           is sent every 5 seconds.
+P18L40	
+P18L41	      Wink: A brief transition, typically 120-290 ms, from on-hook
+P18L42	           (unseized) to off-hook (seized) and back to onhook, used by
+P18L43	           the incoming exchange to signal that the call address
+P18L44	           signaling can proceed.
+P18L45	
+P18L46	      Incoming seizure: Incoming indication of call attempt (off-hook).
+P18L47	
+P18L48	
+P19L1	       Event                           encoding (decimal)
+P19L2	       __________________________________________________
+P19L3	       MF 0... 9                                128...137
+P19L4	       MF K0 or KP (start-of-pulsing)                 138
+P19L5	       MF K1                                          139
+P19L6	       MF K2                                          140
+P19L7	       MF S0 to ST (end-of-pulsing)                   141
+P19L8	       MF S1... S3                              142...143
+P19L9	       ABCD signaling (see below)               144...159
+P19L10	       Wink                                           160
+P19L11	       Wink off                                       161
+P19L12	       Incoming seizure                               162
+P19L13	       Seizure                                        163
+P19L14	       Unseize circuit                                164
+P19L15	       Continuity test                                165
+P19L16	       Default continuity tone                        166
+P19L17	       Continuity tone (single tone)                  167
+P19L18	       Continuity test send                           168
+P19L19	       Continuity verified                            170
+P19L20	       Loopback                                       171
+P19L21	       Old milliwatt tone (1000 Hz)                   172
+P19L22	       New milliwatt tone (1004 Hz)                   173
+P19L23	
+P19L24	                     Table 6: Trunk events
+P19L25	
+P19L26	      Seizure: Seizure by answering exchange, in response to outgoing
+P19L27	           seizure.
+P19L28	
+P19L29	      Unseize circuit: Transition of circuit from off-hook to on-hook at
+P19L30	           the end of a call.
+P19L31	
+P19L32	      Wink off: A brief transition, typically 100-350 ms, from off-hook
+P19L33	           (seized) to on-hook (unseized) and back to off-hook (seized).
+P19L34	           Used in operator services trunks.
+P19L35	
+P19L36	      Continuity tone send: A tone of 2010 Hz.
+P19L37	
+P19L38	      Continuity tone detect: A tone of 2010 Hz.
+P19L39	
+P19L40	      Continuity test send: A tone of 1780 Hz is sent by the calling
+P19L41	           exchange. If received by the called exchange, it returns a
+P19L42	           "continuity verified" tone.
+P19L43	
+P19L44	      Continuity verified: A tone of 2010 Hz. This is a response tone,
+P19L45	           used in dual-tone procedures.
+P19L46	
+P19L47	
+P19L48	
+P20L1	4 RTP Payload Format for Telephony Tones
+P20L2	
+P20L3	4.1 Introduction
+P20L4	
+P20L5	   As an alternative to describing tones and events by name, as
+P20L6	   described in Section 3, it is sometimes preferable to describe them
+P20L7	   by their waveform properties. In particular, recognition is faster
+P20L8	   than for naming signals since it does not depend on recognizing
+P20L9	   durations or pauses.
+P20L10	
+P20L11	   There is no single international standard for telephone tones such as
+P20L12	   dial tone, ringing (ringback), busy, congestion ("fast-busy"),
+P20L13	   special announcement tones or some of the other special tones, such
+P20L14	   as payphone recognition, call waiting or record tone. However, across
+P20L15	   all countries, these tones share a number of characteristics [17]:
+P20L16	
+P20L17	      o  Telephony tones consist of either a single tone, the addition
+P20L18	         of two or three tones or the modulation of two tones. (Almost
+P20L19	         all tones use two frequencies; only the Hungarian "special dial
+P20L20	         tone" has three.) Tones that are mixed have the same amplitude
+P20L21	         and do not decay.
+P20L22	
+P20L23	      o  Tones for telephony events are in the range of 25 (ringing tone
+P20L24	         in Angola) to 1800 Hz. CED is the highest used tone at 2100 Hz.
+P20L25	         The telephone frequency range is limited to 3,400 Hz.  (The
+P20L26	         piano has a range from 27.5 to 4186 Hz.)
+P20L27	
+P20L28	      o  Modulation frequencies range between 15 (ANSam tone) to 480 Hz
+P20L29	         (Jamaica). Non-integer frequencies are used only for
+P20L30	         frequencies of 16 2/3 and 33 1/3 Hz. (These fractional
+P20L31	         frequencies appear to be derived from older AC power grid
+P20L32	         frequencies.)
+P20L33	
+P20L34	      o  Tones that are not continuous have durations of less than four
+P20L35	         seconds.
+P20L36	
+P20L37	      o  ITU Recommendation E.180 [18] notes that different telephone
+P20L38	         companies require a tone accuracy of between 0.5 and 1.5%.  The
+P20L39	         Recommendation suggests a frequency tolerance of 1%.
+P20L40	
+P20L41	4.2 Examples of Common Telephone Tone Signals
+P20L42	
+P20L43	   As an aid to the implementor, Table 7 summarizes some common tones.
+P20L44	   The rows labeled "ITU ..." refer to the general recommendation of
+P20L45	   Recommendation E.180 [18]. Note that there are no specific guidelines
+P20L46	   for these tones. In the table, the symbol "+" indicates addition of
+P20L47	
+P20L48	
+P21L1	   the tones, without modulation, while "*" indicates amplitude
+P21L2	   modulation. The meaning of some of the tones is described in Section
+P21L3	   3.12 or Section 3.11 (for V.21).
+P21L4	
+P21L5	     Tone name             frequency  on period  off period
+P21L6	     ______________________________________________________
+P21L7	     CNG                        1100        0.5         3.0
+P21L8	     V.25 CT                    1300        0.5         2.0
+P21L9	     CED                        2100        3.3          --
+P21L10	     ANS                        2100        3.3          --
+P21L11	     ANSam                   2100*15        3.3          --
+P21L12	     V.21 "0" bit, ch. 1        1180    0.00333
+P21L13	     V.21 "1" bit, ch. 1         980    0.00333
+P21L14	     V.21 "0" bit, ch. 2        1850    0.00333
+P21L15	     V.21 "1" bit, ch. 2        1650    0.00333
+P21L16	     ITU dial tone               425         --          --
+P21L17	     U.S. dial tone          350+440         --          --
+P21L18	     ______________________________________________________
+P21L19	     ITU ringing tone            425  0.67--1.5        3--5
+P21L20	     U.S. ringing tone       440+480        2.0         4.0
+P21L21	     ITU busy tone               425
+P21L22	     U.S. busy tone          480+620        0.5         0.5
+P21L23	     ______________________________________________________
+P21L24	     ITU congestion tone         425
+P21L25	     U.S. congestion tone    480+620       0.25        0.25
+P21L26	
+P21L27	             Table 7: Examples of telephony tones
+P21L28	
+P21L29	4.3 Use of RTP Header Fields
+P21L30	
+P21L31	      Timestamp: The RTP timestamp reflects the measurement point for
+P21L32	           the current packet. The event duration described in Section
+P21L33	           3.5 extends forwards from that time.
+P21L34	
+P21L35	4.4 Payload Format
+P21L36	
+P21L37	   Based on the characteristics described above, this document defines
+P21L38	   an RTP payload format called "tone" that can represent tones
+P21L39	   consisting of one or more frequencies. (The corresponding MIME type
+P21L40	   is "audio/tone".) The default timestamp rate is 8,000 Hz, but other
+P21L41	   rates may be defined. Note that the timestamp rate does not affect
+P21L42	   the interpretation of the frequency, just the durations.
+P21L43	
+P21L44	   In accordance with current practice, this payload format does not
+P21L45	   have a static payload type number, but uses a RTP payload type number
+P21L46	   established dynamically and out-of-band.
+P21L47	
+P21L48	   It is shown in Fig. 3.
+P22L1	     0                   1                   2                   3
+P22L2	     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P22L3	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P22L4	    |    modulation   |T|  volume   |          duration             |
+P22L5	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P22L6	    |R R R R|       frequency       |R R R R|       frequency       |
+P22L7	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P22L8	    |R R R R|       frequency       |R R R R|       frequency       |
+P22L9	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P22L10	    ......
+P22L11	
+P22L12	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P22L13	    |R R R R|       frequency       |R R R R|      frequency        |
+P22L14	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P22L15	
+P22L16	                 Figure 3: Payload format for tones
+P22L17	
+P22L18	   The payload contains the following fields:
+P22L19	
+P22L20	      modulation: The modulation frequency, in Hz. The field is a 9-bit
+P22L21	           unsigned integer, allowing modulation frequencies up to 511
+P22L22	           Hz. If there is no modulation, this field has a value of
+P22L23	           zero.
+P22L24	
+P22L25	      T: If the "T" bit is set (one), the modulation frequency is to be
+P22L26	           divided by three. Otherwise, the modulation frequency is
+P22L27	           taken as is.
+P22L28	
+P22L29	           This bit allows frequencies accurate to 1/3 Hz, since
+P22L30	           modulation frequencies such as 16 2/3 Hz are in practical
+P22L31	           use.
+P22L32	
+P22L33	      volume: The power level of the tone, expressed in dBm0 after
+P22L34	           dropping the sign, with range from 0 to -63 dBm0. (Note: A
+P22L35	           preferred level range for digital tone generators is -8 dBm0
+P22L36	           to -3 dBm0.)
+P22L37	
+P22L38	      duration: The duration of the tone, measured in timestamp units.
+P22L39	           The tone begins at the instant identified by the RTP
+P22L40	           timestamp and lasts for the duration value.
+P22L41	
+P22L42	           The definition of duration corresponds to that for sample-
+P22L43	           based codecs, where the timestamp represents the sampling
+P22L44	           point for the first sample.
+P22L45	
+P22L46	      frequency: The frequencies of the tones to be added, measured in
+P22L47	           Hz and represented as a 12-bit unsigned integer. The field
+P22L48	           size is sufficient to represent frequencies up to 4095 Hz,
+P23L1	           which exceeds the range of telephone systems. A value of zero
+P23L2	           indicates silence. A single tone can contain any number of
+P23L3	           frequencies.
+P23L4	
+P23L5	      R: This field is reserved for future use. The sender MUST set it
+P23L6	           to zero, the receiver MUST ignore it.
+P23L7	
+P23L8	4.5 Reliability
+P23L9	
+P23L10	   This payload format uses the reliability mechanism described in
+P23L11	   Section 3.7.
+P23L12	
+P23L13	5 Combining Tones and Named Events
+P23L14	
+P23L15	   The payload formats in Sections 3 and 4 can be combined into a single
+P23L16	   payload using the method specified in RFC 2198. Fig. 4 shows an
+P23L17	   example. In that example, the RTP packet combines two "tone" and one
+P23L18	   "telephone-event" payloads.  The payload types are chosen arbitrarily
+P23L19	   as 97 and 98, respectively, with a sample rate of 8000 Hz. Here, the
+P23L20	   redundancy format has the dynamic payload type 96.
+P23L21	
+P23L22	   The packet represents a snapshot of U.S. ringing tone, 1.5 seconds
+P23L23	   (12,000 timestamp units) into the second "on" part of the 2.0/4.0
+P23L24	   second cadence, i.e., a total of 7.5 seconds (60,000 timestamp units)
+P23L25	   into the ring cycle. The 440 + 480 Hz tone of this second cadence
+P23L26	   started at RTP timestamp 48,000. Four seconds of silence preceded it,
+P23L27	   but since RFC 2198 only has a fourteen-bit offset, only 2.05 seconds
+P23L28	   (16383 timestamp units) can be represented. Even though the tone
+P23L29	   sequence is not complete, the sender was able to determine that this
+P23L30	   is indeed ringback, and thus includes the corresponding named event.
+P23L31	
+P23L32	6 MIME Registration
+P23L33	
+P23L34	6.1 audio/telephone-event
+P23L35	
+P23L36	      MIME media type name: audio
+P23L37	
+P23L38	      MIME subtype name: telephone-event
+P23L39	
+P23L40	      Required parameters: none.
+P23L41	
+P23L42	
+P23L43	
+P23L44	
+P23L45	
+P23L46	
+P23L47	
+P23L48	
+P24L1	     0                   1                   2                   3
+P24L2	     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P24L3	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L4	    | V |P|X|  CC   |M|     PT      |       sequence number         |
+P24L5	    | 2 |0|0|   0   |0|     96      |              31               |
+P24L6	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L7	    |                           timestamp                           |
+P24L8	    |                             48000                             |
+P24L9	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L10	    |           synchronization source (SSRC) identifier            |
+P24L11	    |                            0x5234a8                           |
+P24L12	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L13	    |F|   block PT  |     timestamp offset      |   block length    |
+P24L14	    |1|     98      |            16383          |         4         |
+P24L15	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L16	    |F|   block PT  |     timestamp offset      |   block length    |
+P24L17	    |1|     97      |            16383          |         8         |
+P24L18	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L19	    |F|   Block PT  |
+P24L20	    |0|     97      |
+P24L21	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L22	    |  event=ring   |0|0| volume=0  |     duration=28383            |
+P24L23	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L24	
+P24L25	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L26	    | modulation=0    |0| volume=63 |     duration=16383            |
+P24L27	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L28	    |0 0 0 0|     frequency=0       |0 0 0 0|    frequency=0        |
+P24L29	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L30	
+P24L31	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L32	    | modulation=0    |0| volume=5  |     duration=12000            |
+P24L33	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L34	    |0 0 0 0|     frequency=440     |0 0 0 0|    frequency=480      |
+P24L35	    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P24L36	
+P24L37	       Figure 4: Combining tones and events in a single RTP packet
+P24L38	
+P24L39	      Optional parameters: The "events" parameter lists the events
+P24L40	           supported by the implementation. Events are listed as one or
+P24L41	           more comma-separated elements. Each element can either be a
+P24L42	           single integer or two integers separated by a hyphen.  No
+P24L43	           white space is allowed in the argument. The integers
+P24L44	           designate the event numbers supported by the implementation.
+P24L45	           All implementations MUST support events 0 through 15, so that
+P24L46	           the parameter can be omitted if the implementation only
+P24L47	           supports these events.
+P24L48	
+P25L1	           The "rate" parameter describes the sampling rate, in Hertz.
+P25L2	           The number is written as a floating point number or as an
+P25L3	           integer. If omitted, the default value is 8000 Hz.
+P25L4	
+P25L5	      Encoding considerations: This type is only defined for transfer
+P25L6	           via RTP [1].
+P25L7	
+P25L8	      Security considerations: See the "Security Considerations"
+P25L9	           (Section 7) section in this document.
+P25L10	
+P25L11	      Interoperability considerations: none
+P25L12	
+P25L13	      Published specification: This document.
+P25L14	
+P25L15	      Applications which use this media: The telephone-event audio
+P25L16	           subtype supports the transport of events occurring in
+P25L17	           telephone systems over the Internet.
+P25L18	
+P25L19	      Additional information:
+P25L20	
+P25L21	           1. Magic number(s): N/A
+P25L22	
+P25L23	           2. File extension(s): N/A
+P25L24	
+P25L25	           3. Macintosh file type code: N/A
+P25L26	
+P25L27	6.2 audio/tone
+P25L28	
+P25L29	      MIME media type name: audio
+P25L30	
+P25L31	      MIME subtype name: tone
+P25L32	
+P25L33	      Required parameters: none
+P25L34	
+P25L35	      Optional parameters: The "rate" parameter describes the sampling
+P25L36	           rate, in Hertz. The number is written as a floating point
+P25L37	           number or as an integer. If omitted, the default value is
+P25L38	           8000 Hz.
+P25L39	
+P25L40	      Encoding considerations: This type is only defined for transfer
+P25L41	           via RTP [1].
+P25L42	
+P25L43	      Security considerations: See the "Security Considerations"
+P25L44	           (Section 7) section in this document.
+P25L45	
+P25L46	      Interoperability considerations: none
+P25L47	
+P25L48	      Published specification: This document.
+P26L1	      Applications which use this media: The tone audio subtype supports
+P26L2	           the transport of pure composite tones, for example those
+P26L3	           commonly used in the current telephone system to signal call
+P26L4	           progress.
+P26L5	
+P26L6	      Additional information:
+P26L7	
+P26L8	           1. Magic number(s): N/A
+P26L9	
+P26L10	           2. File extension(s): N/A
+P26L11	
+P26L12	           3. Macintosh file type code: N/A
+P26L13	
+P26L14	7 Security Considerations
+P26L15	
+P26L16	   RTP packets using the payload format defined in this specification
+P26L17	   are subject to the security considerations discussed in the RTP
+P26L18	   specification (RFC 1889 [1]), and any appropriate RTP profile (for
+P26L19	   example RFC 1890 [19]).This implies that confidentiality of the media
+P26L20	   streams is achieved by encryption. Because the data compression used
+P26L21	   with this payload format is applied end-to-end, encryption may be
+P26L22	   performed after compression so there is no conflict between the two
+P26L23	   operations.
+P26L24	
+P26L25	   This payload type does not exhibit any significant non-uniformity in
+P26L26	   the receiver side computational complexity for packet processing to
+P26L27	   cause a potential denial-of-service threat.
+P26L28	
+P26L29	   In older networks employing in-band signaling and lacking appropriate
+P26L30	   tone filters, the tones in Section 3.14 may be used to commit toll
+P26L31	   fraud.
+P26L32	
+P26L33	   Additional security considerations are described in RFC 2198 [6].
+P26L34	
+P26L35	8 IANA Considerations
+P26L36	
+P26L37	   This document defines two new RTP payload formats, named telephone-
+P26L38	   event and tone, and associated Internet media (MIME) types,
+P26L39	   audio/telephone-event and audio/tone.
+P26L40	
+P26L41	   Within the audio/telephone-event type, additional events MUST be
+P26L42	   registered with IANA. Registrations are subject to approval by the
+P26L43	   current chair of the IETF audio/video transport working group, or by
+P26L44	   an expert designated by the transport area director if the AVT group
+P26L45	   has closed.
+P26L46	
+P26L47	
+P26L48	
+P27L1	   The meaning of new events MUST be documented either as an RFC or an
+P27L2	   equivalent standards document produced by another standardization
+P27L3	   body, such as ITU-T.
+P27L4	
+P27L5	9 Acknowledgements
+P27L6	
+P27L7	   The suggestions of the Megaco working group are gratefully
+P27L8	   acknowledged.  Detailed advice and comments were provided by Fred
+P27L9	   Burg, Steve Casner, Fatih Erdin, Bill Foster, Mike Fox, Gunnar
+P27L10	   Hellstrom, Terry Lyons, Steve Magnell, Vern Paxson and Colin Perkins.
+P27L11	
+P27L12	10 Authors' Addresses
+P27L13	
+P27L14	   Henning Schulzrinne
+P27L15	   Dept. of Computer Science
+P27L16	   Columbia University
+P27L17	   1214 Amsterdam Avenue
+P27L18	   New York, NY 10027
+P27L19	   USA
+P27L20	
+P27L21	   EMail:  schulzrinne@cs.columbia.edu
+P27L22	
+P27L23	
+P27L24	   Scott Petrack
+P27L25	   MetaTel
+P27L26	   45 Rumford Avenue
+P27L27	   Waltham, MA 02453
+P27L28	   USA
+P27L29	
+P27L30	   EMail:  scott.petrack@metatel.com
+P27L31	
+P27L32	11 Bibliography
+P27L33	
+P27L34	   [1]  Schulzrinne, H., Casner, S., Frederick, R. and V. Jacobson,
+P27L35	        "RTP:  A Transport Protocol for Real-Time Applications", RFC
+P27L36	        1889, January 1996.
+P27L37	
+P27L38	   [2]  Bradner, S., "Key words for use in RFCs to Indicate Requirement
+P27L39	        Levels", BCP 14, RFC 2119, March 1997.
+P27L40	
+P27L41	   [3]  International Telecommunication Union, "Procedures for starting
+P27L42	        sessions of data transmission over the public switched telephone
+P27L43	        network," Recommendation V.8, Telecommunication Standardization
+P27L44	        Sector of ITU, Geneva, Switzerland, Feb. 1998.
+P27L45	
+P27L46	   [4]  R. Kocen and T. Hatala, "Voice over frame relay implementation
+P27L47	        agreement", Implementation Agreement FRF.11, Frame Relay Forum,
+P27L48	        Foster City, California, Jan. 1997.
+P28L1	   [5]  International Telecommunication Union, "Multifrequency push-
+P28L2	        button signal reception," Recommendation Q.24, Telecommunication
+P28L3	        Standardization Sector of ITU, Geneva, Switzerland, 1988.
+P28L4	
+P28L5	   [6]  Perkins, C., Kouvelas, I., Hodson, O., Hardman, V., Handley, M.,
+P28L6	        Bolot, J., Vega-Garcia, A. and S. Fosse-Parisis, "RTP Payload
+P28L7	        for Redundant Audio Data", RFC 2198, September 1997.
+P28L8	
+P28L9	   [7]  Handley M. and V. Jacobson, "SDP: Session Description Protocol",
+P28L10	        RFC 2327, April 1998.
+P28L11	
+P28L12	   [8]  International Telecommunication Union, "Automatic answering
+P28L13	        equipment and general procedures for automatic calling equipment
+P28L14	        on the general switched telephone network including procedures
+P28L15	        for disabling of echo control devices for both manually and
+P28L16	        automatically established calls," Recommendation V.25,
+P28L17	        Telecommunication Standardization Sector of ITU, Geneva,
+P28L18	        Switzerland, Oct. 1996.
+P28L19	
+P28L20	   [9]  International Telecommunication Union, "Procedures for document
+P28L21	        facsimile transmission in the general switched telephone
+P28L22	        network," Recommendation T.30, Telecommunication Standardization
+P28L23	        Sector of ITU, Geneva, Switzerland, July 1996.
+P28L24	
+P28L25	   [10] International Telecommunication Union, "Echo cancellers,"
+P28L26	        Recommendation G.165, Telecommunication Standardization Sector
+P28L27	        of ITU, Geneva, Switzerland, Mar. 1993.
+P28L28	
+P28L29	   [11] International Telecommunication Union, "A modem operating at
+P28L30	        data signaling rates of up to 33 600 bit/s for use on the
+P28L31	        general switched telephone network and on leased point-to-point
+P28L32	        2-wire telephone-type circuits," Recommendation V.34,
+P28L33	        Telecommunication Standardization Sector of ITU, Geneva,
+P28L34	        Switzerland, Feb. 1998.
+P28L35	
+P28L36	   [12] International Telecommunication Union, "Procedures for the
+P28L37	        identification and selection of common modes of operation
+P28L38	        between data circuit-terminating equipments (DCEs) and between
+P28L39	        data terminal equipments (DTEs) over the public switched
+P28L40	        telephone network and on leased point-to-point telephone-type
+P28L41	        circuits," Recommendation V.8bis, Telecommunication
+P28L42	        Standardization Sector of ITU, Geneva, Switzerland, Sept. 1998.
+P28L43	
+P28L44	   [13] International Telecommunication Union, "Application of tones and
+P28L45	        recorded announcements in telephone services," Recommendation
+P28L46	        E.182, Telecommunication Standardization Sector of ITU, Geneva,
+P28L47	        Switzerland, Mar. 1998.
+P28L48	
+P29L1	   [14] Bellcore, "Functional criteria for digital loop carrier
+P29L2	        systems," Technical Requirement TR-NWT-000057, Telcordia
+P29L3	        (formerly Bellcore), Morristown, New Jersey, Jan. 1993.
+P29L4	
+P29L5	   [15] J. G. van Bosse, Signaling in Telecommunications Networks
+P29L6	        Telecommunications and Signal Processing, New York, New York:
+P29L7	        Wiley, 1998.
+P29L8	
+P29L9	   [16] International Telecommunication Union, "AAL type 2 service
+P29L10	        specific convergence sublayer for trunking," Recommendation
+P29L11	        I.366.2, Telecommunication Standardization Sector of ITU,
+P29L12	        Geneva, Switzerland, Feb. 1999.
+P29L13	
+P29L14	   [17] International Telecommunication Union, "Various tones used in
+P29L15	        national networks," Recommendation Supplement 2 to
+P29L16	        Recommendation E.180, Telecommunication Standardization Sector
+P29L17	        of ITU, Geneva, Switzerland, Jan. 1994.
+P29L18	
+P29L19	   [18] International Telecommunication Union, "Technical
+P29L20	        characteristics of tones for telephone service," Recommendation
+P29L21	        Supplement 2 to Recommendation E.180, Telecommunication
+P29L22	        Standardization Sector of ITU, Geneva, Switzerland, Jan. 1994.
+P29L23	
+P29L24	   [19] Schulzrinne, H., "RTP Profile for Audio and Video Conferences
+P29L25	        with Minimal Control", RFC 1890, January 1996.
+P29L26	
+P29L27	
+P29L28	
+P29L29	
+P29L30	
+P29L31	
+P29L32	
+P29L33	
+P29L34	
+P29L35	
+P29L36	
+P29L37	
+P29L38	
+P29L39	
+P29L40	
+P29L41	
+P29L42	
+P29L43	
+P29L44	
+P29L45	
+P29L46	
+P29L47	
+P29L48	
+P30L1	12 Full Copyright Statement
+P30L2	
+P30L3	   Copyright (C) The Internet Society (2000).  All Rights Reserved.
+P30L4	
+P30L5	   This document and translations of it may be copied and furnished to
+P30L6	   others, and derivative works that comment on or otherwise explain it
+P30L7	   or assist in its implementation may be prepared, copied, published
+P30L8	   and distributed, in whole or in part, without restriction of any
+P30L9	   kind, provided that the above copyright notice and this paragraph are
+P30L10	   included on all such copies and derivative works.  However, this
+P30L11	   document itself may not be modified in any way, such as by removing
+P30L12	   the copyright notice or references to the Internet Society or other
+P30L13	   Internet organizations, except as needed for the purpose of
+P30L14	   developing Internet standards in which case the procedures for
+P30L15	   copyrights defined in the Internet Standards process must be
+P30L16	   followed, or as required to translate it into languages other than
+P30L17	   English.
+P30L18	
+P30L19	   The limited permissions granted above are perpetual and will not be
+P30L20	   revoked by the Internet Society or its successors or assigns.
+P30L21	
+P30L22	   This document and the information contained herein is provided on an
+P30L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P30L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P30L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P30L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P30L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P30L28	
+P30L29	Acknowledgement
+P30L30	
+P30L31	   Funding for the RFC Editor function is currently provided by the
+P30L32	   Internet Society.
+P30L33	
+P30L34	
+P30L35	
+P30L36	
+P30L37	
+P30L38	
+P30L39	
+P30L40	
+P30L41	
+P30L42	
+P30L43	
+P30L44	
+P30L45	
+P30L46	
+P30L47	
+P30L48	

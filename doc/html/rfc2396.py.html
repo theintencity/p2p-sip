@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC2396 (URI)</b></DIV><PRE>
+<span class="p_triple">'''
+Various forms of addresses such as URI and SIP address.
+'''</span>
+
+<span class="p_word">import</span> re, socket, struct
+
+<span class="p_word">def</span> isIPv4(data):
+    <span class="p_triple">'''Check if the data is a dotted decimal IPv4 address or not?
+    &gt;&gt;&gt; isIPv4('10.2.3.4') == True
+    True
+    &gt;&gt;&gt; False == isIPv4('10.2.3.a') == isIPv4('10.2.3.a.5') == isIPv4('10.2.3.-2') == isIPv4('10.2.3.403')
+    True
+    '''</span>
+    <span class="p_word">try</span>: 
+        m = socket.inet_aton(data)
+        <span class="p_commentline"># alternatively: len(filter(lambda y: int(y) &gt;= 0 and int(y) &lt; 256, data.split('.', 3))) == 4</span>
+        <span class="p_word">return</span> True
+    <span class="p_word">except</span>:
+        <span class="p_word">return</span> False
+    
+<span class="p_word">def</span> isMulticast(data):
+    <span class="p_triple">'''Check if the data is a dotted decimal multicast address or not?
+    &gt;&gt;&gt; isMulticast('224.0.1.2') == True
+    True
+    &gt;&gt;&gt; False == isMulticast('10.2.3.4')
+    True
+    '''</span>
+    <span class="p_word">try</span>:
+        m, = struct.unpack(<span class="p_string">'&gt;I'</span>, socket.inet_aton(data))
+        <span class="p_word">return</span> ((m &amp; <span class="p_number">0xF0000000</span>) == <span class="p_number">0xE0000000</span>) <span class="p_commentline"># class D: 224.0.0.0/4 or first four bits as 0111</span>
+    <span class="p_word">except</span>:
+        <span class="p_word">return</span> False
+ 
+<span class="p_word">class</span> URI(object):
+    <span class="p_triple">'''A URI object with dynamic properties.
+    Attributes and items such as scheme, user, password, host, port, 
+    param[name], header[index], give various parts of the URI.
+    
+    &gt;&gt;&gt; print URI('sip:kundan@example.net')
+    sip:kundan@example.net
+    &gt;&gt;&gt; print URI('sip:kundan:passwd@example.net:5060;transport=udp;lr?name=value&amp;another=another')
+    sip:kundan:passwd@example.net:5060;lr;transport=udp?name=value&amp;another=another
+    &gt;&gt;&gt; print URI('sip:192.1.2.3:5060')
+    sip:192.1.2.3:5060
+    &gt;&gt;&gt; print URI("sip:kundan@example.net") == URI("sip:Kundan@Example.NET")
+    True
+    &gt;&gt;&gt; print 'empty=', URI()
+    empty= 
+    &gt;&gt;&gt; print URI('tel:+1-212-9397063')
+    tel:+1-212-9397063
+    &gt;&gt;&gt; print URI('sip:kundan@192.1.2.3:5060').hostPort
+    ('192.1.2.3', 5060)
+    '''</span>
+    
+    <span class="p_commentline"># regular expression for URI syntax.</span>
+    <span class="p_commentline"># TODO: need to extend for host portion.</span>
+    _syntax = re.compile(<span class="p_string">'^(?P&lt;scheme&gt;[a-zA-Z][a-zA-Z0-9\+\-\.]*):'</span>  <span class="p_commentline"># scheme</span>
+            + <span class="p_string">'(?:(?:(?P&lt;user&gt;[a-zA-Z0-9\-\_\.\!\~\*\'\(\)&amp;=\+\$,;\?\/\%]+)'</span> <span class="p_commentline"># user</span>
+            + <span class="p_string">'(?::(?P&lt;password&gt;[^:@;\?]+))?)@)?'</span> <span class="p_commentline"># password</span>
+            + <span class="p_string">'(?:(?:(?P&lt;host&gt;[^;\?:]*)(?::(?P&lt;port&gt;[\d]+))?))'</span>  <span class="p_commentline"># host, port</span>
+            + <span class="p_string">'(?:;(?P&lt;params&gt;[^\?]*))?'</span> <span class="p_commentline"># parameters</span>
+            + <span class="p_string">'(?:\?(?P&lt;headers&gt;.*))?$'</span>) <span class="p_commentline"># headers</span>
+    
+    <span class="p_word">def</span> __init__(self, value=<span class="p_string">''</span>):
+        <span class="p_triple">'''Construct from a string representation of a URI, or empty'''</span>
+        <span class="p_word">if</span> value:
+            m = URI._syntax.match(value)
+            <span class="p_word">if</span> <span class="p_word">not</span> m: <span class="p_word">raise</span> ValueError, <span class="p_string">'Invalid URI('</span> + value + <span class="p_string">')'</span>
+            self.scheme, self.user, self.password, self.host, self.port, params, headers = m.groups()
+            <span class="p_word">if</span> self.scheme == <span class="p_string">'tel'</span> <span class="p_word">and</span> self.user <span class="p_word">is</span> <span class="p_word">None</span>:
+                self.user, self.host = self.host, <span class="p_word">None</span>
+            self.port   = self.port <span class="p_word">and</span> int(self.port) <span class="p_word">or</span> <span class="p_word">None</span>
+            self.param  = dict(map(<span class="p_word">lambda</span> k: (k[<span class="p_number">0</span>], k[<span class="p_number">2</span>] <span class="p_word">if</span> k[<span class="p_number">2</span>] <span class="p_word">else</span> <span class="p_word">None</span>), map(<span class="p_word">lambda</span> n: n.partition(<span class="p_string">'='</span>), params.split(<span class="p_string">';'</span>)))) <span class="p_word">if</span> params <span class="p_word">else</span> {}
+            self.header = [nv <span class="p_word">for</span> nv <span class="p_word">in</span> headers.split(<span class="p_string">'&amp;'</span>)] <span class="p_word">if</span> headers <span class="p_word">else</span> []
+        <span class="p_word">else</span>:
+            self.scheme = self.user = self.password = self.host = self.port = <span class="p_word">None</span>
+            self.param = {};  self.header = []
+            
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_triple">'''Return a string representation of the URI'''</span>
+        user,host = (self.user,self.host) <span class="p_word">if</span> self.scheme != <span class="p_string">'tel'</span> <span class="p_word">else</span> (<span class="p_word">None</span>, self.user)
+        <span class="p_word">return</span> (self.scheme + <span class="p_string">':'</span> + ((user + \
+          ((<span class="p_string">':'</span>+self.password) <span class="p_word">if</span> self.password <span class="p_word">else</span> <span class="p_string">''</span>) + <span class="p_string">'@'</span>) <span class="p_word">if</span> user <span class="p_word">else</span> <span class="p_string">''</span>) + \
+          (((host <span class="p_word">if</span> host <span class="p_word">else</span> <span class="p_string">''</span>) + ((<span class="p_string">':'</span>+str(self.port)) <span class="p_word">if</span> self.port <span class="p_word">else</span> <span class="p_string">''</span>)) <span class="p_word">if</span> host <span class="p_word">else</span> <span class="p_string">''</span>) + \
+          ((<span class="p_string">';'</span>+<span class="p_string">';'</span>.join([(n+<span class="p_string">'='</span>+v <span class="p_word">if</span> v <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">else</span> n) <span class="p_word">for</span> n,v <span class="p_word">in</span> self.param.items()])) <span class="p_word">if</span> len(self.param)&gt;<span class="p_number">0</span> <span class="p_word">else</span> <span class="p_string">''</span>) + \
+          ((<span class="p_string">'?'</span>+<span class="p_string">'&amp;'</span>.join(self.header)) <span class="p_word">if</span> len(self.header)&gt;<span class="p_number">0</span> <span class="p_word">else</span> <span class="p_string">''</span>)) <span class="p_word">if</span> self.scheme <span class="p_word">and</span> host <span class="p_word">else</span> <span class="p_string">''</span>;
+    
+    <span class="p_word">def</span> dup(self):
+        <span class="p_triple">'''Duplicate this object.'''</span>
+        <span class="p_word">return</span> URI(self.__repr__())
+    
+    <span class="p_word">def</span> __hash__(self):
+        <span class="p_triple">'''Hash is derived from lower-case string, hence causes case insensitive match'''</span>
+        <span class="p_word">return</span> hash(str(self).lower())
+    
+    <span class="p_word">def</span> __cmp__(self, other):
+        <span class="p_triple">'''Compare two URI objects by comparing their hash values'''</span>
+        <span class="p_word">return</span> cmp(str(self).lower(), str(other).lower())
+
+    @property
+    <span class="p_word">def</span> hostPort(self):
+        <span class="p_triple">'''Read-only tuple (host, port) for this uri.'''</span>
+        <span class="p_word">return</span> (self.host, self.port)
+    
+    <span class="p_word">def</span> _ssecure(self, value):
+        <span class="p_word">if</span> value <span class="p_word">and</span> self.scheme <span class="p_word">in</span> [<span class="p_string">'sip'</span>, <span class="p_string">'http'</span>]: self.scheme += <span class="p_string">'s'</span>
+    <span class="p_word">def</span> _gsecure(self):
+        <span class="p_word">return</span> True <span class="p_word">if</span> self.scheme <span class="p_word">in</span> [<span class="p_string">'sips'</span>, <span class="p_string">'https'</span>] <span class="p_word">else</span> False
+    secure = property(fget=_gsecure, fset=_ssecure)
+    
+<span class="p_word">class</span> Address(object):
+    <span class="p_triple">'''An address object has displayName (str) and uri (URI) attributes.
+    The mustQuote property indicates whether the uri portion must
+    be quoted when using a string representation or not.
+    
+    &gt;&gt;&gt; a1 = Address('"Kundan Singh" &lt;sip:kundan@example.net&gt;')
+    &gt;&gt;&gt; a2 = Address('Kundan Singh   &lt;sip:kundan@example.net&gt;')
+    &gt;&gt;&gt; a3 = Address('"Kundan Singh" &lt;sip:kundan@example.net&gt;   ')
+    &gt;&gt;&gt; a4 = Address('&lt;sip:kundan@example.net&gt;')
+    &gt;&gt;&gt; a5 = Address('sip:kundan@example.net')
+    &gt;&gt;&gt; print str(a1) == str(a2) and str(a1) == str(a3) and str(a1.uri) == str(a4.uri) and str(a1.uri) == str(a5.uri)
+    True
+    &gt;&gt;&gt; print a1
+    "Kundan Singh" &lt;sip:kundan@example.net&gt;
+    &gt;&gt;&gt; print a1.displayable
+    Kundan Singh
+    '''</span>
+    <span class="p_commentline"># regular expression for Address syntax.</span>
+    <span class="p_commentline"># 1. Kundan Singh &lt;sip:kundan@example.net&gt; or &lt;sip:kundan@example.net&gt;</span>
+    <span class="p_commentline"># 2. "Kundan Singh" &lt;sip:kundan@example.net&gt;</span>
+    <span class="p_commentline"># 3. sip:kundan@example.net</span>
+    _syntax = [re.compile(<span class="p_string">'^(?P&lt;name&gt;[a-zA-Z0-9\-\.\_\+\~\ \t]*)&lt;(?P&lt;uri&gt;[^&gt;]+)&gt;'</span>), 
+              re.compile(<span class="p_string">'^(?:"(?P&lt;name&gt;[a-zA-Z0-9\-\.\_\+\~\ \t]+)")[\ \t]*&lt;(?P&lt;uri&gt;[^&gt;]+)&gt;'</span>),
+              re.compile(<span class="p_string">'^[\ \t]*(?P&lt;name&gt;)(?P&lt;uri&gt;[^;]+)'</span>)]
+    
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>):
+        <span class="p_triple">'''Construct an address from the string representation'''</span>
+        self.displayName = self.uri = <span class="p_word">None</span> 
+        self.wildcard = self.mustQuote = False
+        <span class="p_word">if</span> value: self.parse(value)
+
+    <span class="p_word">def</span> parse(self, value):
+        <span class="p_triple">'''Parse a string representation to an address. Returns number of 
+        characters parsed.'''</span>
+        <span class="p_word">if</span> str(value).startswith(<span class="p_string">'*'</span>):
+            self.wildcard = True
+            <span class="p_word">return</span> <span class="p_number">1</span>;
+        <span class="p_word">else</span>:
+            <span class="p_word">for</span> s <span class="p_word">in</span> Address._syntax:
+                m = s.match(value)
+                <span class="p_word">if</span> m: 
+                    self.displayName = m.groups()[<span class="p_number">0</span>].strip()
+                    self.uri = URI(m.groups()[<span class="p_number">1</span>].strip())
+                    <span class="p_word">return</span> m.end()
+                
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_triple">'''Return a string representation of the address'''</span>
+        <span class="p_word">return</span> ((<span class="p_string">'"'</span> + self.displayName + <span class="p_string">'"'</span> + (<span class="p_string">' '</span> <span class="p_word">if</span> self.uri <span class="p_word">else</span> <span class="p_string">''</span>)) <span class="p_word">if</span> self.displayName <span class="p_word">else</span> <span class="p_string">''</span>) \
+        + (((<span class="p_string">'&lt;'</span> <span class="p_word">if</span> self.mustQuote <span class="p_word">or</span> self.displayName <span class="p_word">else</span> <span class="p_string">''</span>) \
+        + repr(self.uri) \
+        + (<span class="p_string">'&gt;'</span> <span class="p_word">if</span> self.mustQuote <span class="p_word">or</span> self.displayName <span class="p_word">else</span> <span class="p_string">''</span>)) <span class="p_word">if</span> self.uri <span class="p_word">else</span> <span class="p_string">''</span>)
+    
+    <span class="p_word">def</span> dup(self):
+        <span class="p_triple">'''Duplicate this object.'''</span>
+        <span class="p_word">return</span> Address(self.__repr__())
+    
+    @property
+    <span class="p_word">def</span> displayable(self):
+        <span class="p_triple">'''Read-only displayable string representation'''</span> 
+        name = self.displayName <span class="p_word">or</span> self.uri <span class="p_word">and</span> self.uri.user <span class="p_word">or</span> self.uri <span class="p_word">and</span> self.uri.host <span class="p_word">or</span> <span class="p_string">''</span>
+        <span class="p_word">return</span> name <span class="p_word">if</span> len(name)&lt;<span class="p_number">25</span> <span class="p_word">else</span> (name[<span class="p_number">0</span>:<span class="p_number">22</span>] + <span class="p_string">'...'</span>)
+    
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()
+
+
+  </PRE></BODY>
+</HTML>

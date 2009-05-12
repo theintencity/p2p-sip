@@ -1,0 +1,1922 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                     T. Berners-Lee
+P1L5	Request for Comments: 2396                                       MIT/LCS
+P1L6	Updates: 1808, 1738                                          R. Fielding
+P1L7	Category: Standards Track                                    U.C. Irvine
+P1L8	                                                             L. Masinter
+P1L9	                                                       Xerox Corporation
+P1L10	                                                             August 1998
+P1L11	
+P1L12	
+P1L13	           Uniform Resource Identifiers (URI): Generic Syntax
+P1L14	
+P1L15	Status of this Memo
+P1L16	
+P1L17	   This document specifies an Internet standards track protocol for the
+P1L18	   Internet community, and requests discussion and suggestions for
+P1L19	   improvements.  Please refer to the current edition of the "Internet
+P1L20	   Official Protocol Standards" (STD 1) for the standardization state
+P1L21	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L22	
+P1L23	Copyright Notice
+P1L24	
+P1L25	   Copyright (C) The Internet Society (1998).  All Rights Reserved.
+P1L26	
+P1L27	IESG Note
+P1L28	
+P1L29	   This paper describes a "superset" of operations that can be applied
+P1L30	   to URI.  It consists of both a grammar and a description of basic
+P1L31	   functionality for URI.  To understand what is a valid URI, both the
+P1L32	   grammar and the associated description have to be studied.  Some of
+P1L33	   the functionality described is not applicable to all URI schemes, and
+P1L34	   some operations are only possible when certain media types are
+P1L35	   retrieved using the URI, regardless of the scheme used.
+P1L36	
+P1L37	Abstract
+P1L38	
+P1L39	   A Uniform Resource Identifier (URI) is a compact string of characters
+P1L40	   for identifying an abstract or physical resource.  This document
+P1L41	   defines the generic syntax of URI, including both absolute and
+P1L42	   relative forms, and guidelines for their use; it revises and replaces
+P1L43	   the generic definitions in RFC 1738 and RFC 1808.
+P1L44	
+P1L45	   This document defines a grammar that is a superset of all valid URI,
+P1L46	   such that an implementation can parse the common components of a URI
+P1L47	   reference without knowing the scheme-specific requirements of every
+P1L48	   possible identifier type.  This document does not define a generative
+P1L49	   grammar for URI; that task will be performed by the individual
+P1L50	   specifications of each URI scheme.
+P2L1	1. Introduction
+P2L2	
+P2L3	   Uniform Resource Identifiers (URI) provide a simple and extensible
+P2L4	   means for identifying a resource.  This specification of URI syntax
+P2L5	   and semantics is derived from concepts introduced by the World Wide
+P2L6	   Web global information initiative, whose use of such objects dates
+P2L7	   from 1990 and is described in "Universal Resource Identifiers in WWW"
+P2L8	   [RFC1630].  The specification of URI is designed to meet the
+P2L9	   recommendations laid out in "Functional Recommendations for Internet
+P2L10	   Resource Locators" [RFC1736] and "Functional Requirements for Uniform
+P2L11	   Resource Names" [RFC1737].
+P2L12	
+P2L13	   This document updates and merges "Uniform Resource Locators"
+P2L14	   [RFC1738] and "Relative Uniform Resource Locators" [RFC1808] in order
+P2L15	   to define a single, generic syntax for all URI.  It excludes those
+P2L16	   portions of RFC 1738 that defined the specific syntax of individual
+P2L17	   URL schemes; those portions will be updated as separate documents, as
+P2L18	   will the process for registration of new URI schemes.  This document
+P2L19	   does not discuss the issues and recommendation for dealing with
+P2L20	   characters outside of the US-ASCII character set [ASCII]; those
+P2L21	   recommendations are discussed in a separate document.
+P2L22	
+P2L23	   All significant changes from the prior RFCs are noted in Appendix G.
+P2L24	
+P2L25	1.1 Overview of URI
+P2L26	
+P2L27	   URI are characterized by the following definitions:
+P2L28	
+P2L29	      Uniform
+P2L30	         Uniformity provides several benefits: it allows different types
+P2L31	         of resource identifiers to be used in the same context, even
+P2L32	         when the mechanisms used to access those resources may differ;
+P2L33	         it allows uniform semantic interpretation of common syntactic
+P2L34	         conventions across different types of resource identifiers; it
+P2L35	         allows introduction of new types of resource identifiers
+P2L36	         without interfering with the way that existing identifiers are
+P2L37	         used; and, it allows the identifiers to be reused in many
+P2L38	         different contexts, thus permitting new applications or
+P2L39	         protocols to leverage a pre-existing, large, and widely-used
+P2L40	         set of resource identifiers.
+P2L41	
+P2L42	      Resource
+P2L43	         A resource can be anything that has identity.  Familiar
+P2L44	         examples include an electronic document, an image, a service
+P2L45	         (e.g., "today's weather report for Los Angeles"), and a
+P2L46	         collection of other resources.  Not all resources are network
+P2L47	         "retrievable"; e.g., human beings, corporations, and bound
+P2L48	         books in a library can also be considered resources.
+P3L1	         The resource is the conceptual mapping to an entity or set of
+P3L2	         entities, not necessarily the entity which corresponds to that
+P3L3	         mapping at any particular instance in time.  Thus, a resource
+P3L4	         can remain constant even when its content---the entities to
+P3L5	         which it currently corresponds---changes over time, provided
+P3L6	         that the conceptual mapping is not changed in the process.
+P3L7	
+P3L8	      Identifier
+P3L9	         An identifier is an object that can act as a reference to
+P3L10	         something that has identity.  In the case of URI, the object is
+P3L11	         a sequence of characters with a restricted syntax.
+P3L12	
+P3L13	   Having identified a resource, a system may perform a variety of
+P3L14	   operations on the resource, as might be characterized by such words
+P3L15	   as `access', `update', `replace', or `find attributes'.
+P3L16	
+P3L17	1.2. URI, URL, and URN
+P3L18	
+P3L19	   A URI can be further classified as a locator, a name, or both.  The
+P3L20	   term "Uniform Resource Locator" (URL) refers to the subset of URI
+P3L21	   that identify resources via a representation of their primary access
+P3L22	   mechanism (e.g., their network "location"), rather than identifying
+P3L23	   the resource by name or by some other attribute(s) of that resource.
+P3L24	   The term "Uniform Resource Name" (URN) refers to the subset of URI
+P3L25	   that are required to remain globally unique and persistent even when
+P3L26	   the resource ceases to exist or becomes unavailable.
+P3L27	
+P3L28	   The URI scheme (Section 3.1) defines the namespace of the URI, and
+P3L29	   thus may further restrict the syntax and semantics of identifiers
+P3L30	   using that scheme.  This specification defines those elements of the
+P3L31	   URI syntax that are either required of all URI schemes or are common
+P3L32	   to many URI schemes.  It thus defines the syntax and semantics that
+P3L33	   are needed to implement a scheme-independent parsing mechanism for
+P3L34	   URI references, such that the scheme-dependent handling of a URI can
+P3L35	   be postponed until the scheme-dependent semantics are needed.  We use
+P3L36	   the term URL below when describing syntax or semantics that only
+P3L37	   apply to locators.
+P3L38	
+P3L39	   Although many URL schemes are named after protocols, this does not
+P3L40	   imply that the only way to access the URL's resource is via the named
+P3L41	   protocol.  Gateways, proxies, caches, and name resolution services
+P3L42	   might be used to access some resources, independent of the protocol
+P3L43	   of their origin, and the resolution of some URL may require the use
+P3L44	   of more than one protocol (e.g., both DNS and HTTP are typically used
+P3L45	   to access an "http" URL's resource when it can't be found in a local
+P3L46	   cache).
+P3L47	
+P3L48	
+P4L1	   A URN differs from a URL in that it's primary purpose is persistent
+P4L2	   labeling of a resource with an identifier.  That identifier is drawn
+P4L3	   from one of a set of defined namespaces, each of which has its own
+P4L4	   set name structure and assignment procedures.  The "urn" scheme has
+P4L5	   been reserved to establish the requirements for a standardized URN
+P4L6	   namespace, as defined in "URN Syntax" [RFC2141] and its related
+P4L7	   specifications.
+P4L8	
+P4L9	   Most of the examples in this specification demonstrate URL, since
+P4L10	   they allow the most varied use of the syntax and often have a
+P4L11	   hierarchical namespace.  A parser of the URI syntax is capable of
+P4L12	   parsing both URL and URN references as a generic URI; once the scheme
+P4L13	   is determined, the scheme-specific parsing can be performed on the
+P4L14	   generic URI components.  In other words, the URI syntax is a superset
+P4L15	   of the syntax of all URI schemes.
+P4L16	
+P4L17	1.3. Example URI
+P4L18	
+P4L19	   The following examples illustrate URI that are in common use.
+P4L20	
+P4L21	   ftp://ftp.is.co.za/rfc/rfc1808.txt
+P4L22	      -- ftp scheme for File Transfer Protocol services
+P4L23	
+P4L24	   gopher://spinaltap.micro.umn.edu/00/Weather/California/Los%20Angeles
+P4L25	      -- gopher scheme for Gopher and Gopher+ Protocol services
+P4L26	
+P4L27	   http://www.math.uio.no/faq/compression-faq/part1.html
+P4L28	      -- http scheme for Hypertext Transfer Protocol services
+P4L29	
+P4L30	   mailto:mduerst@ifi.unizh.ch
+P4L31	      -- mailto scheme for electronic mail addresses
+P4L32	
+P4L33	   news:comp.infosystems.www.servers.unix
+P4L34	      -- news scheme for USENET news groups and articles
+P4L35	
+P4L36	   telnet://melvyl.ucop.edu/
+P4L37	      -- telnet scheme for interactive services via the TELNET Protocol
+P4L38	
+P4L39	1.4. Hierarchical URI and Relative Forms
+P4L40	
+P4L41	   An absolute identifier refers to a resource independent of the
+P4L42	   context in which the identifier is used.  In contrast, a relative
+P4L43	   identifier refers to a resource by describing the difference within a
+P4L44	   hierarchical namespace between the current context and an absolute
+P4L45	   identifier of the resource.
+P4L46	
+P4L47	
+P4L48	
+P5L1	   Some URI schemes support a hierarchical naming system, where the
+P5L2	   hierarchy of the name is denoted by a "/" delimiter separating the
+P5L3	   components in the scheme. This document defines a scheme-independent
+P5L4	   `relative' form of URI reference that can be used in conjunction with
+P5L5	   a `base' URI (of a hierarchical scheme) to produce another URI. The
+P5L6	   syntax of hierarchical URI is described in Section 3; the relative
+P5L7	   URI calculation is described in Section 5.
+P5L8	
+P5L9	1.5. URI Transcribability
+P5L10	
+P5L11	   The URI syntax was designed with global transcribability as one of
+P5L12	   its main concerns. A URI is a sequence of characters from a very
+P5L13	   limited set, i.e. the letters of the basic Latin alphabet, digits,
+P5L14	   and a few special characters.  A URI may be represented in a variety
+P5L15	   of ways: e.g., ink on paper, pixels on a screen, or a sequence of
+P5L16	   octets in a coded character set.  The interpretation of a URI depends
+P5L17	   only on the characters used and not how those characters are
+P5L18	   represented in a network protocol.
+P5L19	
+P5L20	   The goal of transcribability can be described by a simple scenario.
+P5L21	   Imagine two colleagues, Sam and Kim, sitting in a pub at an
+P5L22	   international conference and exchanging research ideas.  Sam asks Kim
+P5L23	   for a location to get more information, so Kim writes the URI for the
+P5L24	   research site on a napkin.  Upon returning home, Sam takes out the
+P5L25	   napkin and types the URI into a computer, which then retrieves the
+P5L26	   information to which Kim referred.
+P5L27	
+P5L28	   There are several design concerns revealed by the scenario:
+P5L29	
+P5L30	      o  A URI is a sequence of characters, which is not always
+P5L31	         represented as a sequence of octets.
+P5L32	
+P5L33	      o  A URI may be transcribed from a non-network source, and thus
+P5L34	         should consist of characters that are most likely to be able to
+P5L35	         be typed into a computer, within the constraints imposed by
+P5L36	         keyboards (and related input devices) across languages and
+P5L37	         locales.
+P5L38	
+P5L39	      o  A URI often needs to be remembered by people, and it is easier
+P5L40	         for people to remember a URI when it consists of meaningful
+P5L41	         components.
+P5L42	
+P5L43	   These design concerns are not always in alignment.  For example, it
+P5L44	   is often the case that the most meaningful name for a URI component
+P5L45	   would require characters that cannot be typed into some systems.  The
+P5L46	   ability to transcribe the resource identifier from one medium to
+P5L47	   another was considered more important than having its URI consist of
+P5L48	   the most meaningful of components.  In local and regional contexts
+P6L1	   and with improving technology, users might benefit from being able to
+P6L2	   use a wider range of characters; such use is not defined in this
+P6L3	   document.
+P6L4	
+P6L5	1.6. Syntax Notation and Common Elements
+P6L6	
+P6L7	   This document uses two conventions to describe and define the syntax
+P6L8	   for URI.  The first, called the layout form, is a general description
+P6L9	   of the order of components and component separators, as in
+P6L10	
+P6L11	      <first>/<second>;<third>?<fourth>
+P6L12	
+P6L13	   The component names are enclosed in angle-brackets and any characters
+P6L14	   outside angle-brackets are literal separators.  Whitespace should be
+P6L15	   ignored.  These descriptions are used informally and do not define
+P6L16	   the syntax requirements.
+P6L17	
+P6L18	   The second convention is a BNF-like grammar, used to define the
+P6L19	   formal URI syntax.  The grammar is that of [RFC822], except that "|"
+P6L20	   is used to designate alternatives.  Briefly, rules are separated from
+P6L21	   definitions by an equal "=", indentation is used to continue a rule
+P6L22	   definition over more than one line, literals are quoted with "",
+P6L23	   parentheses "(" and ")" are used to group elements, optional elements
+P6L24	   are enclosed in "[" and "]" brackets, and elements may be preceded
+P6L25	   with <n>* to designate n or more repetitions of the following
+P6L26	   element; n defaults to 0.
+P6L27	
+P6L28	   Unlike many specifications that use a BNF-like grammar to define the
+P6L29	   bytes (octets) allowed by a protocol, the URI grammar is defined in
+P6L30	   terms of characters.  Each literal in the grammar corresponds to the
+P6L31	   character it represents, rather than to the octet encoding of that
+P6L32	   character in any particular coded character set.  How a URI is
+P6L33	   represented in terms of bits and bytes on the wire is dependent upon
+P6L34	   the character encoding of the protocol used to transport it, or the
+P6L35	   charset of the document which contains it.
+P6L36	
+P6L37	   The following definitions are common to many elements:
+P6L38	
+P6L39	      alpha    = lowalpha | upalpha
+P6L40	
+P6L41	      lowalpha = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" |
+P6L42	                 "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" |
+P6L43	                 "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+P6L44	
+P6L45	      upalpha  = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" |
+P6L46	                 "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" |
+P6L47	                 "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+P6L48	
+P7L1	      digit    = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" |
+P7L2	                 "8" | "9"
+P7L3	
+P7L4	      alphanum = alpha | digit
+P7L5	
+P7L6	   The complete URI syntax is collected in Appendix A.
+P7L7	
+P7L8	2. URI Characters and Escape Sequences
+P7L9	
+P7L10	   URI consist of a restricted set of characters, primarily chosen to
+P7L11	   aid transcribability and usability both in computer systems and in
+P7L12	   non-computer communications. Characters used conventionally as
+P7L13	   delimiters around URI were excluded.  The restricted set of
+P7L14	   characters consists of digits, letters, and a few graphic symbols
+P7L15	   were chosen from those common to most of the character encodings and
+P7L16	   input facilities available to Internet users.
+P7L17	
+P7L18	      uric          = reserved | unreserved | escaped
+P7L19	
+P7L20	   Within a URI, characters are either used as delimiters, or to
+P7L21	   represent strings of data (octets) within the delimited portions.
+P7L22	   Octets are either represented directly by a character (using the US-
+P7L23	   ASCII character for that octet [ASCII]) or by an escape encoding.
+P7L24	   This representation is elaborated below.
+P7L25	
+P7L26	2.1 URI and non-ASCII characters
+P7L27	
+P7L28	   The relationship between URI and characters has been a source of
+P7L29	   confusion for characters that are not part of US-ASCII. To describe
+P7L30	   the relationship, it is useful to distinguish between a "character"
+P7L31	   (as a distinguishable semantic entity) and an "octet" (an 8-bit
+P7L32	   byte). There are two mappings, one from URI characters to octets, and
+P7L33	   a second from octets to original characters:
+P7L34	
+P7L35	   URI character sequence->octet sequence->original character sequence
+P7L36	
+P7L37	   A URI is represented as a sequence of characters, not as a sequence
+P7L38	   of octets. That is because URI might be "transported" by means that
+P7L39	   are not through a computer network, e.g., printed on paper, read over
+P7L40	   the radio, etc.
+P7L41	
+P7L42	   A URI scheme may define a mapping from URI characters to octets;
+P7L43	   whether this is done depends on the scheme. Commonly, within a
+P7L44	   delimited component of a URI, a sequence of characters may be used to
+P7L45	   represent a sequence of octets. For example, the character "a"
+P7L46	   represents the octet 97 (decimal), while the character sequence "%",
+P7L47	   "0", "a" represents the octet 10 (decimal).
+P7L48	
+P8L1	   There is a second translation for some resources: the sequence of
+P8L2	   octets defined by a component of the URI is subsequently used to
+P8L3	   represent a sequence of characters. A 'charset' defines this mapping.
+P8L4	   There are many charsets in use in Internet protocols. For example,
+P8L5	   UTF-8 [UTF-8] defines a mapping from sequences of octets to sequences
+P8L6	   of characters in the repertoire of ISO 10646.
+P8L7	
+P8L8	   In the simplest case, the original character sequence contains only
+P8L9	   characters that are defined in US-ASCII, and the two levels of
+P8L10	   mapping are simple and easily invertible: each 'original character'
+P8L11	   is represented as the octet for the US-ASCII code for it, which is,
+P8L12	   in turn, represented as either the US-ASCII character, or else the
+P8L13	   "%" escape sequence for that octet.
+P8L14	
+P8L15	   For original character sequences that contain non-ASCII characters,
+P8L16	   however, the situation is more difficult. Internet protocols that
+P8L17	   transmit octet sequences intended to represent character sequences
+P8L18	   are expected to provide some way of identifying the charset used, if
+P8L19	   there might be more than one [RFC2277].  However, there is currently
+P8L20	   no provision within the generic URI syntax to accomplish this
+P8L21	   identification. An individual URI scheme may require a single
+P8L22	   charset, define a default charset, or provide a way to indicate the
+P8L23	   charset used.
+P8L24	
+P8L25	   It is expected that a systematic treatment of character encoding
+P8L26	   within URI will be developed as a future modification of this
+P8L27	   specification.
+P8L28	
+P8L29	2.2. Reserved Characters
+P8L30	
+P8L31	   Many URI include components consisting of or delimited by, certain
+P8L32	   special characters.  These characters are called "reserved", since
+P8L33	   their usage within the URI component is limited to their reserved
+P8L34	   purpose.  If the data for a URI component would conflict with the
+P8L35	   reserved purpose, then the conflicting data must be escaped before
+P8L36	   forming the URI.
+P8L37	
+P8L38	      reserved    = ";" | "/" | "?" | ":" | "@" | "&" | "=" | "+" |
+P8L39	                    "$" | ","
+P8L40	
+P8L41	   The "reserved" syntax class above refers to those characters that are
+P8L42	   allowed within a URI, but which may not be allowed within a
+P8L43	   particular component of the generic URI syntax; they are used as
+P8L44	   delimiters of the components described in Section 3.
+P8L45	
+P8L46	
+P8L47	
+P8L48	
+P9L1	   Characters in the "reserved" set are not reserved in all contexts.
+P9L2	   The set of characters actually reserved within any given URI
+P9L3	   component is defined by that component. In general, a character is
+P9L4	   reserved if the semantics of the URI changes if the character is
+P9L5	   replaced with its escaped US-ASCII encoding.
+P9L6	
+P9L7	2.3. Unreserved Characters
+P9L8	
+P9L9	   Data characters that are allowed in a URI but do not have a reserved
+P9L10	   purpose are called unreserved.  These include upper and lower case
+P9L11	   letters, decimal digits, and a limited set of punctuation marks and
+P9L12	   symbols.
+P9L13	
+P9L14	      unreserved  = alphanum | mark
+P9L15	
+P9L16	      mark        = "-" | "_" | "." | "!" | "~" | "*" | "'" | "(" | ")"
+P9L17	
+P9L18	   Unreserved characters can be escaped without changing the semantics
+P9L19	   of the URI, but this should not be done unless the URI is being used
+P9L20	   in a context that does not allow the unescaped character to appear.
+P9L21	
+P9L22	2.4. Escape Sequences
+P9L23	
+P9L24	   Data must be escaped if it does not have a representation using an
+P9L25	   unreserved character; this includes data that does not correspond to
+P9L26	   a printable character of the US-ASCII coded character set, or that
+P9L27	   corresponds to any US-ASCII character that is disallowed, as
+P9L28	   explained below.
+P9L29	
+P9L30	2.4.1. Escaped Encoding
+P9L31	
+P9L32	   An escaped octet is encoded as a character triplet, consisting of the
+P9L33	   percent character "%" followed by the two hexadecimal digits
+P9L34	   representing the octet code. For example, "%20" is the escaped
+P9L35	   encoding for the US-ASCII space character.
+P9L36	
+P9L37	      escaped     = "%" hex hex
+P9L38	      hex         = digit | "A" | "B" | "C" | "D" | "E" | "F" |
+P9L39	                            "a" | "b" | "c" | "d" | "e" | "f"
+P9L40	
+P9L41	2.4.2. When to Escape and Unescape
+P9L42	
+P9L43	   A URI is always in an "escaped" form, since escaping or unescaping a
+P9L44	   completed URI might change its semantics.  Normally, the only time
+P9L45	   escape encodings can safely be made is when the URI is being created
+P9L46	   from its component parts; each component may have its own set of
+P9L47	   characters that are reserved, so only the mechanism responsible for
+P9L48	   generating or interpreting that component can determine whether or
+P10L1	   not escaping a character will change its semantics. Likewise, a URI
+P10L2	   must be separated into its components before the escaped characters
+P10L3	   within those components can be safely decoded.
+P10L4	
+P10L5	   In some cases, data that could be represented by an unreserved
+P10L6	   character may appear escaped; for example, some of the unreserved
+P10L7	   "mark" characters are automatically escaped by some systems.  If the
+P10L8	   given URI scheme defines a canonicalization algorithm, then
+P10L9	   unreserved characters may be unescaped according to that algorithm.
+P10L10	   For example, "%7e" is sometimes used instead of "~" in an http URL
+P10L11	   path, but the two are equivalent for an http URL.
+P10L12	
+P10L13	   Because the percent "%" character always has the reserved purpose of
+P10L14	   being the escape indicator, it must be escaped as "%25" in order to
+P10L15	   be used as data within a URI.  Implementers should be careful not to
+P10L16	   escape or unescape the same string more than once, since unescaping
+P10L17	   an already unescaped string might lead to misinterpreting a percent
+P10L18	   data character as another escaped character, or vice versa in the
+P10L19	   case of escaping an already escaped string.
+P10L20	
+P10L21	2.4.3. Excluded US-ASCII Characters
+P10L22	
+P10L23	   Although they are disallowed within the URI syntax, we include here a
+P10L24	   description of those US-ASCII characters that have been excluded and
+P10L25	   the reasons for their exclusion.
+P10L26	
+P10L27	   The control characters in the US-ASCII coded character set are not
+P10L28	   used within a URI, both because they are non-printable and because
+P10L29	   they are likely to be misinterpreted by some control mechanisms.
+P10L30	
+P10L31	   control     = <US-ASCII coded characters 00-1F and 7F hexadecimal>
+P10L32	
+P10L33	   The space character is excluded because significant spaces may
+P10L34	   disappear and insignificant spaces may be introduced when URI are
+P10L35	   transcribed or typeset or subjected to the treatment of word-
+P10L36	   processing programs.  Whitespace is also used to delimit URI in many
+P10L37	   contexts.
+P10L38	
+P10L39	   space       = <US-ASCII coded character 20 hexadecimal>
+P10L40	
+P10L41	   The angle-bracket "<" and ">" and double-quote (") characters are
+P10L42	   excluded because they are often used as the delimiters around URI in
+P10L43	   text documents and protocol fields.  The character "#" is excluded
+P10L44	   because it is used to delimit a URI from a fragment identifier in URI
+P10L45	   references (Section 4). The percent character "%" is excluded because
+P10L46	   it is used for the encoding of escaped characters.
+P10L47	
+P10L48	   delims      = "<" | ">" | "#" | "%" | <">
+P11L1	   Other characters are excluded because gateways and other transport
+P11L2	   agents are known to sometimes modify such characters, or they are
+P11L3	   used as delimiters.
+P11L4	
+P11L5	   unwise      = "{" | "}" | "|" | "\" | "^" | "[" | "]" | "`"
+P11L6	
+P11L7	   Data corresponding to excluded characters must be escaped in order to
+P11L8	   be properly represented within a URI.
+P11L9	
+P11L10	3. URI Syntactic Components
+P11L11	
+P11L12	   The URI syntax is dependent upon the scheme.  In general, absolute
+P11L13	   URI are written as follows:
+P11L14	
+P11L15	      <scheme>:<scheme-specific-part>
+P11L16	
+P11L17	   An absolute URI contains the name of the scheme being used (<scheme>)
+P11L18	   followed by a colon (":") and then a string (the <scheme-specific-
+P11L19	   part>) whose interpretation depends on the scheme.
+P11L20	
+P11L21	   The URI syntax does not require that the scheme-specific-part have
+P11L22	   any general structure or set of semantics which is common among all
+P11L23	   URI.  However, a subset of URI do share a common syntax for
+P11L24	   representing hierarchical relationships within the namespace.  This
+P11L25	   "generic URI" syntax consists of a sequence of four main components:
+P11L26	
+P11L27	      <scheme>://<authority><path>?<query>
+P11L28	
+P11L29	   each of which, except <scheme>, may be absent from a particular URI.
+P11L30	   For example, some URI schemes do not allow an <authority> component,
+P11L31	   and others do not use a <query> component.
+P11L32	
+P11L33	      absoluteURI   = scheme ":" ( hier_part | opaque_part )
+P11L34	
+P11L35	   URI that are hierarchical in nature use the slash "/" character for
+P11L36	   separating hierarchical components.  For some file systems, a "/"
+P11L37	   character (used to denote the hierarchical structure of a URI) is the
+P11L38	   delimiter used to construct a file name hierarchy, and thus the URI
+P11L39	   path will look similar to a file pathname.  This does NOT imply that
+P11L40	   the resource is a file or that the URI maps to an actual filesystem
+P11L41	   pathname.
+P11L42	
+P11L43	      hier_part     = ( net_path | abs_path ) [ "?" query ]
+P11L44	
+P11L45	      net_path      = "//" authority [ abs_path ]
+P11L46	
+P11L47	      abs_path      = "/"  path_segments
+P11L48	
+P12L1	   URI that do not make use of the slash "/" character for separating
+P12L2	   hierarchical components are considered opaque by the generic URI
+P12L3	   parser.
+P12L4	
+P12L5	      opaque_part   = uric_no_slash *uric
+P12L6	
+P12L7	      uric_no_slash = unreserved | escaped | ";" | "?" | ":" | "@" |
+P12L8	                      "&" | "=" | "+" | "$" | ","
+P12L9	
+P12L10	   We use the term <path> to refer to both the <abs_path> and
+P12L11	   <opaque_part> constructs, since they are mutually exclusive for any
+P12L12	   given URI and can be parsed as a single component.
+P12L13	
+P12L14	3.1. Scheme Component
+P12L15	
+P12L16	   Just as there are many different methods of access to resources,
+P12L17	   there are a variety of schemes for identifying such resources.  The
+P12L18	   URI syntax consists of a sequence of components separated by reserved
+P12L19	   characters, with the first component defining the semantics for the
+P12L20	   remainder of the URI string.
+P12L21	
+P12L22	   Scheme names consist of a sequence of characters beginning with a
+P12L23	   lower case letter and followed by any combination of lower case
+P12L24	   letters, digits, plus ("+"), period ("."), or hyphen ("-").  For
+P12L25	   resiliency, programs interpreting URI should treat upper case letters
+P12L26	   as equivalent to lower case in scheme names (e.g., allow "HTTP" as
+P12L27	   well as "http").
+P12L28	
+P12L29	      scheme        = alpha *( alpha | digit | "+" | "-" | "." )
+P12L30	
+P12L31	   Relative URI references are distinguished from absolute URI in that
+P12L32	   they do not begin with a scheme name.  Instead, the scheme is
+P12L33	   inherited from the base URI, as described in Section 5.2.
+P12L34	
+P12L35	3.2. Authority Component
+P12L36	
+P12L37	   Many URI schemes include a top hierarchical element for a naming
+P12L38	   authority, such that the namespace defined by the remainder of the
+P12L39	   URI is governed by that authority.  This authority component is
+P12L40	   typically defined by an Internet-based server or a scheme-specific
+P12L41	   registry of naming authorities.
+P12L42	
+P12L43	      authority     = server | reg_name
+P12L44	
+P12L45	   The authority component is preceded by a double slash "//" and is
+P12L46	   terminated by the next slash "/", question-mark "?", or by the end of
+P12L47	   the URI.  Within the authority component, the characters ";", ":",
+P12L48	   "@", "?", and "/" are reserved.
+P13L1	   An authority component is not required for a URI scheme to make use
+P13L2	   of relative references.  A base URI without an authority component
+P13L3	   implies that any relative reference will also be without an authority
+P13L4	   component.
+P13L5	
+P13L6	3.2.1. Registry-based Naming Authority
+P13L7	
+P13L8	   The structure of a registry-based naming authority is specific to the
+P13L9	   URI scheme, but constrained to the allowed characters for an
+P13L10	   authority component.
+P13L11	
+P13L12	      reg_name      = 1*( unreserved | escaped | "$" | "," |
+P13L13	                          ";" | ":" | "@" | "&" | "=" | "+" )
+P13L14	
+P13L15	3.2.2. Server-based Naming Authority
+P13L16	
+P13L17	   URL schemes that involve the direct use of an IP-based protocol to a
+P13L18	   specified server on the Internet use a common syntax for the server
+P13L19	   component of the URI's scheme-specific data:
+P13L20	
+P13L21	      <userinfo>@<host>:<port>
+P13L22	
+P13L23	   where <userinfo> may consist of a user name and, optionally, scheme-
+P13L24	   specific information about how to gain authorization to access the
+P13L25	   server.  The parts "<userinfo>@" and ":<port>" may be omitted.
+P13L26	
+P13L27	      server        = [ [ userinfo "@" ] hostport ]
+P13L28	
+P13L29	   The user information, if present, is followed by a commercial at-sign
+P13L30	   "@".
+P13L31	
+P13L32	      userinfo      = *( unreserved | escaped |
+P13L33	                         ";" | ":" | "&" | "=" | "+" | "$" | "," )
+P13L34	
+P13L35	   Some URL schemes use the format "user:password" in the userinfo
+P13L36	   field. This practice is NOT RECOMMENDED, because the passing of
+P13L37	   authentication information in clear text (such as URI) has proven to
+P13L38	   be a security risk in almost every case where it has been used.
+P13L39	
+P13L40	   The host is a domain name of a network host, or its IPv4 address as a
+P13L41	   set of four decimal digit groups separated by ".".  Literal IPv6
+P13L42	   addresses are not supported.
+P13L43	
+P13L44	      hostport      = host [ ":" port ]
+P13L45	      host          = hostname | IPv4address
+P13L46	      hostname      = *( domainlabel "." ) toplabel [ "." ]
+P13L47	      domainlabel   = alphanum | alphanum *( alphanum | "-" ) alphanum
+P13L48	      toplabel      = alpha | alpha *( alphanum | "-" ) alphanum
+P14L1	      IPv4address   = 1*digit "." 1*digit "." 1*digit "." 1*digit
+P14L2	      port          = *digit
+P14L3	
+P14L4	   Hostnames take the form described in Section 3 of [RFC1034] and
+P14L5	   Section 2.1 of [RFC1123]: a sequence of domain labels separated by
+P14L6	   ".", each domain label starting and ending with an alphanumeric
+P14L7	   character and possibly also containing "-" characters.  The rightmost
+P14L8	   domain label of a fully qualified domain name will never start with a
+P14L9	   digit, thus syntactically distinguishing domain names from IPv4
+P14L10	   addresses, and may be followed by a single "." if it is necessary to
+P14L11	   distinguish between the complete domain name and any local domain.
+P14L12	   To actually be "Uniform" as a resource locator, a URL hostname should
+P14L13	   be a fully qualified domain name.  In practice, however, the host
+P14L14	   component may be a local domain literal.
+P14L15	
+P14L16	      Note: A suitable representation for including a literal IPv6
+P14L17	      address as the host part of a URL is desired, but has not yet been
+P14L18	      determined or implemented in practice.
+P14L19	
+P14L20	   The port is the network port number for the server.  Most schemes
+P14L21	   designate protocols that have a default port number.  Another port
+P14L22	   number may optionally be supplied, in decimal, separated from the
+P14L23	   host by a colon.  If the port is omitted, the default port number is
+P14L24	   assumed.
+P14L25	
+P14L26	3.3. Path Component
+P14L27	
+P14L28	   The path component contains data, specific to the authority (or the
+P14L29	   scheme if there is no authority component), identifying the resource
+P14L30	   within the scope of that scheme and authority.
+P14L31	
+P14L32	      path          = [ abs_path | opaque_part ]
+P14L33	
+P14L34	      path_segments = segment *( "/" segment )
+P14L35	      segment       = *pchar *( ";" param )
+P14L36	      param         = *pchar
+P14L37	
+P14L38	      pchar         = unreserved | escaped |
+P14L39	                      ":" | "@" | "&" | "=" | "+" | "$" | ","
+P14L40	
+P14L41	   The path may consist of a sequence of path segments separated by a
+P14L42	   single slash "/" character.  Within a path segment, the characters
+P14L43	   "/", ";", "=", and "?" are reserved.  Each path segment may include a
+P14L44	   sequence of parameters, indicated by the semicolon ";" character.
+P14L45	   The parameters are not significant to the parsing of relative
+P14L46	   references.
+P14L47	
+P14L48	
+P15L1	3.4. Query Component
+P15L2	
+P15L3	   The query component is a string of information to be interpreted by
+P15L4	   the resource.
+P15L5	
+P15L6	      query         = *uric
+P15L7	
+P15L8	   Within a query component, the characters ";", "/", "?", ":", "@",
+P15L9	   "&", "=", "+", ",", and "$" are reserved.
+P15L10	
+P15L11	4. URI References
+P15L12	
+P15L13	   The term "URI-reference" is used here to denote the common usage of a
+P15L14	   resource identifier.  A URI reference may be absolute or relative,
+P15L15	   and may have additional information attached in the form of a
+P15L16	   fragment identifier.  However, "the URI" that results from such a
+P15L17	   reference includes only the absolute URI after the fragment
+P15L18	   identifier (if any) is removed and after any relative URI is resolved
+P15L19	   to its absolute form.  Although it is possible to limit the
+P15L20	   discussion of URI syntax and semantics to that of the absolute
+P15L21	   result, most usage of URI is within general URI references, and it is
+P15L22	   impossible to obtain the URI from such a reference without also
+P15L23	   parsing the fragment and resolving the relative form.
+P15L24	
+P15L25	      URI-reference = [ absoluteURI | relativeURI ] [ "#" fragment ]
+P15L26	
+P15L27	   The syntax for relative URI is a shortened form of that for absolute
+P15L28	   URI, where some prefix of the URI is missing and certain path
+P15L29	   components ("." and "..") have a special meaning when, and only when,
+P15L30	   interpreting a relative path.  The relative URI syntax is defined in
+P15L31	   Section 5.
+P15L32	
+P15L33	4.1. Fragment Identifier
+P15L34	
+P15L35	   When a URI reference is used to perform a retrieval action on the
+P15L36	   identified resource, the optional fragment identifier, separated from
+P15L37	   the URI by a crosshatch ("#") character, consists of additional
+P15L38	   reference information to be interpreted by the user agent after the
+P15L39	   retrieval action has been successfully completed.  As such, it is not
+P15L40	   part of a URI, but is often used in conjunction with a URI.
+P15L41	
+P15L42	      fragment      = *uric
+P15L43	
+P15L44	   The semantics of a fragment identifier is a property of the data
+P15L45	   resulting from a retrieval action, regardless of the type of URI used
+P15L46	   in the reference.  Therefore, the format and interpretation of
+P15L47	   fragment identifiers is dependent on the media type [RFC2046] of the
+P15L48	   retrieval result.  The character restrictions described in Section 2
+P16L1	   for URI also apply to the fragment in a URI-reference.  Individual
+P16L2	   media types may define additional restrictions or structure within
+P16L3	   the fragment for specifying different types of "partial views" that
+P16L4	   can be identified within that media type.
+P16L5	
+P16L6	   A fragment identifier is only meaningful when a URI reference is
+P16L7	   intended for retrieval and the result of that retrieval is a document
+P16L8	   for which the identified fragment is consistently defined.
+P16L9	
+P16L10	4.2. Same-document References
+P16L11	
+P16L12	   A URI reference that does not contain a URI is a reference to the
+P16L13	   current document.  In other words, an empty URI reference within a
+P16L14	   document is interpreted as a reference to the start of that document,
+P16L15	   and a reference containing only a fragment identifier is a reference
+P16L16	   to the identified fragment of that document.  Traversal of such a
+P16L17	   reference should not result in an additional retrieval action.
+P16L18	   However, if the URI reference occurs in a context that is always
+P16L19	   intended to result in a new request, as in the case of HTML's FORM
+P16L20	   element, then an empty URI reference represents the base URI of the
+P16L21	   current document and should be replaced by that URI when transformed
+P16L22	   into a request.
+P16L23	
+P16L24	4.3. Parsing a URI Reference
+P16L25	
+P16L26	   A URI reference is typically parsed according to the four main
+P16L27	   components and fragment identifier in order to determine what
+P16L28	   components are present and whether the reference is relative or
+P16L29	   absolute.  The individual components are then parsed for their
+P16L30	   subparts and, if not opaque, to verify their validity.
+P16L31	
+P16L32	   Although the BNF defines what is allowed in each component, it is
+P16L33	   ambiguous in terms of differentiating between an authority component
+P16L34	   and a path component that begins with two slash characters.  The
+P16L35	   greedy algorithm is used for disambiguation: the left-most matching
+P16L36	   rule soaks up as much of the URI reference string as it is capable of
+P16L37	   matching.  In other words, the authority component wins.
+P16L38	
+P16L39	   Readers familiar with regular expressions should see Appendix B for a
+P16L40	   concrete parsing example and test oracle.
+P16L41	
+P16L42	5. Relative URI References
+P16L43	
+P16L44	   It is often the case that a group or "tree" of documents has been
+P16L45	   constructed to serve a common purpose; the vast majority of URI in
+P16L46	   these documents point to resources within the tree rather than
+P16L47	
+P16L48	
+P17L1	   outside of it.  Similarly, documents located at a particular site are
+P17L2	   much more likely to refer to other resources at that site than to
+P17L3	   resources at remote sites.
+P17L4	
+P17L5	   Relative addressing of URI allows document trees to be partially
+P17L6	   independent of their location and access scheme.  For instance, it is
+P17L7	   possible for a single set of hypertext documents to be simultaneously
+P17L8	   accessible and traversable via each of the "file", "http", and "ftp"
+P17L9	   schemes if the documents refer to each other using relative URI.
+P17L10	   Furthermore, such document trees can be moved, as a whole, without
+P17L11	   changing any of the relative references.  Experience within the WWW
+P17L12	   has demonstrated that the ability to perform relative referencing is
+P17L13	   necessary for the long-term usability of embedded URI.
+P17L14	
+P17L15	   The syntax for relative URI takes advantage of the <hier_part> syntax
+P17L16	   of <absoluteURI> (Section 3) in order to express a reference that is
+P17L17	   relative to the namespace of another hierarchical URI.
+P17L18	
+P17L19	      relativeURI   = ( net_path | abs_path | rel_path ) [ "?" query ]
+P17L20	
+P17L21	   A relative reference beginning with two slash characters is termed a
+P17L22	   network-path reference, as defined by <net_path> in Section 3.  Such
+P17L23	   references are rarely used.
+P17L24	
+P17L25	   A relative reference beginning with a single slash character is
+P17L26	   termed an absolute-path reference, as defined by <abs_path> in
+P17L27	   Section 3.
+P17L28	
+P17L29	   A relative reference that does not begin with a scheme name or a
+P17L30	   slash character is termed a relative-path reference.
+P17L31	
+P17L32	      rel_path      = rel_segment [ abs_path ]
+P17L33	
+P17L34	      rel_segment   = 1*( unreserved | escaped |
+P17L35	                          ";" | "@" | "&" | "=" | "+" | "$" | "," )
+P17L36	
+P17L37	   Within a relative-path reference, the complete path segments "." and
+P17L38	   ".." have special meanings: "the current hierarchy level" and "the
+P17L39	   level above this hierarchy level", respectively.  Although this is
+P17L40	   very similar to their use within Unix-based filesystems to indicate
+P17L41	   directory levels, these path components are only considered special
+P17L42	   when resolving a relative-path reference to its absolute form
+P17L43	   (Section 5.2).
+P17L44	
+P17L45	   Authors should be aware that a path segment which contains a colon
+P17L46	   character cannot be used as the first segment of a relative URI path
+P17L47	   (e.g., "this:that"), because it would be mistaken for a scheme name.
+P17L48	
+P18L1	   It is therefore necessary to precede such segments with other
+P18L2	   segments (e.g., "./this:that") in order for them to be referenced as
+P18L3	   a relative path.
+P18L4	
+P18L5	   It is not necessary for all URI within a given scheme to be
+P18L6	   restricted to the <hier_part> syntax, since the hierarchical
+P18L7	   properties of that syntax are only necessary when relative URI are
+P18L8	   used within a particular document.  Documents can only make use of
+P18L9	   relative URI when their base URI fits within the <hier_part> syntax.
+P18L10	   It is assumed that any document which contains a relative reference
+P18L11	   will also have a base URI that obeys the syntax.  In other words,
+P18L12	   relative URI cannot be used within a document that has an unsuitable
+P18L13	   base URI.
+P18L14	
+P18L15	   Some URI schemes do not allow a hierarchical syntax matching the
+P18L16	   <hier_part> syntax, and thus cannot use relative references.
+P18L17	
+P18L18	5.1. Establishing a Base URI
+P18L19	
+P18L20	   The term "relative URI" implies that there exists some absolute "base
+P18L21	   URI" against which the relative reference is applied.  Indeed, the
+P18L22	   base URI is necessary to define the semantics of any relative URI
+P18L23	   reference; without it, a relative reference is meaningless.  In order
+P18L24	   for relative URI to be usable within a document, the base URI of that
+P18L25	   document must be known to the parser.
+P18L26	
+P18L27	   The base URI of a document can be established in one of four ways,
+P18L28	   listed below in order of precedence.  The order of precedence can be
+P18L29	   thought of in terms of layers, where the innermost defined base URI
+P18L30	   has the highest precedence.  This can be visualized graphically as:
+P18L31	
+P18L32	      .----------------------------------------------------------.
+P18L33	      |  .----------------------------------------------------.  |
+P18L34	      |  |  .----------------------------------------------.  |  |
+P18L35	      |  |  |  .----------------------------------------.  |  |  |
+P18L36	      |  |  |  |  .----------------------------------.  |  |  |  |
+P18L37	      |  |  |  |  |       <relative_reference>       |  |  |  |  |
+P18L38	      |  |  |  |  `----------------------------------'  |  |  |  |
+P18L39	      |  |  |  | (5.1.1) Base URI embedded in the       |  |  |  |
+P18L40	      |  |  |  |         document's content             |  |  |  |
+P18L41	      |  |  |  `----------------------------------------'  |  |  |
+P18L42	      |  |  | (5.1.2) Base URI of the encapsulating entity |  |  |
+P18L43	      |  |  |         (message, document, or none).        |  |  |
+P18L44	      |  |  `----------------------------------------------'  |  |
+P18L45	      |  | (5.1.3) URI used to retrieve the entity            |  |
+P18L46	      |  `----------------------------------------------------'  |
+P18L47	      | (5.1.4) Default Base URI is application-dependent        |
+P18L48	      `----------------------------------------------------------'
+P19L1	5.1.1. Base URI within Document Content
+P19L2	
+P19L3	   Within certain document media types, the base URI of the document can
+P19L4	   be embedded within the content itself such that it can be readily
+P19L5	   obtained by a parser.  This can be useful for descriptive documents,
+P19L6	   such as tables of content, which may be transmitted to others through
+P19L7	   protocols other than their usual retrieval context (e.g., E-Mail or
+P19L8	   USENET news).
+P19L9	
+P19L10	   It is beyond the scope of this document to specify how, for each
+P19L11	   media type, the base URI can be embedded.  It is assumed that user
+P19L12	   agents manipulating such media types will be able to obtain the
+P19L13	   appropriate syntax from that media type's specification.  An example
+P19L14	   of how the base URI can be embedded in the Hypertext Markup Language
+P19L15	   (HTML) [RFC1866] is provided in Appendix D.
+P19L16	
+P19L17	   A mechanism for embedding the base URI within MIME container types
+P19L18	   (e.g., the message and multipart types) is defined by MHTML
+P19L19	   [RFC2110].  Protocols that do not use the MIME message header syntax,
+P19L20	   but which do allow some form of tagged metainformation to be included
+P19L21	   within messages, may define their own syntax for defining the base
+P19L22	   URI as part of a message.
+P19L23	
+P19L24	5.1.2. Base URI from the Encapsulating Entity
+P19L25	
+P19L26	   If no base URI is embedded, the base URI of a document is defined by
+P19L27	   the document's retrieval context.  For a document that is enclosed
+P19L28	   within another entity (such as a message or another document), the
+P19L29	   retrieval context is that entity; thus, the default base URI of the
+P19L30	   document is the base URI of the entity in which the document is
+P19L31	   encapsulated.
+P19L32	
+P19L33	5.1.3. Base URI from the Retrieval URI
+P19L34	
+P19L35	   If no base URI is embedded and the document is not encapsulated
+P19L36	   within some other entity (e.g., the top level of a composite entity),
+P19L37	   then, if a URI was used to retrieve the base document, that URI shall
+P19L38	   be considered the base URI.  Note that if the retrieval was the
+P19L39	   result of a redirected request, the last URI used (i.e., that which
+P19L40	   resulted in the actual retrieval of the document) is the base URI.
+P19L41	
+P19L42	5.1.4. Default Base URI
+P19L43	
+P19L44	   If none of the conditions described in Sections 5.1.1--5.1.3 apply,
+P19L45	   then the base URI is defined by the context of the application.
+P19L46	   Since this definition is necessarily application-dependent, failing
+P19L47	
+P19L48	
+P20L1	   to define the base URI using one of the other methods may result in
+P20L2	   the same content being interpreted differently by different types of
+P20L3	   application.
+P20L4	
+P20L5	   It is the responsibility of the distributor(s) of a document
+P20L6	   containing relative URI to ensure that the base URI for that document
+P20L7	   can be established.  It must be emphasized that relative URI cannot
+P20L8	   be used reliably in situations where the document's base URI is not
+P20L9	   well-defined.
+P20L10	
+P20L11	5.2. Resolving Relative References to Absolute Form
+P20L12	
+P20L13	   This section describes an example algorithm for resolving URI
+P20L14	   references that might be relative to a given base URI.
+P20L15	
+P20L16	   The base URI is established according to the rules of Section 5.1 and
+P20L17	   parsed into the four main components as described in Section 3.  Note
+P20L18	   that only the scheme component is required to be present in the base
+P20L19	   URI; the other components may be empty or undefined.  A component is
+P20L20	   undefined if its preceding separator does not appear in the URI
+P20L21	   reference; the path component is never undefined, though it may be
+P20L22	   empty.  The base URI's query component is not used by the resolution
+P20L23	   algorithm and may be discarded.
+P20L24	
+P20L25	   For each URI reference, the following steps are performed in order:
+P20L26	
+P20L27	   1) The URI reference is parsed into the potential four components and
+P20L28	      fragment identifier, as described in Section 4.3.
+P20L29	
+P20L30	   2) If the path component is empty and the scheme, authority, and
+P20L31	      query components are undefined, then it is a reference to the
+P20L32	      current document and we are done.  Otherwise, the reference URI's
+P20L33	      query and fragment components are defined as found (or not found)
+P20L34	      within the URI reference and not inherited from the base URI.
+P20L35	
+P20L36	   3) If the scheme component is defined, indicating that the reference
+P20L37	      starts with a scheme name, then the reference is interpreted as an
+P20L38	      absolute URI and we are done.  Otherwise, the reference URI's
+P20L39	      scheme is inherited from the base URI's scheme component.
+P20L40	
+P20L41	      Due to a loophole in prior specifications [RFC1630], some parsers
+P20L42	      allow the scheme name to be present in a relative URI if it is the
+P20L43	      same as the base URI scheme.  Unfortunately, this can conflict
+P20L44	      with the correct parsing of non-hierarchical URI.  For backwards
+P20L45	      compatibility, an implementation may work around such references
+P20L46	      by removing the scheme if it matches that of the base URI and the
+P20L47	      scheme is known to always use the <hier_part> syntax.  The parser
+P20L48	
+P21L1	      can then continue with the steps below for the remainder of the
+P21L2	      reference components.  Validating parsers should mark such a
+P21L3	      misformed relative reference as an error.
+P21L4	
+P21L5	   4) If the authority component is defined, then the reference is a
+P21L6	      network-path and we skip to step 7.  Otherwise, the reference
+P21L7	      URI's authority is inherited from the base URI's authority
+P21L8	      component, which will also be undefined if the URI scheme does not
+P21L9	      use an authority component.
+P21L10	
+P21L11	   5) If the path component begins with a slash character ("/"), then
+P21L12	      the reference is an absolute-path and we skip to step 7.
+P21L13	
+P21L14	   6) If this step is reached, then we are resolving a relative-path
+P21L15	      reference.  The relative path needs to be merged with the base
+P21L16	      URI's path.  Although there are many ways to do this, we will
+P21L17	      describe a simple method using a separate string buffer.
+P21L18	
+P21L19	      a) All but the last segment of the base URI's path component is
+P21L20	         copied to the buffer.  In other words, any characters after the
+P21L21	         last (right-most) slash character, if any, are excluded.
+P21L22	
+P21L23	      b) The reference's path component is appended to the buffer
+P21L24	         string.
+P21L25	
+P21L26	      c) All occurrences of "./", where "." is a complete path segment,
+P21L27	         are removed from the buffer string.
+P21L28	
+P21L29	      d) If the buffer string ends with "." as a complete path segment,
+P21L30	         that "." is removed.
+P21L31	
+P21L32	      e) All occurrences of "<segment>/../", where <segment> is a
+P21L33	         complete path segment not equal to "..", are removed from the
+P21L34	         buffer string.  Removal of these path segments is performed
+P21L35	         iteratively, removing the leftmost matching pattern on each
+P21L36	         iteration, until no matching pattern remains.
+P21L37	
+P21L38	      f) If the buffer string ends with "<segment>/..", where <segment>
+P21L39	         is a complete path segment not equal to "..", that
+P21L40	         "<segment>/.." is removed.
+P21L41	
+P21L42	      g) If the resulting buffer string still begins with one or more
+P21L43	         complete path segments of "..", then the reference is
+P21L44	         considered to be in error.  Implementations may handle this
+P21L45	         error by retaining these components in the resolved path (i.e.,
+P21L46	         treating them as part of the final URI), by removing them from
+P21L47	         the resolved path (i.e., discarding relative levels above the
+P21L48	         root), or by avoiding traversal of the reference.
+P22L1	      h) The remaining buffer string is the reference URI's new path
+P22L2	         component.
+P22L3	
+P22L4	   7) The resulting URI components, including any inherited from the
+P22L5	      base URI, are recombined to give the absolute form of the URI
+P22L6	      reference.  Using pseudocode, this would be
+P22L7	
+P22L8	         result = ""
+P22L9	
+P22L10	         if scheme is defined then
+P22L11	             append scheme to result
+P22L12	             append ":" to result
+P22L13	
+P22L14	         if authority is defined then
+P22L15	             append "//" to result
+P22L16	             append authority to result
+P22L17	
+P22L18	         append path to result
+P22L19	
+P22L20	         if query is defined then
+P22L21	             append "?" to result
+P22L22	             append query to result
+P22L23	
+P22L24	         if fragment is defined then
+P22L25	             append "#" to result
+P22L26	             append fragment to result
+P22L27	
+P22L28	         return result
+P22L29	
+P22L30	      Note that we must be careful to preserve the distinction between a
+P22L31	      component that is undefined, meaning that its separator was not
+P22L32	      present in the reference, and a component that is empty, meaning
+P22L33	      that the separator was present and was immediately followed by the
+P22L34	      next component separator or the end of the reference.
+P22L35	
+P22L36	   The above algorithm is intended to provide an example by which the
+P22L37	   output of implementations can be tested -- implementation of the
+P22L38	   algorithm itself is not required.  For example, some systems may find
+P22L39	   it more efficient to implement step 6 as a pair of segment stacks
+P22L40	   being merged, rather than as a series of string pattern replacements.
+P22L41	
+P22L42	      Note: Some WWW client applications will fail to separate the
+P22L43	      reference's query component from its path component before merging
+P22L44	      the base and reference paths in step 6 above.  This may result in
+P22L45	      a loss of information if the query component contains the strings
+P22L46	      "/../" or "/./".
+P22L47	
+P22L48	   Resolution examples are provided in Appendix C.
+P23L1	6. URI Normalization and Equivalence
+P23L2	
+P23L3	   In many cases, different URI strings may actually identify the
+P23L4	   identical resource. For example, the host names used in URL are
+P23L5	   actually case insensitive, and the URL <http://www.XEROX.com> is
+P23L6	   equivalent to <http://www.xerox.com>. In general, the rules for
+P23L7	   equivalence and definition of a normal form, if any, are scheme
+P23L8	   dependent. When a scheme uses elements of the common syntax, it will
+P23L9	   also use the common syntax equivalence rules, namely that the scheme
+P23L10	   and hostname are case insensitive and a URL with an explicit ":port",
+P23L11	   where the port is the default for the scheme, is equivalent to one
+P23L12	   where the port is elided.
+P23L13	
+P23L14	7. Security Considerations
+P23L15	
+P23L16	   A URI does not in itself pose a security threat.  Users should beware
+P23L17	   that there is no general guarantee that a URL, which at one time
+P23L18	   located a given resource, will continue to do so.  Nor is there any
+P23L19	   guarantee that a URL will not locate a different resource at some
+P23L20	   later point in time, due to the lack of any constraint on how a given
+P23L21	   authority apportions its namespace.  Such a guarantee can only be
+P23L22	   obtained from the person(s) controlling that namespace and the
+P23L23	   resource in question.  A specific URI scheme may include additional
+P23L24	   semantics, such as name persistence, if those semantics are required
+P23L25	   of all naming authorities for that scheme.
+P23L26	
+P23L27	   It is sometimes possible to construct a URL such that an attempt to
+P23L28	   perform a seemingly harmless, idempotent operation, such as the
+P23L29	   retrieval of an entity associated with the resource, will in fact
+P23L30	   cause a possibly damaging remote operation to occur.  The unsafe URL
+P23L31	   is typically constructed by specifying a port number other than that
+P23L32	   reserved for the network protocol in question.  The client
+P23L33	   unwittingly contacts a site that is in fact running a different
+P23L34	   protocol.  The content of the URL contains instructions that, when
+P23L35	   interpreted according to this other protocol, cause an unexpected
+P23L36	   operation.  An example has been the use of a gopher URL to cause an
+P23L37	   unintended or impersonating message to be sent via a SMTP server.
+P23L38	
+P23L39	   Caution should be used when using any URL that specifies a port
+P23L40	   number other than the default for the protocol, especially when it is
+P23L41	   a number within the reserved space.
+P23L42	
+P23L43	   Care should be taken when a URL contains escaped delimiters for a
+P23L44	   given protocol (for example, CR and LF characters for telnet
+P23L45	   protocols) that these are not unescaped before transmission.  This
+P23L46	   might violate the protocol, but avoids the potential for such
+P23L47	
+P23L48	
+P24L1	   characters to be used to simulate an extra operation or parameter in
+P24L2	   that protocol, which might lead to an unexpected and possibly harmful
+P24L3	   remote operation to be performed.
+P24L4	
+P24L5	   It is clearly unwise to use a URL that contains a password which is
+P24L6	   intended to be secret. In particular, the use of a password within
+P24L7	   the 'userinfo' component of a URL is strongly disrecommended except
+P24L8	   in those rare cases where the 'password' parameter is intended to be
+P24L9	   public.
+P24L10	
+P24L11	8. Acknowledgements
+P24L12	
+P24L13	   This document was derived from RFC 1738 [RFC1738] and RFC 1808
+P24L14	   [RFC1808]; the acknowledgements in those specifications still apply.
+P24L15	   In addition, contributions by Gisle Aas, Martin Beet, Martin Duerst,
+P24L16	   Jim Gettys, Martijn Koster, Dave Kristol, Daniel LaLiberte, Foteos
+P24L17	   Macrides, James Marshall, Ryan Moats, Keith Moore, and Lauren Wood
+P24L18	   are gratefully acknowledged.
+P24L19	
+P24L20	9. References
+P24L21	
+P24L22	   [RFC2277] Alvestrand, H., "IETF Policy on Character Sets and
+P24L23	             Languages", BCP 18, RFC 2277, January 1998.
+P24L24	
+P24L25	   [RFC1630] Berners-Lee, T., "Universal Resource Identifiers in WWW: A
+P24L26	             Unifying Syntax for the Expression of Names and Addresses
+P24L27	             of Objects on the Network as used in the World-Wide Web",
+P24L28	             RFC 1630, June 1994.
+P24L29	
+P24L30	   [RFC1738] Berners-Lee, T., Masinter, L., and M. McCahill, Editors,
+P24L31	             "Uniform Resource Locators (URL)", RFC 1738, December 1994.
+P24L32	
+P24L33	   [RFC1866] Berners-Lee T., and D. Connolly, "HyperText Markup Language
+P24L34	             Specification -- 2.0", RFC 1866, November 1995.
+P24L35	
+P24L36	   [RFC1123] Braden, R., Editor, "Requirements for Internet Hosts --
+P24L37	             Application and Support", STD 3, RFC 1123, October 1989.
+P24L38	
+P24L39	   [RFC822]  Crocker, D., "Standard for the Format of ARPA Internet Text
+P24L40	             Messages", STD 11, RFC 822, August 1982.
+P24L41	
+P24L42	   [RFC1808] Fielding, R., "Relative Uniform Resource Locators", RFC
+P24L43	             1808, June 1995.
+P24L44	
+P24L45	   [RFC2046] Freed, N., and N. Borenstein, "Multipurpose Internet Mail
+P24L46	             Extensions (MIME) Part Two: Media Types", RFC 2046,
+P24L47	             November 1996.
+P24L48	
+P25L1	   [RFC1736] Kunze, J., "Functional Recommendations for Internet
+P25L2	             Resource Locators", RFC 1736, February 1995.
+P25L3	
+P25L4	   [RFC2141] Moats, R., "URN Syntax", RFC 2141, May 1997.
+P25L5	
+P25L6	   [RFC1034] Mockapetris, P., "Domain Names - Concepts and Facilities",
+P25L7	             STD 13, RFC 1034, November 1987.
+P25L8	
+P25L9	   [RFC2110] Palme, J., and A. Hopmann, "MIME E-mail Encapsulation of
+P25L10	             Aggregate Documents, such as HTML (MHTML)", RFC 2110, March
+P25L11	             1997.
+P25L12	
+P25L13	   [RFC1737] Sollins, K., and L. Masinter, "Functional Requirements for
+P25L14	             Uniform Resource Names", RFC 1737, December 1994.
+P25L15	
+P25L16	   [ASCII]   US-ASCII. "Coded Character Set -- 7-bit American Standard
+P25L17	             Code for Information Interchange", ANSI X3.4-1986.
+P25L18	
+P25L19	   [UTF-8]   Yergeau, F., "UTF-8, a transformation format of ISO 10646",
+P25L20	             RFC 2279, January 1998.
+P25L21	
+P25L22	
+P25L23	
+P25L24	
+P25L25	
+P25L26	
+P25L27	
+P25L28	
+P25L29	
+P25L30	
+P25L31	
+P25L32	
+P25L33	
+P25L34	
+P25L35	
+P25L36	
+P25L37	
+P25L38	
+P25L39	
+P25L40	
+P25L41	
+P25L42	
+P25L43	
+P25L44	
+P25L45	
+P25L46	
+P25L47	
+P25L48	
+P26L1	10. Authors' Addresses
+P26L2	
+P26L3	   Tim Berners-Lee
+P26L4	   World Wide Web Consortium
+P26L5	   MIT Laboratory for Computer Science, NE43-356
+P26L6	   545 Technology Square
+P26L7	   Cambridge, MA 02139
+P26L8	
+P26L9	   Fax: +1(617)258-8682
+P26L10	   EMail: timbl@w3.org
+P26L11	
+P26L12	
+P26L13	   Roy T. Fielding
+P26L14	   Department of Information and Computer Science
+P26L15	   University of California, Irvine
+P26L16	   Irvine, CA  92697-3425
+P26L17	
+P26L18	   Fax: +1(949)824-1715
+P26L19	   EMail: fielding@ics.uci.edu
+P26L20	
+P26L21	
+P26L22	   Larry Masinter
+P26L23	   Xerox PARC
+P26L24	   3333 Coyote Hill Road
+P26L25	   Palo Alto, CA 94034
+P26L26	
+P26L27	   Fax: +1(415)812-4333
+P26L28	   EMail: masinter@parc.xerox.com
+P26L29	
+P26L30	
+P26L31	
+P26L32	
+P26L33	
+P26L34	
+P26L35	
+P26L36	
+P26L37	
+P26L38	
+P26L39	
+P26L40	
+P26L41	
+P26L42	
+P26L43	
+P26L44	
+P26L45	
+P26L46	
+P26L47	
+P26L48	
+P27L1	A. Collected BNF for URI
+P27L2	
+P27L3	      URI-reference = [ absoluteURI | relativeURI ] [ "#" fragment ]
+P27L4	      absoluteURI   = scheme ":" ( hier_part | opaque_part )
+P27L5	      relativeURI   = ( net_path | abs_path | rel_path ) [ "?" query ]
+P27L6	
+P27L7	      hier_part     = ( net_path | abs_path ) [ "?" query ]
+P27L8	      opaque_part   = uric_no_slash *uric
+P27L9	
+P27L10	      uric_no_slash = unreserved | escaped | ";" | "?" | ":" | "@" |
+P27L11	                      "&" | "=" | "+" | "$" | ","
+P27L12	
+P27L13	      net_path      = "//" authority [ abs_path ]
+P27L14	      abs_path      = "/"  path_segments
+P27L15	      rel_path      = rel_segment [ abs_path ]
+P27L16	
+P27L17	      rel_segment   = 1*( unreserved | escaped |
+P27L18	                          ";" | "@" | "&" | "=" | "+" | "$" | "," )
+P27L19	
+P27L20	      scheme        = alpha *( alpha | digit | "+" | "-" | "." )
+P27L21	
+P27L22	      authority     = server | reg_name
+P27L23	
+P27L24	      reg_name      = 1*( unreserved | escaped | "$" | "," |
+P27L25	                          ";" | ":" | "@" | "&" | "=" | "+" )
+P27L26	
+P27L27	      server        = [ [ userinfo "@" ] hostport ]
+P27L28	      userinfo      = *( unreserved | escaped |
+P27L29	                         ";" | ":" | "&" | "=" | "+" | "$" | "," )
+P27L30	
+P27L31	      hostport      = host [ ":" port ]
+P27L32	      host          = hostname | IPv4address
+P27L33	      hostname      = *( domainlabel "." ) toplabel [ "." ]
+P27L34	      domainlabel   = alphanum | alphanum *( alphanum | "-" ) alphanum
+P27L35	      toplabel      = alpha | alpha *( alphanum | "-" ) alphanum
+P27L36	      IPv4address   = 1*digit "." 1*digit "." 1*digit "." 1*digit
+P27L37	      port          = *digit
+P27L38	
+P27L39	      path          = [ abs_path | opaque_part ]
+P27L40	      path_segments = segment *( "/" segment )
+P27L41	      segment       = *pchar *( ";" param )
+P27L42	      param         = *pchar
+P27L43	      pchar         = unreserved | escaped |
+P27L44	                      ":" | "@" | "&" | "=" | "+" | "$" | ","
+P27L45	
+P27L46	      query         = *uric
+P27L47	
+P27L48	      fragment      = *uric
+P28L1	      uric          = reserved | unreserved | escaped
+P28L2	      reserved      = ";" | "/" | "?" | ":" | "@" | "&" | "=" | "+" |
+P28L3	                      "$" | ","
+P28L4	      unreserved    = alphanum | mark
+P28L5	      mark          = "-" | "_" | "." | "!" | "~" | "*" | "'" |
+P28L6	                      "(" | ")"
+P28L7	
+P28L8	      escaped       = "%" hex hex
+P28L9	      hex           = digit | "A" | "B" | "C" | "D" | "E" | "F" |
+P28L10	                              "a" | "b" | "c" | "d" | "e" | "f"
+P28L11	
+P28L12	      alphanum      = alpha | digit
+P28L13	      alpha         = lowalpha | upalpha
+P28L14	
+P28L15	      lowalpha = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" |
+P28L16	                 "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" |
+P28L17	                 "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z"
+P28L18	      upalpha  = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" |
+P28L19	                 "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" |
+P28L20	                 "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+P28L21	      digit    = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" |
+P28L22	                 "8" | "9"
+P28L23	
+P28L24	
+P28L25	
+P28L26	
+P28L27	
+P28L28	
+P28L29	
+P28L30	
+P28L31	
+P28L32	
+P28L33	
+P28L34	
+P28L35	
+P28L36	
+P28L37	
+P28L38	
+P28L39	
+P28L40	
+P28L41	
+P28L42	
+P28L43	
+P28L44	
+P28L45	
+P28L46	
+P28L47	
+P28L48	
+P29L1	B. Parsing a URI Reference with a Regular Expression
+P29L2	
+P29L3	   As described in Section 4.3, the generic URI syntax is not sufficient
+P29L4	   to disambiguate the components of some forms of URI.  Since the
+P29L5	   "greedy algorithm" described in that section is identical to the
+P29L6	   disambiguation method used by POSIX regular expressions, it is
+P29L7	   natural and commonplace to use a regular expression for parsing the
+P29L8	   potential four components and fragment identifier of a URI reference.
+P29L9	
+P29L10	   The following line is the regular expression for breaking-down a URI
+P29L11	   reference into its components.
+P29L12	
+P29L13	      ^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?
+P29L14	       12            3  4          5       6  7        8 9
+P29L15	
+P29L16	   The numbers in the second line above are only to assist readability;
+P29L17	   they indicate the reference points for each subexpression (i.e., each
+P29L18	   paired parenthesis).  We refer to the value matched for subexpression
+P29L19	   <n> as $<n>.  For example, matching the above expression to
+P29L20	
+P29L21	      http://www.ics.uci.edu/pub/ietf/uri/#Related
+P29L22	
+P29L23	   results in the following subexpression matches:
+P29L24	
+P29L25	      $1 = http:
+P29L26	      $2 = http
+P29L27	      $3 = //www.ics.uci.edu
+P29L28	      $4 = www.ics.uci.edu
+P29L29	      $5 = /pub/ietf/uri/
+P29L30	      $6 = <undefined>
+P29L31	      $7 = <undefined>
+P29L32	      $8 = #Related
+P29L33	      $9 = Related
+P29L34	
+P29L35	   where <undefined> indicates that the component is not present, as is
+P29L36	   the case for the query component in the above example.  Therefore, we
+P29L37	   can determine the value of the four components and fragment as
+P29L38	
+P29L39	      scheme    = $2
+P29L40	      authority = $4
+P29L41	      path      = $5
+P29L42	      query     = $7
+P29L43	      fragment  = $9
+P29L44	
+P29L45	   and, going in the opposite direction, we can recreate a URI reference
+P29L46	   from its components using the algorithm in step 7 of Section 5.2.
+P29L47	
+P29L48	
+P30L1	C. Examples of Resolving Relative URI References
+P30L2	
+P30L3	   Within an object with a well-defined base URI of
+P30L4	
+P30L5	      http://a/b/c/d;p?q
+P30L6	
+P30L7	   the relative URI would be resolved as follows:
+P30L8	
+P30L9	C.1.  Normal Examples
+P30L10	
+P30L11	      g:h           =  g:h
+P30L12	      g             =  http://a/b/c/g
+P30L13	      ./g           =  http://a/b/c/g
+P30L14	      g/            =  http://a/b/c/g/
+P30L15	      /g            =  http://a/g
+P30L16	      //g           =  http://g
+P30L17	      ?y            =  http://a/b/c/?y
+P30L18	      g?y           =  http://a/b/c/g?y
+P30L19	      #s            =  (current document)#s
+P30L20	      g#s           =  http://a/b/c/g#s
+P30L21	      g?y#s         =  http://a/b/c/g?y#s
+P30L22	      ;x            =  http://a/b/c/;x
+P30L23	      g;x           =  http://a/b/c/g;x
+P30L24	      g;x?y#s       =  http://a/b/c/g;x?y#s
+P30L25	      .             =  http://a/b/c/
+P30L26	      ./            =  http://a/b/c/
+P30L27	      ..            =  http://a/b/
+P30L28	      ../           =  http://a/b/
+P30L29	      ../g          =  http://a/b/g
+P30L30	      ../..         =  http://a/
+P30L31	      ../../        =  http://a/
+P30L32	      ../../g       =  http://a/g
+P30L33	
+P30L34	C.2.  Abnormal Examples
+P30L35	
+P30L36	   Although the following abnormal examples are unlikely to occur in
+P30L37	   normal practice, all URI parsers should be capable of resolving them
+P30L38	   consistently.  Each example uses the same base as above.
+P30L39	
+P30L40	   An empty reference refers to the start of the current document.
+P30L41	
+P30L42	      <>            =  (current document)
+P30L43	
+P30L44	   Parsers must be careful in handling the case where there are more
+P30L45	   relative path ".." segments than there are hierarchical levels in the
+P30L46	   base URI's path.  Note that the ".." syntax cannot be used to change
+P30L47	   the authority component of a URI.
+P30L48	
+P31L1	      ../../../g    =  http://a/../g
+P31L2	      ../../../../g =  http://a/../../g
+P31L3	
+P31L4	   In practice, some implementations strip leading relative symbolic
+P31L5	   elements (".", "..") after applying a relative URI calculation, based
+P31L6	   on the theory that compensating for obvious author errors is better
+P31L7	   than allowing the request to fail.  Thus, the above two references
+P31L8	   will be interpreted as "http://a/g" by some implementations.
+P31L9	
+P31L10	   Similarly, parsers must avoid treating "." and ".." as special when
+P31L11	   they are not complete components of a relative path.
+P31L12	
+P31L13	      /./g          =  http://a/./g
+P31L14	      /../g         =  http://a/../g
+P31L15	      g.            =  http://a/b/c/g.
+P31L16	      .g            =  http://a/b/c/.g
+P31L17	      g..           =  http://a/b/c/g..
+P31L18	      ..g           =  http://a/b/c/..g
+P31L19	
+P31L20	   Less likely are cases where the relative URI uses unnecessary or
+P31L21	   nonsensical forms of the "." and ".." complete path segments.
+P31L22	
+P31L23	      ./../g        =  http://a/b/g
+P31L24	      ./g/.         =  http://a/b/c/g/
+P31L25	      g/./h         =  http://a/b/c/g/h
+P31L26	      g/../h        =  http://a/b/c/h
+P31L27	      g;x=1/./y     =  http://a/b/c/g;x=1/y
+P31L28	      g;x=1/../y    =  http://a/b/c/y
+P31L29	
+P31L30	   All client applications remove the query component from the base URI
+P31L31	   before resolving relative URI.  However, some applications fail to
+P31L32	   separate the reference's query and/or fragment components from a
+P31L33	   relative path before merging it with the base path.  This error is
+P31L34	   rarely noticed, since typical usage of a fragment never includes the
+P31L35	   hierarchy ("/") character, and the query component is not normally
+P31L36	   used within relative references.
+P31L37	
+P31L38	      g?y/./x       =  http://a/b/c/g?y/./x
+P31L39	      g?y/../x      =  http://a/b/c/g?y/../x
+P31L40	      g#s/./x       =  http://a/b/c/g#s/./x
+P31L41	      g#s/../x      =  http://a/b/c/g#s/../x
+P31L42	
+P31L43	
+P31L44	
+P31L45	
+P31L46	
+P31L47	
+P31L48	
+P32L1	   Some parsers allow the scheme name to be present in a relative URI if
+P32L2	   it is the same as the base URI scheme.  This is considered to be a
+P32L3	   loophole in prior specifications of partial URI [RFC1630]. Its use
+P32L4	   should be avoided.
+P32L5	
+P32L6	      http:g        =  http:g           ; for validating parsers
+P32L7	                    |  http://a/b/c/g   ; for backwards compatibility
+P32L8	
+P32L9	
+P32L10	
+P32L11	
+P32L12	
+P32L13	
+P32L14	
+P32L15	
+P32L16	
+P32L17	
+P32L18	
+P32L19	
+P32L20	
+P32L21	
+P32L22	
+P32L23	
+P32L24	
+P32L25	
+P32L26	
+P32L27	
+P32L28	
+P32L29	
+P32L30	
+P32L31	
+P32L32	
+P32L33	
+P32L34	
+P32L35	
+P32L36	
+P32L37	
+P32L38	
+P32L39	
+P32L40	
+P32L41	
+P32L42	
+P32L43	
+P32L44	
+P32L45	
+P32L46	
+P32L47	
+P32L48	
+P33L1	D. Embedding the Base URI in HTML documents
+P33L2	
+P33L3	   It is useful to consider an example of how the base URI of a document
+P33L4	   can be embedded within the document's content.  In this appendix, we
+P33L5	   describe how documents written in the Hypertext Markup Language
+P33L6	   (HTML) [RFC1866] can include an embedded base URI.  This appendix
+P33L7	   does not form a part of the URI specification and should not be
+P33L8	   considered as anything more than a descriptive example.
+P33L9	
+P33L10	   HTML defines a special element "BASE" which, when present in the
+P33L11	   "HEAD" portion of a document, signals that the parser should use the
+P33L12	   BASE element's "HREF" attribute as the base URI for resolving any
+P33L13	   relative URI.  The "HREF" attribute must be an absolute URI.  Note
+P33L14	   that, in HTML, element and attribute names are case-insensitive.  For
+P33L15	   example:
+P33L16	
+P33L17	      <!doctype html public "-//IETF//DTD HTML//EN">
+P33L18	      <HTML><HEAD>
+P33L19	      <TITLE>An example HTML document</TITLE>
+P33L20	      <BASE href="http://www.ics.uci.edu/Test/a/b/c">
+P33L21	      </HEAD><BODY>
+P33L22	      ... <A href="../x">a hypertext anchor</A> ...
+P33L23	      </BODY></HTML>
+P33L24	
+P33L25	   A parser reading the example document should interpret the given
+P33L26	   relative URI "../x" as representing the absolute URI
+P33L27	
+P33L28	      <http://www.ics.uci.edu/Test/a/x>
+P33L29	
+P33L30	   regardless of the context in which the example document was obtained.
+P33L31	
+P33L32	
+P33L33	
+P33L34	
+P33L35	
+P33L36	
+P33L37	
+P33L38	
+P33L39	
+P33L40	
+P33L41	
+P33L42	
+P33L43	
+P33L44	
+P33L45	
+P33L46	
+P33L47	
+P33L48	
+P34L1	E. Recommendations for Delimiting URI in Context
+P34L2	
+P34L3	   URI are often transmitted through formats that do not provide a clear
+P34L4	   context for their interpretation.  For example, there are many
+P34L5	   occasions when URI are included in plain text; examples include text
+P34L6	   sent in electronic mail, USENET news messages, and, most importantly,
+P34L7	   printed on paper.  In such cases, it is important to be able to
+P34L8	   delimit the URI from the rest of the text, and in particular from
+P34L9	   punctuation marks that might be mistaken for part of the URI.
+P34L10	
+P34L11	   In practice, URI are delimited in a variety of ways, but usually
+P34L12	   within double-quotes "http://test.com/", angle brackets
+P34L13	   <http://test.com/>, or just using whitespace
+P34L14	
+P34L15	                             http://test.com/
+P34L16	
+P34L17	   These wrappers do not form part of the URI.
+P34L18	
+P34L19	   In the case where a fragment identifier is associated with a URI
+P34L20	   reference, the fragment would be placed within the brackets as well
+P34L21	   (separated from the URI with a "#" character).
+P34L22	
+P34L23	   In some cases, extra whitespace (spaces, linebreaks, tabs, etc.) may
+P34L24	   need to be added to break long URI across lines. The whitespace
+P34L25	   should be ignored when extracting the URI.
+P34L26	
+P34L27	   No whitespace should be introduced after a hyphen ("-") character.
+P34L28	   Because some typesetters and printers may (erroneously) introduce a
+P34L29	   hyphen at the end of line when breaking a line, the interpreter of a
+P34L30	   URI containing a line break immediately after a hyphen should ignore
+P34L31	   all unescaped whitespace around the line break, and should be aware
+P34L32	   that the hyphen may or may not actually be part of the URI.
+P34L33	
+P34L34	   Using <> angle brackets around each URI is especially recommended as
+P34L35	   a delimiting style for URI that contain whitespace.
+P34L36	
+P34L37	   The prefix "URL:" (with or without a trailing space) was recommended
+P34L38	   as a way to used to help distinguish a URL from other bracketed
+P34L39	   designators, although this is not common in practice.
+P34L40	
+P34L41	   For robustness, software that accepts user-typed URI should attempt
+P34L42	   to recognize and strip both delimiters and embedded whitespace.
+P34L43	
+P34L44	   For example, the text:
+P34L45	
+P34L46	
+P34L47	
+P34L48	
+P35L1	      Yes, Jim, I found it under "http://www.w3.org/Addressing/",
+P35L2	      but you can probably pick it up from <ftp://ds.internic.
+P35L3	      net/rfc/>.  Note the warning in <http://www.ics.uci.edu/pub/
+P35L4	      ietf/uri/historical.html#WARNING>.
+P35L5	
+P35L6	   contains the URI references
+P35L7	
+P35L8	      http://www.w3.org/Addressing/
+P35L9	      ftp://ds.internic.net/rfc/
+P35L10	      http://www.ics.uci.edu/pub/ietf/uri/historical.html#WARNING
+P35L11	
+P35L12	
+P35L13	
+P35L14	
+P35L15	
+P35L16	
+P35L17	
+P35L18	
+P35L19	
+P35L20	
+P35L21	
+P35L22	
+P35L23	
+P35L24	
+P35L25	
+P35L26	
+P35L27	
+P35L28	
+P35L29	
+P35L30	
+P35L31	
+P35L32	
+P35L33	
+P35L34	
+P35L35	
+P35L36	
+P35L37	
+P35L38	
+P35L39	
+P35L40	
+P35L41	
+P35L42	
+P35L43	
+P35L44	
+P35L45	
+P35L46	
+P35L47	
+P35L48	
+P36L1	F. Abbreviated URLs
+P36L2	
+P36L3	   The URL syntax was designed for unambiguous reference to network
+P36L4	   resources and extensibility via the URL scheme.  However, as URL
+P36L5	   identification and usage have become commonplace, traditional media
+P36L6	   (television, radio, newspapers, billboards, etc.) have increasingly
+P36L7	   used abbreviated URL references.  That is, a reference consisting of
+P36L8	   only the authority and path portions of the identified resource, such
+P36L9	   as
+P36L10	
+P36L11	      www.w3.org/Addressing/
+P36L12	
+P36L13	   or simply the DNS hostname on its own.  Such references are primarily
+P36L14	   intended for human interpretation rather than machine, with the
+P36L15	   assumption that context-based heuristics are sufficient to complete
+P36L16	   the URL (e.g., most hostnames beginning with "www" are likely to have
+P36L17	   a URL prefix of "http://").  Although there is no standard set of
+P36L18	   heuristics for disambiguating abbreviated URL references, many client
+P36L19	   implementations allow them to be entered by the user and
+P36L20	   heuristically resolved.  It should be noted that such heuristics may
+P36L21	   change over time, particularly when new URL schemes are introduced.
+P36L22	
+P36L23	   Since an abbreviated URL has the same syntax as a relative URL path,
+P36L24	   abbreviated URL references cannot be used in contexts where relative
+P36L25	   URLs are expected.  This limits the use of abbreviated URLs to places
+P36L26	   where there is no defined base URL, such as dialog boxes and off-line
+P36L27	   advertisements.
+P36L28	
+P36L29	
+P36L30	
+P36L31	
+P36L32	
+P36L33	
+P36L34	
+P36L35	
+P36L36	
+P36L37	
+P36L38	
+P36L39	
+P36L40	
+P36L41	
+P36L42	
+P36L43	
+P36L44	
+P36L45	
+P36L46	
+P36L47	
+P36L48	
+P37L1	G. Summary of Non-editorial Changes
+P37L2	
+P37L3	G.1. Additions
+P37L4	
+P37L5	   Section 4 (URI References) was added to stem the confusion regarding
+P37L6	   "what is a URI" and how to describe fragment identifiers given that
+P37L7	   they are not part of the URI, but are part of the URI syntax and
+P37L8	   parsing concerns.  In addition, it provides a reference definition
+P37L9	   for use by other IETF specifications (HTML, HTTP, etc.) that have
+P37L10	   previously attempted to redefine the URI syntax in order to account
+P37L11	   for the presence of fragment identifiers in URI references.
+P37L12	
+P37L13	   Section 2.4 was rewritten to clarify a number of misinterpretations
+P37L14	   and to leave room for fully internationalized URI.
+P37L15	
+P37L16	   Appendix F on abbreviated URLs was added to describe the shortened
+P37L17	   references often seen on television and magazine advertisements and
+P37L18	   explain why they are not used in other contexts.
+P37L19	
+P37L20	G.2. Modifications from both RFC 1738 and RFC 1808
+P37L21	
+P37L22	   Changed to URI syntax instead of just URL.
+P37L23	
+P37L24	   Confusion regarding the terms "character encoding", the URI
+P37L25	   "character set", and the escaping of characters with %<hex><hex>
+P37L26	   equivalents has (hopefully) been reduced.  Many of the BNF rule names
+P37L27	   regarding the character sets have been changed to more accurately
+P37L28	   describe their purpose and to encompass all "characters" rather than
+P37L29	   just US-ASCII octets.  Unless otherwise noted here, these
+P37L30	   modifications do not affect the URI syntax.
+P37L31	
+P37L32	   Both RFC 1738 and RFC 1808 refer to the "reserved" set of characters
+P37L33	   as if URI-interpreting software were limited to a single set of
+P37L34	   characters with a reserved purpose (i.e., as meaning something other
+P37L35	   than the data to which the characters correspond), and that this set
+P37L36	   was fixed by the URI scheme.  However, this has not been true in
+P37L37	   practice; any character that is interpreted differently when it is
+P37L38	   escaped is, in effect, reserved.  Furthermore, the interpreting
+P37L39	   engine on a HTTP server is often dependent on the resource, not just
+P37L40	   the URI scheme.  The description of reserved characters has been
+P37L41	   changed accordingly.
+P37L42	
+P37L43	   The plus "+", dollar "$", and comma "," characters have been added to
+P37L44	   those in the "reserved" set, since they are treated as reserved
+P37L45	   within the query component.
+P37L46	
+P37L47	
+P37L48	
+P38L1	   The tilde "~" character was added to those in the "unreserved" set,
+P38L2	   since it is extensively used on the Internet in spite of the
+P38L3	   difficulty to transcribe it with some keyboards.
+P38L4	
+P38L5	   The syntax for URI scheme has been changed to require that all
+P38L6	   schemes begin with an alpha character.
+P38L7	
+P38L8	   The "user:password" form in the previous BNF was changed to a
+P38L9	   "userinfo" token, and the possibility that it might be
+P38L10	   "user:password" made scheme specific. In particular, the use of
+P38L11	   passwords in the clear is not even suggested by the syntax.
+P38L12	
+P38L13	   The question-mark "?" character was removed from the set of allowed
+P38L14	   characters for the userinfo in the authority component, since testing
+P38L15	   showed that many applications treat it as reserved for separating the
+P38L16	   query component from the rest of the URI.
+P38L17	
+P38L18	   The semicolon ";" character was added to those stated as being
+P38L19	   reserved within the authority component, since several new schemes
+P38L20	   are using it as a separator within userinfo to indicate the type of
+P38L21	   user authentication.
+P38L22	
+P38L23	   RFC 1738 specified that the path was separated from the authority
+P38L24	   portion of a URI by a slash.  RFC 1808 followed suit, but with a
+P38L25	   fudge of carrying around the separator as a "prefix" in order to
+P38L26	   describe the parsing algorithm.  RFC 1630 never had this problem,
+P38L27	   since it considered the slash to be part of the path.  In writing
+P38L28	   this specification, it was found to be impossible to accurately
+P38L29	   describe and retain the difference between the two URI
+P38L30	      <foo:/bar>   and   <foo:bar>
+P38L31	   without either considering the slash to be part of the path (as
+P38L32	   corresponds to actual practice) or creating a separate component just
+P38L33	   to hold that slash.  We chose the former.
+P38L34	
+P38L35	G.3. Modifications from RFC 1738
+P38L36	
+P38L37	   The definition of specific URL schemes and their scheme-specific
+P38L38	   syntax and semantics has been moved to separate documents.
+P38L39	
+P38L40	   The URL host was defined as a fully-qualified domain name.  However,
+P38L41	   many URLs are used without fully-qualified domain names (in contexts
+P38L42	   for which the full qualification is not necessary), without any host
+P38L43	   (as in some file URLs), or with a host of "localhost".
+P38L44	
+P38L45	   The URL port is now *digit instead of 1*digit, since systems are
+P38L46	   expected to handle the case where the ":" separator between host and
+P38L47	   port is supplied without a port.
+P38L48	
+P39L1	   The recommendations for delimiting URI in context (Appendix E) have
+P39L2	   been adjusted to reflect current practice.
+P39L3	
+P39L4	G.4. Modifications from RFC 1808
+P39L5	
+P39L6	   RFC 1808 (Section 4) defined an empty URL reference (a reference
+P39L7	   containing nothing aside from the fragment identifier) as being a
+P39L8	   reference to the base URL.  Unfortunately, that definition could be
+P39L9	   interpreted, upon selection of such a reference, as a new retrieval
+P39L10	   action on that resource.  Since the normal intent of such references
+P39L11	   is for the user agent to change its view of the current document to
+P39L12	   the beginning of the specified fragment within that document, not to
+P39L13	   make an additional request of the resource, a description of how to
+P39L14	   correctly interpret an empty reference has been added in Section 4.
+P39L15	
+P39L16	   The description of the mythical Base header field has been replaced
+P39L17	   with a reference to the Content-Location header field defined by
+P39L18	   MHTML [RFC2110].
+P39L19	
+P39L20	   RFC 1808 described various schemes as either having or not having the
+P39L21	   properties of the generic URI syntax.  However, the only requirement
+P39L22	   is that the particular document containing the relative references
+P39L23	   have a base URI that abides by the generic URI syntax, regardless of
+P39L24	   the URI scheme, so the associated description has been updated to
+P39L25	   reflect that.
+P39L26	
+P39L27	   The BNF term <net_loc> has been replaced with <authority>, since the
+P39L28	   latter more accurately describes its use and purpose.  Likewise, the
+P39L29	   authority is no longer restricted to the IP server syntax.
+P39L30	
+P39L31	   Extensive testing of current client applications demonstrated that
+P39L32	   the majority of deployed systems do not use the ";" character to
+P39L33	   indicate trailing parameter information, and that the presence of a
+P39L34	   semicolon in a path segment does not affect the relative parsing of
+P39L35	   that segment.  Therefore, parameters have been removed as a separate
+P39L36	   component and may now appear in any path segment.  Their influence
+P39L37	   has been removed from the algorithm for resolving a relative URI
+P39L38	   reference.  The resolution examples in Appendix C have been modified
+P39L39	   to reflect this change.
+P39L40	
+P39L41	   Implementations are now allowed to work around misformed relative
+P39L42	   references that are prefixed by the same scheme as the base URI, but
+P39L43	   only for schemes known to use the <hier_part> syntax.
+P39L44	
+P39L45	
+P39L46	
+P39L47	
+P39L48	
+P40L1	H.  Full Copyright Statement
+P40L2	
+P40L3	   Copyright (C) The Internet Society (1998).  All Rights Reserved.
+P40L4	
+P40L5	   This document and translations of it may be copied and furnished to
+P40L6	   others, and derivative works that comment on or otherwise explain it
+P40L7	   or assist in its implementation may be prepared, copied, published
+P40L8	   and distributed, in whole or in part, without restriction of any
+P40L9	   kind, provided that the above copyright notice and this paragraph are
+P40L10	   included on all such copies and derivative works.  However, this
+P40L11	   document itself may not be modified in any way, such as by removing
+P40L12	   the copyright notice or references to the Internet Society or other
+P40L13	   Internet organizations, except as needed for the purpose of
+P40L14	   developing Internet standards in which case the procedures for
+P40L15	   copyrights defined in the Internet Standards process must be
+P40L16	   followed, or as required to translate it into languages other than
+P40L17	   English.
+P40L18	
+P40L19	   The limited permissions granted above are perpetual and will not be
+P40L20	   revoked by the Internet Society or its successors or assigns.
+P40L21	
+P40L22	   This document and the information contained herein is provided on an
+P40L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P40L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P40L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P40L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P40L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P40L28	
+P40L29	
+P40L30	
+P40L31	
+P40L32	
+P40L33	
+P40L34	
+P40L35	
+P40L36	
+P40L37	
+P40L38	
+P40L39	
+P40L40	
+P40L41	
+P40L42	
+P40L43	
+P40L44	
+P40L45	
+P40L46	
+P40L47	
+P40L48	

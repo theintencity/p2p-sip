@@ -1,0 +1,624 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                       J. Rosenberg
+P1L5	Request for Comments: 3581                                   dynamicsoft
+P1L6	Category: Standards Track                                 H. Schulzrinne
+P1L7	                                                     Columbia University
+P1L8	                                                             August 2003
+P1L9	
+P1L10	
+P1L11	       An Extension to the Session Initiation Protocol (SIP) for
+P1L12	                       Symmetric Response Routing
+P1L13	
+P1L14	Status of this Memo
+P1L15	
+P1L16	   This document specifies an Internet standards track protocol for the
+P1L17	   Internet community, and requests discussion and suggestions for
+P1L18	   improvements.  Please refer to the current edition of the "Internet
+P1L19	   Official Protocol Standards" (STD 1) for the standardization state
+P1L20	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L21	
+P1L22	Copyright Notice
+P1L23	
+P1L24	   Copyright (C) The Internet Society (2003).  All Rights Reserved.
+P1L25	
+P1L26	Abstract
+P1L27	
+P1L28	   The Session Initiation Protocol (SIP) operates over UDP and TCP,
+P1L29	   among others.  When used with UDP, responses to requests are returned
+P1L30	   to the source address the request came from, and to the port written
+P1L31	   into the topmost Via header field value of the request.  This
+P1L32	   behavior is not desirable in many cases, most notably, when the
+P1L33	   client is behind a Network Address Translator (NAT).  This extension
+P1L34	   defines a new parameter for the Via header field, called "rport",
+P1L35	   that allows a client to request that the server send the response
+P1L36	   back to the source IP address and port from which the request
+P1L37	   originated.
+P1L38	
+P1L39	
+P1L40	
+P1L41	
+P1L42	
+P1L43	
+P1L44	
+P1L45	
+P1L46	
+P1L47	
+P1L48	
+P2L1	Table of Contents
+P2L2	
+P2L3	   1.  Introduction . . . . . . . . . . . . . . . . . . . . . . . . .  2
+P2L4	   2.  Terminology  . . . . . . . . . . . . . . . . . . . . . . . . .  3
+P2L5	   3.  Client Behavior  . . . . . . . . . . . . . . . . . . . . . . .  3
+P2L6	   4.  Server Behavior  . . . . . . . . . . . . . . . . . . . . . . .  4
+P2L7	   5.  Syntax . . . . . . . . . . . . . . . . . . . . . . . . . . . .  5
+P2L8	   6.  Example  . . . . . . . . . . . . . . . . . . . . . . . . . . .  5
+P2L9	   7.  Security Considerations  . . . . . . . . . . . . . . . . . . .  6
+P2L10	   8.  IANA Considerations  . . . . . . . . . . . . . . . . . . . . .  6
+P2L11	   9.  IAB Considerations . . . . . . . . . . . . . . . . . . . . . .  6
+P2L12	       9.1.  Problem Definition . . . . . . . . . . . . . . . . . . .  8
+P2L13	       9.2.  Exit Strategy  . . . . . . . . . . . . . . . . . . . . .  8
+P2L14	       9.3.  Brittleness Introduced by this Specification . . . . . .  9
+P2L15	       9.4.  Requirements for a Long Term Solution  . . . . . . . . . 10
+P2L16	       9.5.  Issues with Existing NAPT Boxes  . . . . . . . . . . . . 10
+P2L17	   10. Acknowledgements . . . . . . . . . . . . . . . . . . . . . . . 10
+P2L18	   11. References . . . . . . . . . . . . . . . . . . . . . . . . . . 11
+P2L19	       11.1. Normative References . . . . . . . . . . . . . . . . . . 11
+P2L20	       11.2. Informative References . . . . . . . . . . . . . . . . . 11
+P2L21	   12. Intellectual Property and Copyright Statements . . . . . . . . 11
+P2L22	   13. Authors' Addresses . . . . . . . . . . . . . . . . . . . . . . 12
+P2L23	   14. Full Copyright Statement . . . . . . . . . . . . . . . . . . . 13
+P2L24	
+P2L25	1.  Introduction
+P2L26	
+P2L27	   The Session Initiation Protocol (SIP) [1] operates over UDP and TCP.
+P2L28	   When used with UDP, responses to requests are returned to the source
+P2L29	   address the request came from, and to the port written into the
+P2L30	   topmost Via header field value of the request.  This results in a
+P2L31	   "hybrid" way of computing the destination of the response.  Half of
+P2L32	   the information (specifically, the IP address) is taken from the IP
+P2L33	   packet headers, and the other half (specifically, the port) from the
+P2L34	   SIP message headers.  SIP operates in this manner so that a server
+P2L35	   can listen for all messages, both requests and responses, on a single
+P2L36	   IP address and port.  This helps improve scalability.  However, this
+P2L37	   behavior is not desirable in many cases, most notably, when the
+P2L38	   client is behind a NAT.  In that case, the response will not properly
+P2L39	   traverse the NAT, since it will not match the binding established
+P2L40	   with the request.
+P2L41	
+P2L42	   Furthermore, there is currently no way for a client to examine a
+P2L43	   response and determine the source port that the server saw in the
+P2L44	   corresponding request.  Currently, SIP provides the client with the
+P2L45	   source IP address that the server saw in the request, but not the
+P2L46	   port.  The source IP address is conveyed in the "received" parameter
+P2L47	   in the topmost Via header field value of the response.  This
+P2L48	   information has proved useful for basic NAT traversal, debugging
+P3L1	   purposes, and support of multi-homed hosts.  However, it is
+P3L2	   incomplete without the port information.
+P3L3	
+P3L4	   This extension defines a new parameter for the Via header field,
+P3L5	   called "rport", that allows a client to request that the server send
+P3L6	   the response back to the source IP address and port where the request
+P3L7	   came from.  The "rport" parameter is analogous to the "received"
+P3L8	   parameter, except "rport" contains a port number, not the IP address.
+P3L9	
+P3L10	2.  Terminology
+P3L11	
+P3L12	   In this document, the key words "MUST", "MUST NOT", "REQUIRED",
+P3L13	   "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
+P3L14	   and "OPTIONAL" are to be interpreted as described in BCP 14, RFC 2119
+P3L15	   [2] and indicate requirement levels for compliant implementations.
+P3L16	
+P3L17	3.  Client Behavior
+P3L18	
+P3L19	   The client behavior specified here affects the transport processing
+P3L20	   defined in Section 18.1 of SIP (RFC 3261) [1].
+P3L21	
+P3L22	   A client, compliant to this specification (clients include UACs and
+P3L23	   proxies), MAY include an "rport" parameter in the top Via header
+P3L24	   field value of requests it generates.  This parameter MUST have no
+P3L25	   value; it serves as a flag to indicate to the server that this
+P3L26	   extension is supported and requested for the transaction.
+P3L27	
+P3L28	   When the client sends the request, if the request is sent using UDP,
+P3L29	   the client MUST be prepared to receive the response on the same IP
+P3L30	   address and port it used to populate the source IP address and source
+P3L31	   port of the request.  For backwards compatibility, the client MUST
+P3L32	   still be prepared to receive a response on the port indicated in the
+P3L33	   sent-by field of the topmost Via header field value, as specified in
+P3L34	   Section 18.1.1 of SIP [1].
+P3L35	
+P3L36	   When there is a NAT between the client and server, the request will
+P3L37	   create (or refresh) a binding in the NAT.  This binding must remain
+P3L38	   in existence for the duration of the transaction in order for the
+P3L39	   client to receive the response.  Most UDP NAT bindings appear to have
+P3L40	   a timeout of about one minute.  This exceeds the duration of non-
+P3L41	   INVITE transactions.  Therefore, responses to a non-INVITE request
+P3L42	   will be received while the binding is still in existence.  INVITE
+P3L43	   transactions can take an arbitrarily long amount of time to complete.
+P3L44	   As a result, the binding may expire before a final response is
+P3L45	   received.  To keep the binding fresh, the client SHOULD retransmit
+P3L46	   its INVITE every 20 seconds or so.  These retransmissions will need
+P3L47	   to take place even after receiving a provisional response.
+P3L48	
+P4L1	   A UA MAY execute the binding lifetime discovery algorithm in Section
+P4L2	   10.2 of RFC 3489 [4] to determine the actual binding lifetime in the
+P4L3	   NAT.  If it is longer than 1 minute, the client SHOULD increase the
+P4L4	   interval for request retransmissions up to half of the discovered
+P4L5	   lifetime.  If it is shorter than one minute, it SHOULD decrease the
+P4L6	   interval for request retransmissions to half of the discovered
+P4L7	   lifetime.  Note that discovery of binding lifetimes can be
+P4L8	   unreliable.  See Section 14.3 of RFC 3489 [4].
+P4L9	
+P4L10	4.  Server Behavior
+P4L11	
+P4L12	   The server behavior specified here affects the transport processing
+P4L13	   defined in Section 18.2 of SIP [1].
+P4L14	
+P4L15	   When a server compliant to this specification (which can be a proxy
+P4L16	   or UAS) receives a request, it examines the topmost Via header field
+P4L17	   value.  If this Via header field value contains an "rport" parameter
+P4L18	   with no value, it MUST set the value of the parameter to the source
+P4L19	   port of the request.  This is analogous to the way in which a server
+P4L20	   will insert the "received" parameter into the topmost Via header
+P4L21	   field value.  In fact, the server MUST insert a "received" parameter
+P4L22	   containing the source IP address that the request came from, even if
+P4L23	   it is identical to the value of the "sent-by" component.  Note that
+P4L24	   this processing takes place independent of the transport protocol.
+P4L25	
+P4L26	   When a server attempts to send a response, it examines the topmost
+P4L27	   Via header field value of that response.  If the "sent-protocol"
+P4L28	   component indicates an unreliable unicast transport protocol, such as
+P4L29	   UDP, and there is no "maddr" parameter, but there is both a
+P4L30	   "received" parameter and an "rport" parameter, the response MUST be
+P4L31	   sent to the IP address listed in the "received" parameter, and the
+P4L32	   port in the "rport" parameter.  The response MUST be sent from the
+P4L33	   same address and port that the corresponding request was received on.
+P4L34	   This effectively adds a new processing step between bullets two and
+P4L35	   three in Section 18.2.2 of SIP [1].
+P4L36	
+P4L37	   The response must be sent from the same address and port that the
+P4L38	   request was received on in order to traverse symmetric NATs.  When a
+P4L39	   server is listening for requests on multiple ports or interfaces, it
+P4L40	   will need to remember the one on which the request was received.  For
+P4L41	   a stateful proxy, storing this information for the duration of the
+P4L42	   transaction is not an issue.  However, a stateless proxy does not
+P4L43	   store state between a request and its response, and therefore cannot
+P4L44	   remember the address and port on which a request was received.  To
+P4L45	   properly implement this specification, a stateless proxy can encode
+P4L46	   the destination address and port of a request into the Via header
+P4L47	   field value that it inserts.  When the response arrives, it can
+P4L48	   extract this information and use it to forward the response.
+P5L1	5.  Syntax
+P5L2	
+P5L3	   The syntax for the "rport" parameter is:
+P5L4	
+P5L5	   response-port = "rport" [EQUAL 1*DIGIT]
+P5L6	
+P5L7	   This extends the existing definition of the Via header field
+P5L8	   parameters, so that its BNF now looks like:
+P5L9	
+P5L10	   via-params        =  via-ttl / via-maddr
+P5L11	                        / via-received / via-branch
+P5L12	                        / response-port / via-extension
+P5L13	
+P5L14	6.  Example
+P5L15	
+P5L16	   A client sends an INVITE to a proxy server which looks like, in part:
+P5L17	
+P5L18	   INVITE sip:user@example.com SIP/2.0
+P5L19	   Via: SIP/2.0/UDP 10.1.1.1:4540;rport;branch=z9hG4bKkjshdyff
+P5L20	
+P5L21	   This INVITE is sent with a source port of 4540 and a source IP
+P5L22	   address of 10.1.1.1.  The proxy is at 192.0.2.2 (proxy.example.com),
+P5L23	   listening on both port 5060 and 5070.  The client sends the request
+P5L24	   to port 5060.  The request passes through a NAT on the way to the
+P5L25	   proxy, so that the source IP address appears as 192.0.2.1 and the
+P5L26	   source port as 9988.  The proxy forwards the request, but not before
+P5L27	   appending a value to the "rport" parameter in the proxied request:
+P5L28	
+P5L29	   INVITE sip:user@example.com SIP/2.0
+P5L30	   Via: SIP/2.0/UDP proxy.example.com;branch=z9hG4bKkjsh77
+P5L31	   Via: SIP/2.0/UDP 10.1.1.1:4540;received=192.0.2.1;rport=9988
+P5L32	    ;branch=z9hG4bKkjshdyff
+P5L33	
+P5L34	   This request generates a response which arrives at the proxy:
+P5L35	
+P5L36	   SIP/2.0 200 OK
+P5L37	   Via: SIP/2.0/UDP proxy.example.com;branch=z9hG4bKkjsh77
+P5L38	   Via: SIP/2.0/UDP 10.1.1.1:4540;received=192.0.2.1;rport=9988
+P5L39	    ;branch=z9hG4bKkjshdyff
+P5L40	
+P5L41	   The proxy strips its top Via header field value, and then examines
+P5L42	   the next one.  It contains both a "received" parameter and an "rport"
+P5L43	   parameter.  The server follows the rules specified in Section 4 and
+P5L44	   sends the response to IP address 192.0.2.1, port 9988, and sends it
+P5L45	   from port 5060 on 192.0.2.2:
+P5L46	
+P5L47	
+P5L48	
+P6L1	   SIP/2.0 200 OK
+P6L2	   Via: SIP/2.0/UDP 10.1.1.1:4540;received=192.0.2.1;rport=9988
+P6L3	    ;branch=z9hG4bKkjshdyff
+P6L4	
+P6L5	   This packet matches the binding created by the initial request.
+P6L6	   Therefore, the NAT rewrites the destination address of this packet
+P6L7	   back to 10.1.1.1, and the destination port back to 4540.  It forwards
+P6L8	   this response to the client, which is listening for the response on
+P6L9	   that address and port.  The client properly receives the response.
+P6L10	
+P6L11	7.  Security Considerations
+P6L12	
+P6L13	   When a server uses this specification, responses that it sends will
+P6L14	   now include the source port where the request came from.  In some
+P6L15	   instances, the source address and port of a request are sensitive
+P6L16	   information.  If they are sensitive, requests SHOULD be protected by
+P6L17	   using SIP over TLS [1].  In such a case, this specification does not
+P6L18	   provide any response routing functions (as these only work with TCP);
+P6L19	   it merely provides the client with information about the source port
+P6L20	   as seen by the server.
+P6L21	
+P6L22	   It is possible that an attacker might try to disrupt service to a
+P6L23	   client by acting as a man-in-the-middle, modifying the "rport"
+P6L24	   parameter in a Via header in a request sent by a client.  Removal of
+P6L25	   this parameter will prevent clients from behind NATs from receiving
+P6L26	   service.  The addition of the parameter will generally have no
+P6L27	   impact.  Of course, if an attacker is capable of launching a man-in-
+P6L28	   the-middle attack, there are many other ways of denying service, such
+P6L29	   as merely discarding the request.  Therefore, this attack does not
+P6L30	   seem significant.
+P6L31	
+P6L32	8.  IANA Considerations
+P6L33	
+P6L34	   There are no IANA considerations associated with this specification.
+P6L35	
+P6L36	9.  IAB Considerations
+P6L37	
+P6L38	   The IAB has studied a class of protocols referred to as Unilateral
+P6L39	   Self Address Fixing (UNSAF) protocols [5].  These protocols allow a
+P6L40	   client behind a NAT to learn the IP address and port that a NAT will
+P6L41	   allocate for a particular request, in order to use this information
+P6L42	   in application layer protocols.  An example of an UNSAF protocol is
+P6L43	   the Simple Traversal of UDP Through NATs (STUN) [4].
+P6L44	
+P6L45	
+P6L46	
+P6L47	
+P6L48	
+P7L1	   Any protocol is an UNSAF protocol if it reveals, to a client, the
+P7L2	   source IP address and port of a packet sent through that NAT.
+P7L3	   Although not designed for that purpose, this specification can be
+P7L4	   used as an UNSAF protocol.  Using the "rport" parameter (defined
+P7L5	   here) and the "received" parameter (defined in RFC 3261 [1]) in the
+P7L6	   topmost Via header field value of a response, a client sending a
+P7L7	   request can learn its address as it was seen by the server which sent
+P7L8	   the response.
+P7L9	
+P7L10	   There are two uses of this information.  The first is for
+P7L11	   registrations.  Consider a client behind a NAT wishing to register
+P7L12	   with a proxy/registrar on the other side of the NAT.  The client must
+P7L13	   provide, in its registration, the address at which it should receive
+P7L14	   incoming SIP requests from the proxy.  However, since the client is
+P7L15	   located behind a NAT, none of the addresses on any of its interfaces
+P7L16	   will be reachable from the proxy.  If the client can provide the
+P7L17	   proxy with an address that the proxy can reach, the client can
+P7L18	   receive incoming requests.  Using this specification, a client behind
+P7L19	   a NAT can learn its address and port as seen by the proxy which
+P7L20	   receives a REGISTER request.  The client can then perform an
+P7L21	   additional registration, using this address in a Contact header.
+P7L22	   This would allow a client to receive incoming requests, such as
+P7L23	   INVITE, on the IP address and port it used to populate the source IP
+P7L24	   address and port of the registration it sent.  This approach will
+P7L25	   only work when servers send requests to a UA from the same address
+P7L26	   and port on which the REGISTER itself was received.
+P7L27	
+P7L28	   In many cases, the server to whom the registration is sent won't be
+P7L29	   the registrar itself, but rather a proxy which then sends the request
+P7L30	   to the registrar.  In such a case, any incoming requests for the
+P7L31	   client must traverse the proxy to whom the registration was directly
+P7L32	   sent.  The Path header extension to SIP [3] allows the proxy to
+P7L33	   indicate that it must be on the path of such requests.
+P7L34	
+P7L35	   The second usage is for record routing, to address the same problem
+P7L36	   as above, but between two proxies.  A proxy behind a NAT which
+P7L37	   forwards a request to a server can use OPTIONS, for example, to learn
+P7L38	   its address as seen by that server.  This address can be placed into
+P7L39	   the Record-Route header field of requests sent to that server.  This
+P7L40	   would allow the proxy to receive requests from that server on the
+P7L41	   same IP address and port it used to populate the source IP address
+P7L42	   and port of the OPTIONS request.
+P7L43	
+P7L44	   Because of this potential usage, this document must consider the
+P7L45	   issues raised in [5].
+P7L46	
+P7L47	
+P7L48	
+P8L1	9.1.  Problem Definition
+P8L2	
+P8L3	   From [5], any UNSAF proposal must provide:
+P8L4	
+P8L5	      Precise definition of a specific, limited-scope problem that is to
+P8L6	      be solved with the UNSAF proposal.  A short term fix should not be
+P8L7	      generalized to solve other problems; this is why "short term fixes
+P8L8	      usually aren't".
+P8L9	
+P8L10	   This specification is primarily aimed at allowing SIP responses to be
+P8L11	   received when a request is sent through a NAT.  In this primary
+P8L12	   application, this specification is not an UNSAF proposal.  However,
+P8L13	   as a side effect of this capability, this specification can be used
+P8L14	   as an UNSAF protocol.  In that usage, it would address two issues:
+P8L15	
+P8L16	   o  Provide a client with an address that it could use in the Contact
+P8L17	      header of a REGISTER request when it is behind a NAT.
+P8L18	
+P8L19	   o  Provide a proxy with an address that it could use in a Record-
+P8L20	      Route header in a request, when it is behind a NAT.
+P8L21	
+P8L22	9.2.  Exit Strategy
+P8L23	
+P8L24	   From [5], any UNSAF proposal must provide:
+P8L25	
+P8L26	      Description of an exit strategy/transition plan.  The better short
+P8L27	      term fixes are the ones that will naturally see less and less use
+P8L28	      as the appropriate technology is deployed.
+P8L29	
+P8L30	   The SIP working group has recognized that the usage of this
+P8L31	   specification to support registrations and record-routing through
+P8L32	   NATs is not appropriate.  It has a number of known problems which are
+P8L33	   documented below.  The way to eliminate potential usage of this
+P8L34	   specification for address fixing is to provide a proper solution to
+P8L35	   the problems that might motivate the usage of this specification for
+P8L36	   address fixing.  Specifically, appropriate solutions for
+P8L37	   registrations and record-routing in the presence of NATs need to be
+P8L38	   developed.  These solutions would not rely on address fixing.
+P8L39	
+P8L40	   Requirements for such solutions are already under development [6].
+P8L41	
+P8L42	   Implementors of this specification are encouraged to follow this work
+P8L43	   for better solutions for registrations and record-routing through
+P8L44	   NAT.
+P8L45	
+P8L46	
+P8L47	
+P8L48	
+P9L1	9.3.  Brittleness Introduced by this Specification
+P9L2	
+P9L3	   From [5], any UNSAF proposal must provide:
+P9L4	
+P9L5	      Discussion of specific issues that may render systems more
+P9L6	      "brittle".  For example, approaches that involve using data at
+P9L7	      multiple network layers create more dependencies, increase
+P9L8	      debugging challenges, and make it harder to transition.
+P9L9	
+P9L10	   This specification, if used for address fixing, introduces several
+P9L11	   points of brittleness into a SIP system:
+P9L12	
+P9L13	   o  If used for UDP registrations, a client will need to frequently
+P9L14	      re-register in order to keep the NAT bindings fresh.  In many
+P9L15	      cases, these registrations will need to take place nearly one
+P9L16	      hundred times more frequently than the typical refresh interval of
+P9L17	      a registration.  This introduces load into the system and hampers
+P9L18	      scalability.
+P9L19	
+P9L20	   o  A client cannot accurately determine the binding lifetime of a NAT
+P9L21	      it is registering (or record-routing) through.  Therefore, there
+P9L22	      may be periods of unreachability that occur between the time a
+P9L23	      binding expires and the next registration or OPTIONS refresh is
+P9L24	      sent.  This may result in missed calls, messages, or other
+P9L25	      information.
+P9L26	
+P9L27	   o  If the NAT is of the symmetric variety [4], a client will only be
+P9L28	      able to use its address to receive requests from the server it has
+P9L29	      sent the request to.  If that server is one of many servers in a
+P9L30	      cluster, the client may not be able to receive requests from other
+P9L31	      servers in the cluster.  This may result in missed calls,
+P9L32	      messages, or other information.
+P9L33	
+P9L34	   o  If the NAT is of the symmetric variety [4], a client will only be
+P9L35	      able to use its address to receive requests if the server sends
+P9L36	      requests to the client from the same address and port the server
+P9L37	      received the registrations on.  This server behavior is not
+P9L38	      mandated by RFC 3261 [1], although it appears to be common in
+P9L39	      practice.
+P9L40	
+P9L41	   o  If the registrar and the server to whom the client sent its
+P9L42	      REGISTER request are not the same, the approach will only work if
+P9L43	      the server uses the Path header field [3].  There is not an easy
+P9L44	      and reliable way for the server to determine that the Path header
+P9L45	      should be used for a registration.  Using Path when the address in
+P9L46	      the topmost Via header field is a private address will usually
+P9L47	      work, but may result in usage of Path when it is not actually
+P9L48	      needed.
+P10L1	9.4.  Requirements for a Long Term Solution
+P10L2	
+P10L3	   From [5], any UNSAF proposal must provide:
+P10L4	
+P10L5	      Identify requirements for longer term, sound technical solutions
+P10L6	      -- contribute to the process of finding the right longer term
+P10L7	      solution.
+P10L8	
+P10L9	   The brittleness described in Section 9.3 has led us to the following
+P10L10	   requirements for a long term solution:
+P10L11	
+P10L12	   The client should not need to specify its address.  Registrations and
+P10L13	      record routing require the client to specify the address at which
+P10L14	      it should receive requests.  A sound technical solution should
+P10L15	      allow a client to explicitly specify that it wants to receive
+P10L16	      incoming requests on the connection over which the outgoing
+P10L17	      request was sent.  In this way, the client does not need to
+P10L18	      specify its address.
+P10L19	
+P10L20	   The solution must deal with clusters of servers.  In many
+P10L21	      commercially deployed SIP systems, there will be multiple servers,
+P10L22	      each at different addresses and ports, handling incoming requests
+P10L23	      for a client.  The solution must explicitly consider this case.
+P10L24	
+P10L25	   The solution must not require increases in network load.  There
+P10L26	      cannot be a penalty for a sound technical solution.
+P10L27	
+P10L28	9.5.  Issues with Existing NAPT Boxes
+P10L29	
+P10L30	   From [5], any UNSAF proposal must provide:
+P10L31	
+P10L32	      Discussion of the impact of the noted practical issues with
+P10L33	      existing, deployed NA[P]Ts and experience reports.
+P10L34	
+P10L35	   To our knowledge, at the time of writing, there is only very limited
+P10L36	   usage of this specification for address fixing.  Therefore, no
+P10L37	   specific practical issues have been raised.
+P10L38	
+P10L39	10.  Acknowledgements
+P10L40	
+P10L41	   The authors would like to thank Rohan Mahy and Allison Mankin for
+P10L42	   their comments and contributions to this work.
+P10L43	
+P10L44	
+P10L45	
+P10L46	
+P10L47	
+P10L48	
+P11L1	11.  References
+P11L2	
+P11L3	11.1.  Normative References
+P11L4	
+P11L5	   [1] Rosenberg, J., Schulzrinne, H., Camarillo, G., Johnston, A.,
+P11L6	       Peterson, J., Sparks, R., Handley, M. and E. Schooler, "SIP:
+P11L7	       Session Initiation Protocol", RFC 3261, June 2002.
+P11L8	
+P11L9	   [2] Bradner, S., "Key words for use in RFCs to Indicate Requirement
+P11L10	       Levels", BCP 14, RFC 2119, March 1997.
+P11L11	
+P11L12	   [3] Willis, D. and B. Hoeneisen, "Session Initiation Protocol (SIP)
+P11L13	       Extension Header Field for Registering Non-Adjacent Contacts",
+P11L14	       RFC 3327, December 2002.
+P11L15	
+P11L16	   [4] Rosenberg, J., Weinberger, J., Huitema, C. and R. Mahy, "STUN -
+P11L17	       Simple Traversal of User Datagram Protocol (UDP) Through Network
+P11L18	       Address Translators (NATs)", RFC 3489, March 2003.
+P11L19	
+P11L20	11.2.  Informative References
+P11L21	
+P11L22	   [5] Daigle, L., Ed., and IAB, "IAB Considerations for UNilateral
+P11L23	       Self-Address Fixing (UNSAF) Across Network Address Translation",
+P11L24	       RFC 3424, November 2002.
+P11L25	
+P11L26	   [6] Mahy, R., "Requirements for Connection Reuse in the Session
+P11L27	       Initiation Protocol (SIP)", Work in Progress.
+P11L28	
+P11L29	12.  Intellectual Property Statement
+P11L30	
+P11L31	   The IETF takes no position regarding the validity or scope of any
+P11L32	   intellectual property or other rights that might be claimed to
+P11L33	   pertain to the implementation or use of the technology described in
+P11L34	   this document or the extent to which any license under such rights
+P11L35	   might or might not be available; neither does it represent that it
+P11L36	   has made any effort to identify any such rights.  Information on the
+P11L37	   IETF's procedures with respect to rights in standards-track and
+P11L38	   standards-related documentation can be found in BCP-11.  Copies of
+P11L39	   claims of rights made available for publication and any assurances of
+P11L40	   licenses to be made available, or the result of an attempt made to
+P11L41	   obtain a general license or permission for the use of such
+P11L42	   proprietary rights by implementors or users of this specification can
+P11L43	   be obtained from the IETF Secretariat.
+P11L44	
+P11L45	
+P11L46	
+P11L47	
+P11L48	
+P12L1	   The IETF invites any interested party to bring to its attention any
+P12L2	   copyrights, patents or patent applications, or other proprietary
+P12L3	   rights which may cover technology that may be required to practice
+P12L4	   this standard.  Please address the information to the IETF Executive
+P12L5	   Director.
+P12L6	
+P12L7	13.  Authors' Addresses
+P12L8	
+P12L9	   Jonathan Rosenberg
+P12L10	   dynamicsoft
+P12L11	   600 Lanidex Plaza
+P12L12	   Parsippany, NJ  07054
+P12L13	   US
+P12L14	
+P12L15	   Phone: +1 973 952-5000
+P12L16	   EMail: jdrosen@dynamicsoft.com
+P12L17	   URI:   http://www.jdrosen.net
+P12L18	
+P12L19	
+P12L20	   Henning Schulzrinne
+P12L21	   Columbia University
+P12L22	   M/S 0401
+P12L23	   1214 Amsterdam Ave.
+P12L24	   New York, NY  10027
+P12L25	   US
+P12L26	
+P12L27	   EMail: schulzrinne@cs.columbia.edu
+P12L28	   URI:   http://www.cs.columbia.edu/~hgs
+P12L29	
+P12L30	
+P12L31	
+P12L32	
+P12L33	
+P12L34	
+P12L35	
+P12L36	
+P12L37	
+P12L38	
+P12L39	
+P12L40	
+P12L41	
+P12L42	
+P12L43	
+P12L44	
+P12L45	
+P12L46	
+P12L47	
+P12L48	
+P13L1	14.  Full Copyright Statement
+P13L2	
+P13L3	   Copyright (C) The Internet Society (2003).  All Rights Reserved.
+P13L4	
+P13L5	   This document and translations of it may be copied and furnished to
+P13L6	   others, and derivative works that comment on or otherwise explain it
+P13L7	   or assist in its implementation may be prepared, copied, published
+P13L8	   and distributed, in whole or in part, without restriction of any
+P13L9	   kind, provided that the above copyright notice and this paragraph are
+P13L10	   included on all such copies and derivative works.  However, this
+P13L11	   document itself may not be modified in any way, such as by removing
+P13L12	   the copyright notice or references to the Internet Society or other
+P13L13	   Internet organizations, except as needed for the purpose of
+P13L14	   developing Internet standards in which case the procedures for
+P13L15	   copyrights defined in the Internet Standards process must be
+P13L16	   followed, or as required to translate it into languages other than
+P13L17	   English.
+P13L18	
+P13L19	   The limited permissions granted above are perpetual and will not be
+P13L20	   revoked by the Internet Society or its successors or assignees.
+P13L21	
+P13L22	   This document and the information contained herein is provided on an
+P13L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P13L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P13L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P13L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P13L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P13L28	
+P13L29	Acknowledgement
+P13L30	
+P13L31	   Funding for the RFC Editor function is currently provided by the
+P13L32	   Internet Society.
+P13L33	
+P13L34	
+P13L35	
+P13L36	
+P13L37	
+P13L38	
+P13L39	
+P13L40	
+P13L41	
+P13L42	
+P13L43	
+P13L44	
+P13L45	
+P13L46	
+P13L47	
+P13L48	

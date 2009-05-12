@@ -1,0 +1,64 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># implements <a href="http://www.w3.org/TR/voicexml20/">http://www.w3.org/TR/voicexml20/</a></span>
+
+<span class="p_triple">'''
+Interpreter Context (has Interpreter) and receives user input
+Implementation Platform - transfers calls, receives call, disconnects, timers.
+
+Dialog - form + menu
+  each field can have a grammar. Form level grammar.
+  sub-dialog is like function call.
+Session 
+Application
+Grammar
+Events
+Links
+
+Document has form, menu, meta, metadata, var, script, property, catch and link
+'''</span>
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>: sys.path.append(<span class="p_string">'../external'</span>)
+<span class="p_word">from</span> simplexml <span class="p_word">import</span> XML, XMLList, parser
+
+_elements = <span class="p_triple">'''
+assign audio block catch choice clear disconnect else elseif enumerate error exit field filled
+form goto grammar help if initial link log menu meta metadata noinput nomatch object option
+param prompt property record reprompt return script subdialog submit throw transfer value var vxml
+'''</span>.split()
+
+<span class="p_word">def</span> _test1():
+    xml = XML(<span class="p_triple">'''&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;vxml xmlns="<a href="http://www.w3.org/2001/vxml">http://www.w3.org/2001/vxml</a>" 
+  xmlns:xsi="<a href="http://www.w3.org/2001/XMLSchema-instance">http://www.w3.org/2001/XMLSchema-instance</a>" 
+  xsi:schemaLocation="<a href="http://www.w3.org/2001/vxml">http://www.w3.org/2001/vxml</a> 
+   <a href="http://www.w3.org/TR/voicexml20/vxml.xsd">http://www.w3.org/TR/voicexml20/vxml.xsd</a>"
+   version="2.0"&gt;
+ &lt;meta name="author" content="John Doe"/&gt;
+ &lt;meta name="maintainer" content="hello-support@hi.example.com"/&gt;
+ &lt;var name="hi" expr="'Hello World!'"/&gt;
+ &lt;form&gt;
+  &lt;block&gt;
+     &lt;value expr="hi"/&gt;
+     &lt;goto next="#say_goodbye"/&gt;
+  &lt;/block&gt;
+ &lt;/form&gt;
+ &lt;form id="say_goodbye"&gt;
+  &lt;block&gt;
+     Goodbye!
+  &lt;/block&gt;
+ &lt;/form&gt;
+&lt;/vxml&gt;'''</span>)
+    <span class="p_word">print</span> xml
+
+    
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">print</span> <span class="p_string">'main'</span>
+
+  </PRE></BODY>
+</HTML>

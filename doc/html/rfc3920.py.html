@@ -1,0 +1,447 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007-2008, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC3920 (XMPP core for client)</b></DIV><PRE>
+
+<span class="p_word">import</span> time, sys, re, socket, select, base64, md5, multitask, traceback
+<span class="p_word">from</span> xml.parsers <span class="p_word">import</span> expat
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>: sys.path.append(<span class="p_string">'../external'</span>)
+<span class="p_word">from</span> simplexml <span class="p_word">import</span> XML, XMLList, parser
+<span class="p_word">import</span> dns, rfc3263, kutil
+
+_debug = False
+
+<span class="p_commentline"># This is used as decorator to define a property.</span>
+<span class="p_word">def</span> Property(func): <span class="p_word">return</span> property(doc=func.__doc__, **func())
+
+<span class="p_commentline"># a generator function calls succeed, fail or respond to return a response</span>
+<span class="p_word">def</span> succeed(result): <span class="p_word">raise</span> StopIteration, (result, <span class="p_word">None</span>)
+<span class="p_word">def</span> fail(error): <span class="p_word">raise</span> StopIteration, (<span class="p_word">None</span>, error)
+<span class="p_word">def</span> respond(*args): <span class="p_word">raise</span> StopIteration, tuple(args) <span class="p_word">if</span> len(args) != <span class="p_number">1</span> <span class="p_word">else</span> args
+
+F = <span class="p_word">lambda</span> x: x <span class="p_word">and</span> x[<span class="p_number">0</span>] <span class="p_word">or</span> <span class="p_word">None</span> <span class="p_commentline"># return first of a list or None if empty</span>
+_quote   = <span class="p_word">lambda</span> s: <span class="p_string">'"'</span> + s + <span class="p_string">'"'</span> <span class="p_word">if</span> s[<span class="p_number">0</span>] != <span class="p_string">'"'</span> != s[-<span class="p_number">1</span>] <span class="p_word">else</span> s <span class="p_commentline"># quote a string if needed</span>
+_unquote = <span class="p_word">lambda</span> s: s[<span class="p_number">1</span>:-<span class="p_number">1</span>] <span class="p_word">if</span> s[<span class="p_number">0</span>] == <span class="p_string">'"'</span> == s[-<span class="p_number">1</span>] <span class="p_word">else</span> s <span class="p_commentline"># unquote a string is possible</span>
+
+<span class="p_commentline">#-----------------------------------------------------------------------------</span>
+<span class="p_commentline"># Basic Data Structures</span>
+<span class="p_commentline">#-----------------------------------------------------------------------------</span>
+
+<span class="p_word">class</span> JID(str):
+    <span class="p_triple">'''Jabber ID is basically a string of the form user@domain/resource, where user and resource are optional.
+    &gt;&gt;&gt; j1 = JID('kundan@example.net/32'); j2 = JID('kundan@example.net')
+    &gt;&gt;&gt; print j1, j2, j1.bareJID, j1.bareJID == j2.bareJID
+    kundan@example.net/32 kundan@example.net kundan@example.net True
+    &gt;&gt;&gt; print j1.user == j2.user == 'kundan', j1.domain == j2.domain == 'example.net', j2.resource is None, j1.resource == '32'
+    True True True True
+    &gt;&gt;&gt; try: j3 = JID('user@example.net/32/32')
+    ... except ValueError, e: print 'exception', e
+    exception Invalid JID(user@example.net/32/32)
+    '''</span>
+    _syntax = re.compile(<span class="p_string">'^(?:(?P&lt;user&gt;[^@/]*)@)?(?P&lt;domain&gt;[^/]*)(?:/(?P&lt;resource&gt;[^/]*))?$'</span>)
+    <span class="p_word">def</span> __new__(cls, value=<span class="p_string">''</span>):
+        m = JID._syntax.match(value)
+        <span class="p_word">if</span> <span class="p_word">not</span> m: <span class="p_word">raise</span> ValueError, <span class="p_string">'Invalid JID('</span> + value + <span class="p_string">')'</span>
+        obj = str.__new__(cls, value)
+        obj.user, obj.domain, obj.resource = m.groups()
+        obj.bareJID = obj <span class="p_word">if</span> obj.resource <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">else</span> <span class="p_string">'%s@%s'</span>%(obj.user, obj.domain)
+        <span class="p_word">return</span> obj
+    <span class="p_word">def</span> __eq__(self, other): <span class="p_commentline"># compares even if the resource is missing in one</span>
+        <span class="p_word">if</span> str.__eq__(self, other): <span class="p_word">return</span> True
+        <span class="p_word">if</span> isinstance(other, JID): other = JID
+        <span class="p_word">if</span> self.resource <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> other.resource <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">return</span> False
+        <span class="p_word">else</span>: <span class="p_word">return</span> str.__eq__(self.bareJID, other.bareJID)
+
+<span class="p_word">class</span> Stanza(XML):
+    <span class="p_triple">'''A stanza to be used in message, iq, presence or any other extension in XMPP. The named attributes are to, from, type, 
+    and from base class tag, xmlns, attrs, children, elems, cdata, and various forms of access using attribute, container, opertors.'''</span>
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, **kwargs):
+        <span class="p_triple">'''Supply the attributes such as tag, to, frm, type, xmlns, timestamp, etc., as named arguments.'''</span>
+        XML.__init__(self, value=value); 
+        <span class="p_word">if</span> <span class="p_word">not</span> value <span class="p_word">and</span> <span class="p_string">'tag'</span> <span class="p_word">not</span> <span class="p_word">in</span> kwargs: self.tag = <span class="p_string">'stanza'</span>
+        <span class="p_word">for</span> k,v <span class="p_word">in</span> kwargs.iteritems(): self.__setattr__(k, str(v)) <span class="p_commentline">#should include tag, to, frm, type, timestamp, xmlns</span>
+                
+    <span class="p_word">def</span> __setattr__(self, key, value):
+        <span class="p_word">if</span> key <span class="p_word">in</span> (<span class="p_string">'to'</span>, <span class="p_string">'frm'</span>, <span class="p_string">'type'</span>, <span class="p_string">'id'</span>): self.attrs[key <span class="p_word">if</span> key <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_string">'frm'</span> <span class="p_word">else</span> <span class="p_string">'from'</span>] = str(value) <span class="p_word">if</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">else</span> <span class="p_word">None</span>
+        <span class="p_word">else</span>: XML.__setattr__(self, key, value)
+    <span class="p_word">def</span> __delattr__(self, key):
+        <span class="p_word">if</span> key <span class="p_word">in</span> (<span class="p_string">'to'</span>, <span class="p_string">'frm'</span>, <span class="p_string">'type'</span>, <span class="p_string">'id'</span>): <span class="p_word">del</span> self.attrs[key <span class="p_word">if</span> key <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_string">'frm'</span> <span class="p_word">else</span> <span class="p_string">'from'</span>]
+        <span class="p_word">else</span>: XML.__delattr__(self, key)
+    <span class="p_word">def</span> __getattribute__(self, key):
+        <span class="p_word">if</span> key <span class="p_word">in</span> (<span class="p_string">'to'</span>, <span class="p_string">'frm'</span>): <span class="p_word">return</span> JID(self.attrs.get(key <span class="p_word">if</span> key <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_string">'frm'</span> <span class="p_word">else</span> <span class="p_string">'from'</span>, <span class="p_string">''</span>))
+        <span class="p_word">elif</span> key <span class="p_word">in</span> (<span class="p_string">'type'</span>, <span class="p_string">'id'</span>): <span class="p_word">return</span> self.attrs.get(key, <span class="p_word">None</span>)
+        <span class="p_word">else</span>: <span class="p_word">return</span> XML.__getattribute__(self, key)
+        
+    @Property
+    <span class="p_word">def</span> timestamp():
+        <span class="p_triple">'''Get as XML. Set as XML or date-time string or None (to use current date-time)'''</span>
+        <span class="p_word">def</span> fget(self): <span class="p_word">return</span> F(self(<span class="p_string">'x'</span>))
+        <span class="p_word">def</span> fset(self, value):
+            elem = isinstance(value, XML) <span class="p_word">and</span> value <span class="p_word">or</span> XML(tag=<span class="p_string">'x'</span>, xmlns=<span class="p_string">'nsdelay'</span>, attrs={<span class="p_string">'stamp'</span>: value <span class="p_word">if</span> value <span class="p_word">else</span> time.strftime(<span class="p_string">'%Y%m%dT%H:%M:%S'</span>, time.gmtime())})  
+            self.children |= elem
+            <span class="p_word">return</span> elem
+        <span class="p_word">def</span> fdel(self): <span class="p_word">del</span> self.children[<span class="p_string">'x'</span>]
+        <span class="p_word">return</span> locals()
+    
+    @Property
+    <span class="p_word">def</span> error():
+        <span class="p_triple">'''Get as XML. Set as XML or dict(type='mytype', condition='mycondition', xmlns='myxmlns', text='my text')'''</span>
+        <span class="p_word">def</span> fget(self): <span class="p_word">return</span> F(self(<span class="p_string">'error'</span>)) <span class="p_word">if</span> self.type == <span class="p_string">'error'</span> <span class="p_word">else</span> <span class="p_word">None</span>
+        <span class="p_word">def</span> fset(self, value): 
+            self.type = <span class="p_string">'error'</span>
+            <span class="p_word">if</span> isinstance(value, XML): elem = value
+            <span class="p_word">elif</span> isinstance(value, dict): 
+                elem = XML(tag=<span class="p_string">'error'</span>, attrs=dict(type=value.get(<span class="p_string">'type'</span>,<span class="p_string">'error'</span>)))
+                elem.children += XML(tag=value.get(<span class="p_string">'condition'</span>, <span class="p_string">'condition'</span>), xmlns=value.get(<span class="p_string">'xmlns'</span>, <span class="p_string">'urn:ietf:params:xml:ns:xmpp-stanzas'</span>))
+                <span class="p_word">if</span> <span class="p_string">'text'</span> <span class="p_word">in</span> value: elem.children += XML(tag=<span class="p_string">'text'</span>, xmlns=value.get(<span class="p_string">'xmlns'</span>, <span class="p_string">'urn:ietf:params:xml:ns:xmpp-stanzas'</span>), children=[value.get(<span class="p_string">'text'</span>)])
+            <span class="p_word">else</span>: elem = XML(tag=<span class="p_string">'error'</span>, attrs=dict(type=str(value)))
+            self.children |= elem
+            <span class="p_word">return</span> elem
+        <span class="p_word">def</span> fdel(self):
+            <span class="p_word">if</span> self.type == <span class="p_string">'error'</span>: <span class="p_word">del</span> self.type
+            <span class="p_word">del</span> self.children[<span class="p_string">'error'</span>]
+        <span class="p_word">return</span> locals()
+    
+    @property
+    <span class="p_word">def</span> properties():
+        <span class="p_triple">'''set of xmlns of children elements'''</span>
+        <span class="p_word">return</span> set(map(<span class="p_word">lambda</span> y: y.xmlns, filter(<span class="p_word">lambda</span> x: x.xmlns <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>, self())))
+
+<span class="p_commentline">#-----------------------------------------------------------------------------</span>
+<span class="p_commentline"># Client Connection</span>
+<span class="p_commentline">#-----------------------------------------------------------------------------</span>
+
+<span class="p_word">class</span> Connection(object):
+    <span class="p_triple">'''Main XMPP client to server connection handling. Important attributes include server, proxy, secure, srv. The server attribute is a (host, port)
+    tuple. The proxy attribute can be a (host, port) or (host, port, user, password) tuple. The secure and srv boolean attributes indicate whether to
+    use secure TLS connection and DNS SRV lookup, or not? 
+        If secure is True then it starts TLS from begining before any feature negotiation,
+        else if secure is False then it never uses TLS either in begining or after features negotiation (which may result in failure if server requires it),
+        else if secure is None then if port is 5223 or 443 it uses TLS from begining else it uses TLS if server requires it on features negotiation,
+        else if secure is '' then it uses TLS if server supports it after features negotiation.'''</span>
+    <span class="p_word">def</span> __init__(self, **kwargs): 
+        self.__dict__.update(kwargs)
+        self.connected, self._sock, self._lastID, self.jid, self._handler = False, <span class="p_word">None</span>, <span class="p_number">0</span>, JID(), kutil.Dispatcher()
+    
+    <span class="p_word">def</span> __getattr__(self, name): <span class="p_word">return</span> <span class="p_word">None</span> <span class="p_commentline"># don't throw exception if not found</span>
+    
+    <span class="p_word">def</span> connect(self): 
+        <span class="p_triple">'''Generator to connect a stream. returns either (type, None) or (None, error), where type is None, xmpp-tcp, xmpp-tls, jabber-tcp, or jabber-tls'''</span>
+        <span class="p_word">if</span> self.connected: fail(<span class="p_string">'already connected'</span>)
+        self._connect()                                          <span class="p_commentline"># attempt a connection</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.connected: fail(<span class="p_string">'cannot connect to '</span> + self.server) <span class="p_commentline"># if failed, return</span>
+        self.sout, self.sin = StreamOut(self._sock, self.server[<span class="p_number">0</span>]), StreamIn(self._sock, self._handler) <span class="p_commentline"># output and input streams</span>
+        <span class="p_word">yield</span> self.sout.open(True)                               <span class="p_commentline"># send out stream element</span>
+        self.stream = stream = <span class="p_word">yield</span> self.sin.get()             <span class="p_commentline"># incoming stream element</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> stream <span class="p_word">or</span> stream.tag == <span class="p_string">'error'</span>: <span class="p_word">yield</span> self.disconnect(); fail(stream <span class="p_word">or</span> <span class="p_string">'server didnot send stream'</span>) <span class="p_commentline"># server closed stream or didn't send</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> stream._.version: succeed(<span class="p_string">'jabber-tls'</span> <span class="p_word">if</span> isinstance(self._sock, TLS) <span class="p_word">else</span> <span class="p_string">'jabber-tcp'</span>)  <span class="p_commentline"># if version is missing in stream tag</span>
+        
+        self.features = <span class="p_word">yield</span> self.sin.get()                    <span class="p_commentline"># assuming next element will be features</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.features <span class="p_word">or</span> self.features.tag != <span class="p_string">'features'</span>: fail(self.features <span class="p_word">or</span> <span class="p_string">'server didnot send features'</span>)
+        <span class="p_word">if</span> isinstance(self._sock, TLS): succeed(<span class="p_string">'xmpp-tls'</span>)       <span class="p_commentline"># already done TLS</span>
+        starttls = <span class="p_string">'none'</span> <span class="p_word">if</span> <span class="p_word">not</span> self.features(<span class="p_string">'starttls'</span>) <span class="p_word">else</span> <span class="p_string">'required'</span> <span class="p_word">if</span> self.features(<span class="p_string">'starttls'</span>)(<span class="p_string">'required'</span>) <span class="p_word">else</span> <span class="p_string">'optional'</span>
+        <span class="p_word">if</span> starttls == <span class="p_string">'none'</span> <span class="p_word">or</span> starttls == <span class="p_string">'optional'</span> <span class="p_word">and</span> self.secure != <span class="p_string">''</span>: succeed(<span class="p_string">'xmpp-tcp'</span>)
+        <span class="p_word">elif</span> starttls == <span class="p_string">'required'</span> <span class="p_word">and</span> self.secure == False: <span class="p_word">yield</span> disconnect(); fail(<span class="p_string">'server requires TLS'</span>)
+        
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'starting TLS'</span>
+        <span class="p_word">yield</span> self.sout.put(XML(tag=<span class="p_string">'starttls'</span>, xmlns=<span class="p_string">'urn:ietf:params:xml:ns:xmpp-tls'</span>))
+        result = <span class="p_word">yield</span> self.sin.get() <span class="p_commentline"># proceed or failure or None</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> result <span class="p_word">or</span> result.tag != <span class="p_string">'proceed'</span> <span class="p_word">or</span> result.xmlns != <span class="p_string">'urn:ietf:params:xml:ns:xmpp-tls'</span>:
+            <span class="p_word">if</span> <span class="p_word">not</span> result <span class="p_word">and</span> result.tag == <span class="p_string">'failure'</span>: self._sock.close()
+            fail(result <span class="p_word">or</span> <span class="p_string">'failed to start TLS'</span>)
+        
+        <span class="p_word">yield</span> self.sin.close()
+        self._sock = TLS(self._sock)
+        self.sout, self.sin = StreamOut(self._sock, self.server[<span class="p_number">0</span>]), StreamIn(self._sock, self._handler) <span class="p_commentline"># new child stream for TLS</span>
+        <span class="p_word">yield</span> self.sout.open()                                   <span class="p_commentline"># send out stream element</span>
+        self.stream = stream = <span class="p_word">yield</span> self.sin.get()             <span class="p_commentline"># incoming stream element</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.stream <span class="p_word">or</span> self.stream.tag != <span class="p_string">'stream'</span>: 
+            self.disconnect(); fail(self.stream <span class="p_word">or</span> <span class="p_string">'server didnot send stream'</span>)
+        self.features = <span class="p_word">yield</span> self.sin.get()                    <span class="p_commentline"># features for new stream</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.features <span class="p_word">or</span> self.features.tag != <span class="p_string">'features'</span>:
+            self.disconnect(); fail(self.features <span class="p_word">or</span> <span class="p_string">'server didnot send features'</span>)
+            
+        succeed(<span class="p_string">'xmpp-tls'</span>)
+    
+    <span class="p_word">def</span> disconnect(self):
+        <span class="p_word">if</span> self.sout <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">yield</span> self.sout.close(); self.sout = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.sin <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">yield</span> self.sin.close(); self.sin = <span class="p_word">None</span>
+        <span class="p_word">if</span> self._sock <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: self._sock.close(); self._sock = <span class="p_word">None</span>; self.connected = False
+        
+    <span class="p_word">def</span> authenticate(self): <span class="p_word">return</span> authenticate(self) <span class="p_commentline"># map it to module function</span>
+    <span class="p_word">def</span> bind(self): <span class="p_word">return</span> bind(self) <span class="p_commentline"># map it to module function too</span>
+    
+    <span class="p_word">def</span> nextId(self, type=<span class="p_string">'iq'</span>): <span class="p_word">return</span> <span class="p_string">'id_%s_%d'</span>%(type, ++self._lastID)
+    
+    <span class="p_word">def</span> iq(self, msg, type=<span class="p_string">'get'</span>, id=<span class="p_word">None</span>): 
+        <span class="p_triple">'''Generator to do request/response of an IQ'''</span>
+        id = id <span class="p_word">or</span> self.nextId(<span class="p_string">'iq'</span>)
+        stanza = Stanza(tag=<span class="p_string">'iq'</span>, type=type, id=id)
+        stanza.children += msg
+        <span class="p_word">yield</span> self.put(stanza)
+        response = <span class="p_word">yield</span> self.get(<span class="p_word">lambda</span> x: <span class="p_word">not</span> x <span class="p_word">or</span> x.tag == <span class="p_string">'iq'</span> <span class="p_word">and</span> x.id == id)
+        respond(response <span class="p_word">and</span> (response.type, response.children) <span class="p_word">or</span> (<span class="p_string">'error'</span>, <span class="p_word">None</span>))
+    
+    <span class="p_word">def</span> message(self, filter=<span class="p_word">None</span>):
+        <span class="p_triple">'''Generator to return the next message Stanza, or None on termination'''</span> 
+        response = <span class="p_word">yield</span> self.get(<span class="p_word">lambda</span> x: <span class="p_word">not</span> x <span class="p_word">or</span> x.tag == <span class="p_string">'message'</span> <span class="p_word">and</span> (<span class="p_word">not</span> filter <span class="p_word">or</span> filter(x)))
+        respond(response <span class="p_word">and</span> Stanza(response))
+        
+    <span class="p_word">def</span> presence(self, filter=<span class="p_word">None</span>):
+        <span class="p_triple">'''Generator to return the next presence Stanza, or None on termination'''</span>
+        response = <span class="p_word">yield</span> self.get(<span class="p_word">lambda</span> x: <span class="p_word">not</span> x <span class="p_word">or</span> x.tag == <span class="p_string">'presence'</span> <span class="p_word">and</span> (<span class="p_word">not</span> filter <span class="p_word">or</span> filter(x)))
+        respond(response <span class="p_word">and</span> Stanza(response))
+        
+    <span class="p_word">def</span> put(self, msg, **kwargs): 
+        <span class="p_word">if</span> self.sout <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">yield</span> self.sout.put(msg, **kwargs)
+        
+    <span class="p_word">def</span> get(self, criteria=<span class="p_word">None</span>, **kwargs): 
+        <span class="p_word">return</span> self.sin.get(criteria=criteria, **kwargs) <span class="p_word">if</span> self.sin <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">else</span> <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> attach(self, event, func): self._handler.attach(event, func)
+    <span class="p_word">def</span> detach(self, event, func): self._handler.detach(event, func)
+    <span class="p_word">def</span> dispatch(self, data): self._handler.dispatch(data)
+    
+    <span class="p_word">def</span> _resolve(self, server, service=<span class="p_string">'xmpp-client'</span>, protocol=<span class="p_string">'tcp'</span>): <span class="p_commentline"># resolve using DNS SRV for _xmpp-client._tcp.&lt;server&gt; and return (host, port)</span>
+        <span class="p_word">return</span> map(<span class="p_word">lambda</span> y: (y[<span class="p_number">0</span>], y[<span class="p_number">3</span>]), sorted([(x[<span class="p_string">'RDATA'</span>][<span class="p_string">'DOMAIN'</span>].lower(), x[<span class="p_string">'RDATA'</span>][<span class="p_string">'PRIORITY'</span>], x[<span class="p_string">'RDATA'</span>][<span class="p_string">'WEIGHT'</span>], x[<span class="p_string">'RDATA'</span>][<span class="p_string">'PORT'</span>]) <span class="p_word">for</span> x <span class="p_word">in</span> rfc3263._query((<span class="p_string">'_%s._%s.%s'</span>%(service, protocol, server[<span class="p_number">0</span>]), dns.T_SRV))], <span class="p_word">lambda</span> a,b: a[<span class="p_number">1</span>]-b[<span class="p_number">1</span>])) <span class="p_word">or</span> [server]
+
+    <span class="p_word">def</span> _connect(self): <span class="p_commentline"># internal methods to DNS SRV and connect.</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(self.server, tuple): 
+            self.server = (self.server, self.port <span class="p_word">or</span> self.secure <span class="p_word">and</span> <span class="p_number">5223</span> <span class="p_word">or</span> <span class="p_number">5222</span>) <span class="p_commentline"># if server is just host name, add a port</span>
+        <span class="p_word">for</span> server <span class="p_word">in</span> (self.proxy <span class="p_word">and</span> [self.proxy[:<span class="p_number">2</span>]] <span class="p_word">or</span> self._resolve(self.server)):
+            <span class="p_word">try</span>: 
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'connect'</span>, server
+                self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._sock.connect(server)
+                <span class="p_word">if</span> self.secure == True <span class="p_word">or</span> self.secure <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span> server[<span class="p_number">1</span>] <span class="p_word">in</span> (<span class="p_number">5223</span>, <span class="p_number">443</span>): self._sock = TLS(self._sock)
+                self.connected = True
+                <span class="p_word">break</span>
+            <span class="p_word">except</span> socket.error, e:
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'connect socket.error'</span>, e
+                <span class="p_word">if</span> self._sock: self._sock.close() 
+                <span class="p_word">continue</span>
+    
+<span class="p_word">class</span> TLS(object):
+    <span class="p_triple">'''Secure connection using transport layer security (TLS).'''</span>
+    <span class="p_word">def</span> __init__(self, sock): self._sock = sock; self.ssl = ssl = socket.ssl(sock)
+    <span class="p_word">def</span> fileno(self): <span class="p_word">return</span> self._sock.fileno()
+    <span class="p_word">def</span> recv(self, size, flags=<span class="p_number">0</span>): <span class="p_word">return</span> self.ssl.read(size)
+    <span class="p_word">def</span> send(self, buf, flags=<span class="p_number">0</span>): self.ssl.write(buf)
+    <span class="p_word">def</span> close(self): self._sock.close()
+    
+<span class="p_word">class</span> StreamOut(object):
+    <span class="p_triple">'''Output stream to send out XML stanza within a stream.'''</span>
+    <span class="p_word">def</span> __init__(self, sock, server): self._sock, self.decl, self.opening, self.closing = sock, <span class="p_string">'&lt;?xml version="1.0" encoding="UTF-8"?&gt;'</span>,<span class="p_string">'&lt;stream:stream to="%s" xmlns="jabber:client" xmlns:stream="<a href="http://etherx.jabber.org/streams">http://etherx.jabber.org/streams</a>" version="1.0"&gt;'</span>%(server), <span class="p_string">'&lt;/stream:stream&gt;'</span>
+    <span class="p_word">def</span> open(self, first=False): <span class="p_word">yield</span> self.put((first <span class="p_word">and</span> self.decl <span class="p_word">or</span> <span class="p_string">''</span>) + self.opening)
+    <span class="p_word">def</span> close(self): <span class="p_word">yield</span> self.put(self.closing)
+    <span class="p_word">def</span> put(self, data, **kwargs):
+        raw = unicode(data).encode(<span class="p_string">'utf-8'</span>)
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'SEND: '</span> + raw
+        <span class="p_word">try</span>: <span class="p_word">yield</span> multitask.send(self._sock, raw, **kwargs)
+        <span class="p_word">except</span> Exception, e: <span class="p_word">print</span> <span class="p_string">'send error'</span>, e
+    
+<span class="p_word">class</span> StreamIn(parser):
+    <span class="p_triple">'''Input stream to parse incoming XML stanza.'''</span>
+    <span class="p_word">def</span> __init__(self, sock, handler):
+        super(StreamIn, self).__init__()
+        self._sock, self._handler, self.stream, self._queue = sock, handler, <span class="p_word">None</span>, multitask.SmartQueue()
+        self._gen = self._run(); multitask.add(self._gen)
+        
+    <span class="p_word">def</span> get(self, criteria=<span class="p_word">None</span>, **kwargs):
+        <span class="p_word">if</span> self._queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: item = <span class="p_word">yield</span> self._queue.get(criteria=criteria, **kwargs)
+        <span class="p_word">else</span>: item = <span class="p_word">None</span>
+        respond(item)
+    
+    <span class="p_word">def</span> close(self):
+        <span class="p_word">if</span> self._gen: self._gen.close()
+        self._sock = self._handler = self.stream = self._queue = self._gen = <span class="p_word">None</span>
+        <span class="p_word">yield</span> self.get(<span class="p_word">lambda</span> x: <span class="p_word">not</span> x <span class="p_word">or</span> x.tag == <span class="p_string">'closed'</span>) 
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'closing stream-in'</span>
+        
+    <span class="p_word">def</span> _put(self, msg, **kwargs):
+        <span class="p_word">if</span> isinstance(self._handler, kutil.Dispatcher): self._handler.dispatch(msg) <span class="p_commentline"># trigger the event first</span>
+        <span class="p_word">yield</span> self._queue.put(msg, **kwargs)
+    
+    <span class="p_word">def</span> _run(self):
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> True:
+                <span class="p_word">try</span>:
+<span class="p_commentline">#                    data = yield multitask.recv(self._sock, 1024)</span>
+                    <span class="p_word">try</span>:
+                        sock = self._sock
+                        <span class="p_word">yield</span> multitask.readable(sock.fileno(), timeout=<span class="p_number">5</span>)
+                        data = sock.recv(<span class="p_number">1024</span>)
+                    <span class="p_word">except</span> multitask.Timeout: <span class="p_word">continue</span>
+                        <span class="p_commentline"># No data after 5 seconds</span>
+
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'RECV: '</span> + data
+                    <span class="p_word">if</span> <span class="p_word">not</span> data: <span class="p_word">raise</span> socket.error, <span class="p_string">'connection closed'</span>
+                    self.update(data)
+                <span class="p_word">except</span> expat.ExpatError, e:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'parse error'</span>, e
+                <span class="p_word">except</span> socket.sslerror,e:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'sslerror'</span>, e
+                    <span class="p_word">if</span> e[<span class="p_number">0</span>]==socket.SSL_ERROR_WANT_READ <span class="p_word">or</span> e[<span class="p_number">0</span>]==socket.SSL_ERROR_WANT_WRITE: <span class="p_word">pass</span>
+                    <span class="p_word">raise</span> socket.sslerror, e
+        <span class="p_word">except</span> (GeneratorExit, StopIteration), e: 
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'exception'</span>, type(e), e 
+        <span class="p_word">except</span> Exception, e: 
+            <span class="p_commentline"># print 'exception', (traceback and traceback.print_exc() or None)</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'stream-in exception'</span>, e
+            <span class="p_word">yield</span> self._put(<span class="p_word">None</span>)
+            self.stream = self._sock = <span class="p_word">None</span>
+        <span class="p_word">def</span> closed(): 
+            <span class="p_word">if</span> self._queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_word">yield</span> self._queue.put(XML(tag=<span class="p_string">'closed'</span>))
+        multitask.add(closed())
+        
+    <span class="p_word">def</span> _StartElementHandler(self, tag, attrs):
+        super(StreamIn, self)._StartElementHandler(tag, attrs)
+        <span class="p_word">if</span> self.stream <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span> self.xml.tag == <span class="p_string">'stream'</span> <span class="p_word">and</span> self.xml.xmlns == <span class="p_string">'<a href="http://etherx.jabber.org/streams">http://etherx.jabber.org/streams</a>'</span>: 
+            self.stream = self.xml; multitask.add(self._put(self.stream))
+    <span class="p_word">def</span> _EndElementHandler(self, tag):
+        super(StreamIn, self)._EndElementHandler(tag)
+        <span class="p_word">if</span> self._depth == <span class="p_number">1</span>:   <span class="p_commentline"># second-level element within stream </span>
+            elem = self.xml.children.pop();  multitask.add(self._put(elem))
+        <span class="p_word">elif</span> self._depth == <span class="p_number">0</span>: self._sock.close()  <span class="p_commentline"># top-level stream is ended. this will cause the run() loop to exit</span>
+
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Authentication        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">def</span> authenticate(self):
+    <span class="p_triple">'''Authenticate the stream, and return either (mechanism, None) or (None, error).'''</span>
+    <span class="p_word">if</span> <span class="p_word">not</span> self.stream._.version: fail(self.stream <span class="p_word">or</span> <span class="p_string">'no version in stream'</span>) <span class="p_commentline"># SASL is not supported </span>
+    mechanisms = [x.cdata <span class="p_word">for</span> x <span class="p_word">in</span> self.features(<span class="p_word">lambda</span> x: x.tag == <span class="p_string">'mechanisms'</span> <span class="p_word">and</span> x.xmlns == <span class="p_string">'urn:ietf:params:xml:ns:xmpp-sasl'</span>)()]
+    xml = XML(tag=<span class="p_string">'auth'</span>, xmlns=<span class="p_string">'urn:ietf:params:xml:ns:xmpp-sasl'</span>)
+    <span class="p_word">if</span> <span class="p_string">'DIGEST-MD5'</span> <span class="p_word">in</span> mechanisms:
+        xml._.mechanism = <span class="p_string">'DIGEST-MD5'</span>
+    <span class="p_word">elif</span> <span class="p_string">'PLAIN'</span> <span class="p_word">in</span> mechanisms:
+        xml._.mechanism = <span class="p_string">'PLAIN'</span>
+        data = <span class="p_string">'%s@%s\x00%s\x00%s'</span>%(self.username, self.server[<span class="p_number">0</span>], self.username, self.password)
+        xml.children += base64.encodestring(data)
+    <span class="p_word">else</span>: fail(<span class="p_string">'cannot authenticate using '</span> + str(mechanisms))
+    <span class="p_word">yield</span> self.put(xml)
+    challenge = <span class="p_word">yield</span> self.get()
+    <span class="p_word">if</span> <span class="p_word">not</span> challenge <span class="p_word">or</span> challenge.tag == <span class="p_string">'failure'</span> <span class="p_word">or</span> challenge.xmlns != <span class="p_string">'urn:ietf:params:xml:ns:xmpp-sasl'</span>: 
+        fail(challenge <span class="p_word">or</span> <span class="p_string">'server didnot send challenge'</span>)
+    <span class="p_word">elif</span> challenge.tag != <span class="p_string">'success'</span> <span class="p_word">and</span> challenge.tag != <span class="p_string">'challenge'</span>:
+        fail(challenge <span class="p_word">or</span> <span class="p_string">'expected a challenge'</span>)
+    <span class="p_word">elif</span> challenge.tag == <span class="p_string">'challenge'</span>:
+        data = base64.decodestring(challenge.cdata)
+        data = dict([(y[<span class="p_number">0</span>], _unquote(y[<span class="p_number">2</span>])) <span class="p_word">for</span> y <span class="p_word">in</span> map(<span class="p_word">lambda</span> x: x.partition(<span class="p_string">'='</span>), re.findall(<span class="p_string">'(\w+=(?:"[^"]+")|(?:[^,]+))'</span>, data))])
+        
+        <span class="p_word">if</span> <span class="p_string">'auth'</span> <span class="p_word">not</span> <span class="p_word">in</span> map(str.strip, data.get(<span class="p_string">'qop'</span>,<span class="p_string">''</span>).split(<span class="p_string">','</span>)):
+            fail(<span class="p_string">'no auth in qop to authenticate'</span>)
+        
+        res = dict(username=self.username, realm=self.server[<span class="p_number">0</span>], nonce=data[<span class="p_string">'nonce'</span>], nc=<span class="p_string">'00000001'</span>, qop=<span class="p_string">'auth'</span>)
+        res[<span class="p_string">'cnonce'</span>] = <span class="p_string">''</span>.join([hex(int(random.random()*<span class="p_number">65536</span>*<span class="p_number">4096</span>))[<span class="p_number">2</span>:] <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">7</span>)])
+        res[<span class="p_string">'digest-uri'</span>] = <span class="p_string">'xmpp/'</span> + self.server[<span class="p_number">0</span>]
+        
+        <span class="p_word">def</span> HH(some): <span class="p_word">return</span> md5.new(some).hexdigest()
+        <span class="p_word">def</span> H(some): <span class="p_word">return</span> md5.new(some).digest()
+        <span class="p_word">def</span> C(some): <span class="p_word">return</span> <span class="p_string">':'</span>.join(some)
+        A1 = C([H(C([res[<span class="p_string">'username'</span>], res[<span class="p_string">'realm'</span>], self.password])), res[<span class="p_string">'nonce'</span>], res[<span class="p_string">'cnonce'</span>]])
+        A2 = C([<span class="p_string">'AUTHENTICATE'</span>, res[<span class="p_string">'digest-uri'</span>]])
+        res[<span class="p_string">'response'</span>] = HH(C([HH(A1), res[<span class="p_string">'nonce'</span>], res[<span class="p_string">'nc'</span>], res[<span class="p_string">'cnonce'</span>], res[<span class="p_string">'qop'</span>], HH(A2)]))
+        res[<span class="p_string">'charset'</span>] = <span class="p_string">'utf-8'</span>
+        data = <span class="p_string">''</span>.join([<span class="p_string">'%s=%s'</span>%(k, res[k]) <span class="p_word">if</span> k <span class="p_word">in</span> (<span class="p_string">'nc'</span>, <span class="p_string">'qop'</span>, <span class="p_string">'response'</span>, <span class="p_string">'charset'</span>) <span class="p_word">else</span> <span class="p_string">'%s="%s"'</span>%(k, res[k]) <span class="p_word">for</span> k <span class="p_word">in</span> <span class="p_string">'charset username realm nonce nc cnonce digest-uri response qop'</span>.split()]);
+        xml = XML(tag=<span class="p_string">'response'</span>, xmlns=<span class="p_string">'urn:ietf:params:xml:ns:xmpp-sasl'</span>)
+        xml.children += base64.encodestring(data.replace(<span class="p_string">'\r'</span>, <span class="p_string">''</span>).replace(<span class="p_string">'\n'</span>, <span class="p_string">''</span>))
+        <span class="p_word">yield</span> self.put(xml)
+    
+        challenge = <span class="p_word">yield</span> self.get()
+        <span class="p_word">if</span> <span class="p_word">not</span> challenge <span class="p_word">or</span> challenge.tag != <span class="p_string">'challenge'</span> <span class="p_word">or</span> challenge.xmlns != <span class="p_string">'urn:ietf:params:xml:ns:xmpp-sasl'</span>: 
+            fail(challenge <span class="p_word">or</span> <span class="p_string">'server didnot send challenge'</span>)
+        
+        data = base64.decodestring(challenge.cdata)
+        data = dict([(y[<span class="p_number">0</span>], y[<span class="p_number">2</span>][<span class="p_number">1</span>:-<span class="p_number">1</span>] <span class="p_word">if</span> y[<span class="p_number">2</span>][:<span class="p_number">1</span>]==<span class="p_string">'"'</span>==y[<span class="p_number">2</span>][-<span class="p_number">1</span>:] <span class="p_word">else</span> y[<span class="p_number">2</span>]) <span class="p_word">for</span> y <span class="p_word">in</span> map(<span class="p_word">lambda</span> x: x.partition(<span class="p_string">'='</span>), re.findall(<span class="p_string">'(\w+=(?:"[^"]+")|(?:[^,]+))'</span>, data))])
+        
+        <span class="p_word">if</span> <span class="p_string">'rspauth'</span> <span class="p_word">not</span> <span class="p_word">in</span> data:
+            fail(challenge <span class="p_word">or</span> <span class="p_string">'expecting rspauth in challenge'</span>)
+        
+        <span class="p_word">yield</span> self.put(XML(tag=<span class="p_string">'response'</span>, xmlns=<span class="p_string">'urn:ietf:params:xml:ns:xmpp-sasl'</span>))
+        
+        challenge = <span class="p_word">yield</span> self.get()
+        <span class="p_word">if</span> <span class="p_word">not</span> challenge <span class="p_word">or</span> challenge.tag != <span class="p_string">'succees'</span>:
+            reason = F(challenge.children) <span class="p_word">if</span> challenge <span class="p_word">and</span> challenge.children <span class="p_word">else</span> challenge
+            fail(reason <span class="p_word">or</span> <span class="p_string">'authenticate failure'</span>)
+    
+    <span class="p_word">yield</span> self.sin.close()
+    self.sout = StreamOut(self._sock, self.server[<span class="p_number">0</span>]) <span class="p_commentline"># new child stream for TLS</span>
+    self.sin = StreamIn(self._sock, self._handler)
+    <span class="p_word">yield</span> self.sout.open()                                   <span class="p_commentline"># send out stream element</span>
+    self.stream = stream = <span class="p_word">yield</span> self.sin.get()             <span class="p_commentline"># incoming stream element</span>
+    <span class="p_word">if</span> <span class="p_word">not</span> self.stream <span class="p_word">or</span> self.stream.tag != <span class="p_string">'stream'</span>: 
+        self.disconnect(); fail(self.stream <span class="p_word">or</span> <span class="p_string">'server didnot send stream'</span>)
+    self.features = <span class="p_word">yield</span> self.sin.get()                    <span class="p_commentline"># features for new stream</span>
+    <span class="p_word">if</span> <span class="p_word">not</span> self.features <span class="p_word">or</span> self.features.tag != <span class="p_string">'features'</span>:
+        self.disconnect(); fail(self.features <span class="p_word">or</span> <span class="p_string">'server didnot send features'</span>)
+    
+    succeed(xml._.mechanism)
+
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># Resource Binding</span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">def</span> bind(self, resource=<span class="p_word">None</span>):
+    <span class="p_word">if</span> <span class="p_word">not</span> self.features(<span class="p_string">'bind'</span>): fail(<span class="p_string">'bind not present in features'</span>)
+    bind = Stanza(tag=<span class="p_string">'bind'</span>, xmlns=<span class="p_string">'urn:ietf:params:xml:ns:xmpp-bind'</span>)
+    <span class="p_word">if</span> resource <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: bind.children += XML(tag=<span class="p_string">'resource'</span>, children=[resource]) 
+    type, response = <span class="p_word">yield</span> self.iq(type=<span class="p_string">'set'</span>, msg=bind)
+    <span class="p_word">if</span> type == <span class="p_string">'error'</span> <span class="p_word">or</span> type != <span class="p_string">'result'</span>: fail(F(response[<span class="p_string">'error'</span>]))
+    bind = F(response[<span class="p_string">'bind'</span>])
+    self.jid = JID(bind(<span class="p_string">'jid'</span>).cdata) <span class="p_word">if</span> bind <span class="p_word">else</span> JID()
+    self.resource = self.jid.resource
+    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'bind jid='</span>, self.jid, <span class="p_string">'resource='</span>, self.resource
+    
+    session = Stanza(tag=<span class="p_string">'session'</span>, xmlns=<span class="p_string">'urn:ietf:params:xml:ns:xmpp-session'</span>)
+    type, response = <span class="p_word">yield</span> self.iq(type=<span class="p_string">'set'</span>, msg=session)
+    self.session = type <span class="p_word">and</span> True <span class="p_word">or</span> False
+    
+    succeed(self.jid)
+
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+<span class="p_commentline"># TESTING        </span>
+<span class="p_commentline">#------------------------------------------------------------------------------</span>
+
+<span class="p_word">def</span> _testConn():
+    <span class="p_commentline">#client = Connection(server='iptel.org', username='kundan', password='mypass')</span>
+    <span class="p_commentline">#client = Connection(server='iptel.org', proxy=('jabber.iptel.org', 5222), username='kundan', password='mypass')</span>
+    <span class="p_commentline">#client = Connection(server='iptel.org', proxy=('jabber.iptel.org', 5222), username='kundan', password='mypass', secure='')</span>
+    <span class="p_commentline"># TODO: change the following to include your credentials</span>
+    client = Connection(server=<span class="p_string">'gmail.com'</span>, username=<span class="p_string">'kundansingh99'</span>, password=<span class="p_string">'mypass'</span>)
+    
+    type, error = <span class="p_word">yield</span> client.connect()
+    <span class="p_word">if</span> error:  <span class="p_word">print</span> <span class="p_string">'MAIN: error='</span>, error; respond()
+    <span class="p_word">print</span> <span class="p_string">'MAIN: transport-type='</span>, type
+    mechanism, error = <span class="p_word">yield</span> authenticate(client)
+    <span class="p_word">if</span> error: <span class="p_word">print</span> <span class="p_string">'MAIN: error='</span>, error; respond()
+    <span class="p_word">print</span> <span class="p_string">'MAIN: auth-mechanism='</span>, mechanism
+    jid, error = <span class="p_word">yield</span> bind(client)
+    <span class="p_word">if</span> error: <span class="p_word">print</span> <span class="p_string">'MAIN: error='</span>, error; respond()
+    <span class="p_word">print</span> <span class="p_string">'MAIN: bind='</span>, jid
+    <span class="p_word">yield</span> client.disconnect()
+    <span class="p_word">print</span> <span class="p_string">'MAIN: exiting'</span>
+
+<span class="p_word">def</span> _testClose(): <span class="p_word">yield</span> multitask.sleep(<span class="p_number">5</span>); exit()
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest; doctest.testmod()    <span class="p_commentline"># first run doctest,</span>
+    <span class="p_word">for</span> f <span class="p_word">in</span> dir():      <span class="p_commentline"># then run all _test* functions</span>
+        <span class="p_word">if</span> str(f).find(<span class="p_string">'_test'</span>) == <span class="p_number">0</span> <span class="p_word">and</span> callable(eval(f)):
+            multitask.add(globals()[f]())
+    <span class="p_word">try</span>: multitask.run()
+    <span class="p_word">except</span> KeyboardInterrupt: <span class="p_word">pass</span>
+    <span class="p_word">except</span> select.error: <span class="p_word">print</span> <span class="p_string">'select error'</span>; <span class="p_word">pass</span>
+    sys.exit()
+
+
+  </PRE></BODY>
+</HTML>

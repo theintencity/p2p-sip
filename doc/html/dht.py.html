@@ -1,0 +1,1941 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+<span class="p_word">import</span> sys, time, hashlib, multitask, socket, struct, random, math, types, traceback, new
+<span class="p_word">from</span> std.kutil <span class="p_word">import</span> getlocaladdr
+<span class="p_word">from</span> crypto <span class="p_word">import</span> sign, verify, PublicKey, PrivateKey, extractPublicKey
+<span class="p_word">from</span> std <span class="p_word">import</span> rfc3489bis as util <span class="p_commentline"># we need _str2addr and addr2str. Move these to std.kutils</span>
+
+<span class="p_triple">'''
+A DHT implementation inspired by Bamboo DHT of OpenDHT.org.
+The implementation assumes that the multitask framework is running.
+
+Conventions:
+  guid  - represents any unique id such as DHT key for a resource, or secure Node ID.
+  value - represents the DHT value that can be put or retrieved.
+  hash  - represents the hash of value or data.
+  key   - database key to be used to store any data in underlying database.
+  data  - database value associated with a key stored in underlying database.
+  Ks    - RSA private key of the owner.
+  Kp    - RSA public key of the owner.
+  sigma - signature using RSA-hash (SHA1) of some value 
+  root  - the DHT node guid responsible for storing a particular resource guid.
+  
+The Network class defines the low level network interface. As a first step to using this dht
+module, the application creates a network object, and starts the message loop.
+
+    n1 = Network().start()
+
+Then the application starts other components such as Router and Storage for this network object.
+
+    r1 = Router(n1).start()
+    s1 = Storage(n1, r1).start()
+
+Now that the network, router and storage components are running, the application can use the 
+network's message queue to send the put or get command as follows:
+
+    result = yield put(n1, guid=H('mykey'), value='myvalue', nonce=randomNonce(), expires=time.time()+60, Ks=myprivatekey)
+    if result == False: print 'put failed'
+
+    values = yield get(n1, guid=H('mykey'), maxvalues=4)
+    print values[0] if values else None
+
+The get function can take an optional owner field which is the fingerprint of the publickey of the
+owner for which we want to fetch the values.
+
+The remove operation is similar to calling the put function with an additional argument put=False.
+For convinience, a shortcut method with name remove also exists. The original value is required in 
+remove, so that it can computer the hash and signatures appropriately for the actual DHT message to
+remove the value.
+'''</span>
+
+
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># High level configuration that defines the DHT implementation.</span>
+<span class="p_commentline"># The application may override the following if needed, for example to change</span>
+<span class="p_commentline"># the number space from 160-bits to 128 or 256 bits.</span>
+<span class="p_commentline">#===============================================================================</span>
+
+H     = <span class="p_word">lambda</span> x: long(hashlib.sha1(x).hexdigest(),<span class="p_number">16</span>) <span class="p_commentline"># the hash function used in this implementation of the DHT.</span>
+Hsize = hashlib.sha1(<span class="p_string">'something'</span>).digest_size <span class="p_commentline"># this is the global size of the hash function result.</span>
+Hmod  = <span class="p_number">2</span>**(Hsize*<span class="p_number">8</span>) <span class="p_commentline"># modulus for the hash space, e.g., for SHA1 it is 2*160 in binary.</span>
+
+_seq = <span class="p_number">0</span>       <span class="p_commentline"># global sequence number used for DHT requests</span>
+_debug = False <span class="p_commentline"># debug flag for this module</span>
+
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># Some utility functions such as random number, distance, and bigint conversion</span>
+<span class="p_commentline">#===============================================================================</span>
+bin2int = <span class="p_word">lambda</span> x: long(<span class="p_string">''</span>.join(<span class="p_string">'%02x'</span>%(ord(a)) <span class="p_word">for</span> a <span class="p_word">in</span> x), <span class="p_number">16</span>)
+int2bin = <span class="p_word">lambda</span> x: (<span class="p_string">''</span>.join(chr(a) <span class="p_word">for</span> a <span class="p_word">in</span> [((x&gt;&gt;c)&amp;<span class="p_number">0x0ff</span>) <span class="p_word">for</span> c <span class="p_word">in</span> xrange((Hsize-<span class="p_number">1</span>)*<span class="p_number">8</span>,-<span class="p_number">8</span>,-<span class="p_number">8</span>)])) <span class="p_word">if</span> x <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">else</span> <span class="p_string">'\x00'</span>*Hsize
+dig2int = <span class="p_word">lambda</span> x, b, d=<span class="p_number">0</span>: reduce(<span class="p_word">lambda</span> m, n: (m &lt;&lt; b) + n, x, <span class="p_number">0</span>)
+int2dig = <span class="p_word">lambda</span> x, b, d: [int((x&gt;&gt;c)&amp;((<span class="p_number">1</span>&lt;&lt;b)-<span class="p_number">1</span>)) <span class="p_word">for</span> c <span class="p_word">in</span> xrange(b*(d-<span class="p_number">1</span>), -b, -b)]
+
+distance = <span class="p_word">lambda</span> a,b: min((Hmod+b-a)%Hmod, (Hmod+a-b)%Hmod)
+inrange = <span class="p_word">lambda</span> L, H, a: L &lt;= (a <span class="p_word">if</span> L&lt;=a <span class="p_word">else</span> a+Hmod) &lt;= (H <span class="p_word">if</span> L&lt;=H <span class="p_word">else</span> H+Hmod) <span class="p_commentline"># whether a is in range [L,H] modulo</span>
+randomNonce = <span class="p_word">lambda</span>: random.randint(<span class="p_number">0</span>, Hmod)
+
+
+<span class="p_word">def</span> _testUtil():
+    <span class="p_triple">'''
+    &gt;&gt;&gt; print bin2int('\x22\x22'), ','.join(str(ord(a)) for a in int2bin(8738)) # 0x22=34, number=34*256+34
+    8738 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,34,34
+    &gt;&gt;&gt; print dig2int([0x22, 0x22], 8, 2), int2dig(8738, 8, 4)
+    8738 [0, 0, 34, 34]
+    &gt;&gt;&gt; print distance(10, 0), distance(0, 10), distance(2**160-10, 0), distance(0, 2**160-10) # Hmod is 2**160 by default
+    10 10 10 10
+    &gt;&gt;&gt; print inrange(10, 2**160-10, 5), inrange(2**160-10, 10, 5)
+    False True
+    '''</span>
+
+<span class="p_word">def</span> find(comp, seq):
+    <span class="p_triple">'''Find an element's index in the sequence, or -1 if not found, using the comp as the function to compare.
+    &gt;&gt;&gt; print find(lambda x: x==10, [8, 9, 10, 11])
+    2
+    '''</span>  
+    index = <span class="p_number">0</span>
+    <span class="p_word">for</span> item <span class="p_word">in</span> seq:
+        <span class="p_word">if</span> comp(item): <span class="p_word">return</span> index
+        index = index + <span class="p_number">1</span>
+    <span class="p_word">return</span> -<span class="p_number">1</span>
+findNode = <span class="p_word">lambda</span> id, nodes: find(<span class="p_word">lambda</span> x: x.guid == id, nodes) <span class="p_commentline"># find a node from sequence of nodes using the guid of the node</span>
+
+
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># Generic message structure for different types of messages.</span>
+<span class="p_commentline">#===============================================================================</span>
+
+version = <span class="p_number">1</span>  <span class="p_commentline"># version number to be used in all messages</span>
+_attrs = <span class="p_triple">'''
+    bool: ack, add, inbound, put, result, second, wantreply
+    int32: level, maxvalues, seq
+    int64: time, expires
+    hash: dest, guid, hash, high, low, nonce, owner
+    str: app, error
+    list: keyss, leafset, neighbors, nodes, path, vals
+    node: client, neighbor, node, returnaddr, src
+    bin: key, Kp, sigma, value
+    msg: payload
+    '''</span>
+<span class="p_commentline"># TODO: can't use the attribute name as 'keys' because it is a built in method. Henced used keyss</span>
+_attrName = map(<span class="p_word">lambda</span> w: (w[<span class="p_number">0</span>].strip(), map(str.strip, w[<span class="p_number">1</span>].split(<span class="p_string">','</span>))), map(<span class="p_word">lambda</span> z: z.split(<span class="p_string">':'</span>), filter(<span class="p_word">lambda</span> y: y, map(str.strip, _attrs.split(<span class="p_string">'\n'</span>)))))
+_attrType = dict(sum(map(<span class="p_word">lambda</span> x: map(<span class="p_word">lambda</span> y: (y, x[<span class="p_number">0</span>]), x[<span class="p_number">1</span>]), _attrName), [])) <span class="p_commentline"># dict of attr=&gt;type</span>
+_attrList = sum(map(<span class="p_word">lambda</span> x: x[<span class="p_number">1</span>], _attrName), []) <span class="p_commentline"># list of all attr</span>
+_request  = map(str.strip, <span class="p_string">'Ack, Discover, Proxy, Join, RoutingTable, LeafSet, Lookup, Neighbor, Ping, Route, Replicate, ReplicaSet, Hash, Keys, Data, Put, Get'</span>.split(<span class="p_string">','</span>))
+_type     = map(str.strip, <span class="p_string">'Request, Response, Indication, Error'</span>.split(<span class="p_string">','</span>))
+
+<span class="p_word">def</span> _attr2bin(attr):
+    <span class="p_triple">'''Convert the attribute name to binary 16-bit value.'''</span>
+    <span class="p_word">try</span>: <span class="p_word">return</span> struct.pack(<span class="p_string">'!H'</span>, <span class="p_number">0x08000</span> | _attrList.index(attr))
+    <span class="p_word">except</span>: <span class="p_word">pass</span> <span class="p_commentline"># throws an error if not found in _attrList</span>
+    <span class="p_word">try</span>:
+        r, t = attr.split(<span class="p_string">':'</span>); r, t = _request.index(r), _type.index(t)
+        <span class="p_word">if</span> r&lt;<span class="p_number">0</span> <span class="p_word">or</span> t&lt;<span class="p_number">0</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid attribute'</span>, attr
+        <span class="p_word">return</span> struct.pack(<span class="p_string">'!H'</span>, ((t&lt;&lt;<span class="p_number">12</span>) &amp; <span class="p_number">0x7000</span>) | (r &amp; <span class="p_number">0x0fff</span>))
+    <span class="p_word">except</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid attribute name %r'</span>%attr
+
+<span class="p_word">def</span> _bin2attr(value):
+    <span class="p_triple">'''Convert the binary 16-bit value to the attribute name.
+    &gt;&gt;&gt; for a in _attrList:
+    ...     assert a == _bin2attr(_attr2bin(a))
+    '''</span>
+    value, = struct.unpack(<span class="p_string">'!H'</span>, value[:<span class="p_number">2</span>])
+    <span class="p_word">try</span>:
+        <span class="p_word">if</span> value &amp; <span class="p_number">0x8000</span>: <span class="p_word">return</span> _attrList[value &amp; <span class="p_number">0x7fff</span>]
+        <span class="p_word">else</span>: <span class="p_word">return</span> _request[value &amp; <span class="p_number">0x0fff</span>] + <span class="p_string">':'</span> + _type[(value &amp; <span class="p_number">0x7000</span>) &gt;&gt; <span class="p_number">12</span>]
+    <span class="p_word">except</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid attribute value 0x%x'</span>%value
+
+<span class="p_word">class</span> Message(dict):
+    <span class="p_triple">'''A generic message container that can be used in various scenarios and allows attribute
+    access to container items for read. It uses a optimized binary format of type-length-value
+    for various attributes. If bandwidth is not a concern one could use built-in pickle module
+    instead of this custom binary format.
+    
+    &gt;&gt;&gt; m = Message(name='Join:Request', path=[])
+    &gt;&gt;&gt; print repr(Message(raw=str(m)))
+    &lt;Message name=Join:Request path=[]&gt;
+    '''</span>
+    <span class="p_word">def</span> __init__(self, raw=<span class="p_word">None</span>, **kwargs):
+        <span class="p_word">if</span> <span class="p_word">not</span> raw:
+            <span class="p_word">for</span> n,v <span class="p_word">in</span> kwargs.items(): self[n] = v
+        <span class="p_word">else</span>: <span class="p_commentline"># decode the message</span>
+            <span class="p_word">if</span> struct.unpack(<span class="p_string">'!H'</span>, raw[:<span class="p_number">2</span>])[<span class="p_number">0</span>] != version: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid version'</span> 
+            self.decode(raw[<span class="p_number">2</span>:]) 
+    <span class="p_word">def</span> __str__(self):
+        <span class="p_triple">'''Construct a formatted message, where each element is recursively formatted 
+        as type, length, value.'''</span>
+        <span class="p_word">return</span> struct.pack(<span class="p_string">'!H'</span>, version) + self.encode()
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_triple">'''Representation of this msg is just the dictionary with a prefix Message.'''</span>
+        <span class="p_word">return</span> <span class="p_string">'&lt;Message name=%s %s&gt;'</span>%(self.name, <span class="p_string">' '</span>.join(map(<span class="p_word">lambda</span> x: <span class="p_string">'%s=%r'</span>%(x[<span class="p_number">0</span>],x[<span class="p_number">1</span>]), filter(<span class="p_word">lambda</span> y: y[<span class="p_number">0</span>] !=<span class="p_string">'name'</span>, self.items()))))
+    <span class="p_word">def</span> __getattr__(self, name): <span class="p_word">return</span> self.get(name, <span class="p_word">None</span>)
+    
+    <span class="p_word">def</span> encode(self):
+        <span class="p_triple">'''Encode this Message into a binary format.'''</span>
+        type = _attr2bin(self.name)
+        result = <span class="p_string">''</span>
+        <span class="p_word">for</span> name, elem <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: x[<span class="p_number">0</span>] != <span class="p_string">'name'</span>, self.items()):
+            k = _attr2bin(name); t = _attrType[name]
+            <span class="p_word">if</span> t == <span class="p_string">'bool'</span>: value = struct.pack(<span class="p_string">'!B'</span>, elem <span class="p_word">and</span> <span class="p_number">1</span> <span class="p_word">or</span> <span class="p_number">0</span>)
+            <span class="p_word">elif</span> t == <span class="p_string">'int32'</span>: value = struct.pack(<span class="p_string">'!I'</span>, elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'int64'</span>: value = struct.pack(<span class="p_string">'!II'</span>, elem / (<span class="p_number">2</span>**<span class="p_number">32</span>), elem % (<span class="p_number">2</span>**<span class="p_number">32</span>))
+            <span class="p_word">elif</span> t == <span class="p_string">'hash'</span>: value = int2bin(elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'str'</span>: value = struct.pack(<span class="p_string">'!H'</span>, len(elem)) + elem
+            <span class="p_word">elif</span> t == <span class="p_string">'node'</span>: value = str(elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'bin'</span>: value = struct.pack(<span class="p_string">'!H'</span>, len(str(elem))) + str(elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'msg'</span>: value = str(elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'list'</span>: <span class="p_commentline"># in ('nodes', 'neighbors', 'leafset', 'vals', 'path', 'keyss'): # list</span>
+                value = struct.pack(<span class="p_string">'!H'</span>, len(elem))
+                <span class="p_word">for</span> e <span class="p_word">in</span> elem:
+                    <span class="p_word">if</span> name <span class="p_word">in</span> (<span class="p_string">'nodes'</span>, <span class="p_string">'neighbors'</span>, <span class="p_string">'leafset'</span>, <span class="p_string">'path'</span>): v = str(e)
+                    <span class="p_word">elif</span> name <span class="p_word">in</span> (<span class="p_string">'keyss'</span>, <span class="p_string">'vals'</span>): v = str(e)
+                    <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid list type'</span>, name
+                    value += struct.pack(<span class="p_string">'!H'</span>, len(v)) + v
+            <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid element type %r'</span>%t
+            result += k + struct.pack(<span class="p_string">'!H'</span>, len(value)) + value
+        <span class="p_word">return</span> type + struct.pack(<span class="p_string">'!H'</span>, len(result)) + result
+    
+    <span class="p_word">def</span> decode(self, value):
+        <span class="p_triple">'''Decode from binary format into this Message.'''</span>
+        name, l = value[:<span class="p_number">2</span>], struct.unpack(<span class="p_string">'!H'</span>, value[<span class="p_number">2</span>:<span class="p_number">4</span>])[<span class="p_number">0</span>]
+        self[<span class="p_string">'name'</span>], value, remaining = _bin2attr(name), value[<span class="p_number">4</span>:<span class="p_number">4</span>+l], value[<span class="p_number">4</span>+l:]
+        <span class="p_word">while</span> len(value)&gt;<span class="p_number">0</span>:
+            k, l = value[:<span class="p_number">2</span>], struct.unpack(<span class="p_string">'!H'</span>, value[<span class="p_number">2</span>:<span class="p_number">4</span>])[<span class="p_number">0</span>]
+            elem, value = value[<span class="p_number">4</span>:<span class="p_number">4</span>+l], value[<span class="p_number">4</span>+l:]
+            name = _bin2attr(k); t = _attrType[name]
+            <span class="p_word">if</span> t == <span class="p_string">'bool'</span>: self[name] = (struct.unpack(<span class="p_string">'!B'</span>, elem)[<span class="p_number">0</span>] != <span class="p_number">0</span>)
+            <span class="p_word">elif</span> t == <span class="p_string">'int32'</span>: self[name] = struct.unpack(<span class="p_string">'!I'</span>, elem)[<span class="p_number">0</span>]
+            <span class="p_word">elif</span> t == <span class="p_string">'int64'</span>: self[name] = struct.unpack(<span class="p_string">'!I'</span>, elem[:<span class="p_number">4</span>])[<span class="p_number">0</span>] * (<span class="p_number">2</span>**<span class="p_number">32</span>) + struct.unpack(<span class="p_string">'!I'</span>, elem[<span class="p_number">4</span>:<span class="p_number">8</span>])[<span class="p_number">0</span>]
+            <span class="p_word">elif</span> t == <span class="p_string">'hash'</span>: self[name] = bin2int(elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'str'</span>: self[name] = elem
+            <span class="p_word">elif</span> t == <span class="p_string">'node'</span>: self[name] = Node(value=elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'bin'</span>: self[name] = elem <span class="p_word">if</span> name <span class="p_word">in</span> (<span class="p_string">'Kp'</span>, <span class="p_string">'sigma'</span>) <span class="p_word">else</span> (Key(value=elem) <span class="p_word">if</span> name == <span class="p_string">'key'</span> <span class="p_word">else</span> Value(value=elem))
+            <span class="p_word">elif</span> t == <span class="p_string">'msg'</span>: self[name] = Message(raw=elem)
+            <span class="p_word">elif</span> t == <span class="p_string">'list'</span>:
+                count, elem= struct.unpack(<span class="p_string">'!H'</span>, elem[:<span class="p_number">2</span>])[<span class="p_number">0</span>], elem[<span class="p_number">2</span>:]
+                self[name] = [] <span class="p_commentline"># initialize as empty list</span>
+                <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, count):
+                    l = struct.unpack(<span class="p_string">'!H'</span>, elem[:<span class="p_number">2</span>])[<span class="p_number">0</span>]
+                    v, elem = elem[<span class="p_number">2</span>:<span class="p_number">2</span>+l], elem[<span class="p_number">2</span>+l:]
+                    <span class="p_word">if</span> name <span class="p_word">in</span> (<span class="p_string">'nodes'</span>, <span class="p_string">'neighbors'</span>, <span class="p_string">'leafset'</span>, <span class="p_string">'path'</span>): self[name].append(Node(value=v))
+                    <span class="p_word">elif</span> name <span class="p_word">in</span> (<span class="p_string">'keyss'</span>): self[name].append(Key(value=v))
+                    <span class="p_word">elif</span> name <span class="p_word">in</span> (<span class="p_string">'vals'</span>): self[name].append(Value(raw=v))
+                    <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid list name'</span>, name 
+            <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid element type %r'</span>%t
+
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># A network abstraction that is used for all communication. It also encapsulates</span>
+<span class="p_commentline"># secure identifier of the node.</span>
+<span class="p_commentline">#===============================================================================</span>
+
+<span class="p_word">class</span> Node(object):
+    <span class="p_triple">'''A Node has NodeId and NeighborInfo. This should be immutable. The important properties are
+    type (socket.SOCK_STREAM or socket.SOCK_DGRAM for tcp or udp respectively), ip (as a
+    dotted decimal string), port (as a int) and guid (as a long int, representing secure ID of
+    this node, which is typically derived from hash of public key).'''</span>
+    <span class="p_commentline">#def __new__(cls, **kwargs):</span>
+    <span class="p_commentline">#    '''return an existing Node if one is found, else create a new Node.'''</span>
+    <span class="p_commentline">#    return object.__new__(cls, **kwargs)</span>
+    <span class="p_word">def</span> __init__(self, **kwargs):
+        <span class="p_triple">'''Two ways to construct a node: either from binary str representation or specify properties.
+        Node(value=binaryStr) or Node(ip='192.1.2.3',port=7028,type=socket.SOCK_DGRAM,guid=892891281928192128)
+        '''</span>
+        <span class="p_commentline"># self.ping = self.pdown = False</span>
+        <span class="p_word">if</span> <span class="p_string">'value'</span> <span class="p_word">in</span> kwargs: <span class="p_commentline"># parse from string </span>
+            value = kwargs.get(<span class="p_string">'value'</span>)
+            ip, self.port, self.type, self.guid = struct.unpack(<span class="p_string">'!4sHB%ds'</span>%Hsize, value)
+            self.guid = bin2int(self.guid)
+            self.ip = <span class="p_string">'.'</span>.join([str(ord(x)) <span class="p_word">for</span> x <span class="p_word">in</span> ip])
+            <span class="p_commentline">#print self.ip, self.port</span>
+        <span class="p_word">else</span>: <span class="p_commentline"># build using individual components</span>
+            <span class="p_word">for</span> n <span class="p_word">in</span> (<span class="p_string">'ip'</span>, <span class="p_string">'port'</span>, <span class="p_string">'type'</span>, <span class="p_string">'guid'</span>):
+                <span class="p_word">exec</span> <span class="p_string">'self.%s = kwargs.get("%s", None)'</span>%(n,n)
+        <span class="p_commentline"># since node is immutable, construct str, repr and hash output beforehand.</span>
+        self._str = struct.pack(<span class="p_string">'!4sHB%ds'</span>%Hsize, <span class="p_string">''</span>.join([chr(int(x)) <span class="p_word">for</span> x <span class="p_word">in</span> self.ip.split(<span class="p_string">'.'</span>)]), self.port, self.type, int2bin(self.guid))
+        self._repr = <span class="p_string">'&lt;node ip=%r port=%r type=%r guid=%r&gt;'</span>%(self.ip, self.port, self.type, self.guid)
+        self._hash = int(self.guid).__hash__() <span class="p_word">if</span> self.guid <span class="p_word">else</span> str(str(self.type) + <span class="p_string">':'</span> + self.ip + <span class="p_string">':'</span> + str(self.port)).__hash__() 
+    <span class="p_word">def</span> __cmp__(self, other):
+        <span class="p_word">if</span> id(self) == id(other): <span class="p_word">return</span> <span class="p_number">0</span> <span class="p_commentline"># a shortcut to compare identical objects</span>
+        <span class="p_word">elif</span> self.guid <span class="p_word">and</span> other.guid: <span class="p_word">return</span> cmp(self.guid, other.guid)
+        <span class="p_word">else</span>: <span class="p_word">return</span> cmp(self.ip, other.ip) <span class="p_word">or</span> cmp(self.port, other.port) <span class="p_word">or</span> cmp(self.type, other.type)
+    <span class="p_word">def</span> __hash__(self): <span class="p_word">return</span> self._hash
+    <span class="p_word">def</span> __repr__(self): <span class="p_word">return</span> self._repr
+    <span class="p_word">def</span> __str__(self): <span class="p_word">return</span> self._str 
+    @property
+    <span class="p_word">def</span> hostport(self): <span class="p_word">return</span> self.ip <span class="p_word">and</span> (self.ip + <span class="p_string">':'</span> + str(self.port)) <span class="p_word">or</span> <span class="p_string">''</span>
+
+<span class="p_word">class</span> Network(object):
+    <span class="p_triple">'''A network abstraction that needs to be supplied by the application to various
+    modules that require transport access. The node property represents the local Node.
+    There are four important methods: send, recv, put and get. The application such as the p2p
+    module implements a subclass of this abstraction to provide the actual secure implementation.'''</span>
+    count = <span class="p_number">0</span>
+    <span class="p_word">def</span> __init__(self, queue=<span class="p_word">None</span>):
+        <span class="p_triple">'''Construct a UDP-based unsecured network. Application should provide a secure
+        subclass implementation using dTLS or TLS.'''</span>
+        Network.count = Network.count + <span class="p_number">1</span>; self.name = <span class="p_string">'Network[%d]'</span>%(Network.count)
+        self.queue = queue <span class="p_word">if</span> queue <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">else</span> multitask.SmartQueue() <span class="p_commentline"># module's default queue for dispatching and receiving events</span>
+        self.sock = socket.socket(type=socket.SOCK_DGRAM)
+        self.sock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>)) <span class="p_commentline"># bind to any address+port</span>
+        ip, port = getlocaladdr()[<span class="p_number">0</span>], self.sock.getsockname()[<span class="p_number">1</span>]
+        self.node = Node(ip=ip, port=port, type=socket.SOCK_DGRAM, guid=H(ip + <span class="p_string">':'</span> + str(port)))
+        self.gen = <span class="p_word">None</span> <span class="p_commentline"># generator for receiver if start() is called.</span>
+
+    <span class="p_word">def</span> send(self, msg, node, timeout=<span class="p_word">None</span>):
+        <span class="p_triple">'''Send some msg to dest node (Node), and if timeout is specified then return a success (True)
+        or failure (False) within that timeout. Otherwise, the function may return immediately.'''</span>
+        <span class="p_word">if</span> self.sock: 
+            <span class="p_word">try</span>:
+                start = time.time()
+                <span class="p_word">if</span> timeout <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: 
+                    msg[<span class="p_string">'ack'</span>] = True <span class="p_commentline"># require a NetworkAck</span>
+                data = str(msg)
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> self.name, <span class="p_string">'sending %d bytes %s=&gt;%s: %r'</span>%(len(data), self.node.hostport, node.hostport, msg)
+                <span class="p_commentline">#yield multitask.sendto(self.sock, data, (node.ip, node.port), timeout=timeout)</span>
+                self.sock.sendto(data, (node.ip, node.port))
+                <span class="p_word">if</span> timeout <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                    hash = H(data)    <span class="p_commentline"># hash property to associate the ack to the data request.</span>
+                    ack = <span class="p_word">yield</span> self.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Ack:Indication'</span> <span class="p_word">and</span> x.hash==hash, timeout=(timeout - (time.time() - start)))
+                    <span class="p_word">if</span> <span class="p_word">not</span> ack: <span class="p_word">raise</span> StopIteration(False) <span class="p_commentline"># timeout in get</span>
+                <span class="p_word">raise</span> StopIteration(True)
+            <span class="p_word">except</span> multitask.Timeout:
+                <span class="p_word">raise</span> StopIteration(False) <span class="p_commentline"># timeout in sendto</span>
+                
+    <span class="p_word">def</span> recv(self, timeout=<span class="p_word">None</span>, maxsize=<span class="p_number">1500</span>):
+        <span class="p_triple">'''Receive some data from remote, and if timeout is specified then throw a
+        multitask.Timeout exception if no data is received in that time.'''</span>
+        <span class="p_word">if</span> self.sock:
+            data, remote = <span class="p_word">yield</span> multitask.recvfrom(self.sock, maxsize, timeout=timeout)
+            lastnode = Node(ip=remote[<span class="p_number">0</span>], port=remote[<span class="p_number">1</span>], type=socket.SOCK_DGRAM, guid=H(remote[<span class="p_number">0</span>]+<span class="p_string">':'</span>+str(remote[<span class="p_number">1</span>])))
+            <span class="p_word">raise</span> StopIteration((data, lastnode))
+        <span class="p_word">else</span>:
+            <span class="p_word">raise</span> RuntimeError, <span class="p_string">'Invalid socket'</span>
+        
+    <span class="p_word">def</span> start(self):
+        <span class="p_word">if</span> self.gen <span class="p_word">is</span> <span class="p_word">None</span>: 
+            self.gen = self.receiver()
+            multitask.add(self.gen)
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> stop(self):
+        <span class="p_word">if</span> self.gen: self.gen.close(); self.gen = <span class="p_word">None</span>
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> receiver(self):
+        <span class="p_triple">'''Install a receiver task to receive packets from the network and enqueue them in the queue,
+        so that other interested parties can listen for it: multitask.add(net.receiver())
+        The task also sends any NetworkAck if needed.
+        '''</span>
+        <span class="p_word">while</span> True:
+            <span class="p_word">try</span>: 
+                data, remote = <span class="p_word">yield</span> self.recv()
+                msg = Message(raw=data)
+            <span class="p_word">except</span>: 
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'invalid message'</span>, data; traceback.print_exc() 
+                <span class="p_word">continue</span> <span class="p_commentline"># ignore it</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> self.name, <span class="p_string">'received %s=&gt;%s: %r'</span>%(remote.hostport, self.node.hostport, msg)
+            <span class="p_word">if</span> <span class="p_string">'ack'</span> <span class="p_word">in</span> msg <span class="p_word">and</span> msg.name != <span class="p_string">'Ack:Indication'</span>: <span class="p_commentline"># the remote requires an ack. send one.</span>
+                <span class="p_word">del</span> msg[<span class="p_string">'ack'</span>] <span class="p_commentline"># remote the ack</span>
+                ack = Message(name=<span class="p_string">'Ack:Indication'</span>, hash=H(data))    <span class="p_commentline"># hash of original received packet</span>
+                <span class="p_commentline"># yield multitask.send(self.sock, str(ack), remote) # send the NetworkAck message</span>
+                self.sock.sendto(str(ack), (remote.ip, remote.port)) <span class="p_commentline"># send the NetworkAck message</span>
+            msg[<span class="p_string">'remote'</span>] = remote <span class="p_commentline"># put remote as an attribute in msg before putting on queue.</span>
+            <span class="p_word">yield</span> self.put(msg)    <span class="p_commentline"># put the parsed msg so that other interested party may get it.</span>
+            
+    <span class="p_word">def</span> put(self, msg, **kwargs):
+        <span class="p_triple">'''Put a message in the internal queue of this network. The message may be received
+        by any other interested module such as router, storage, that is associated with this
+        network object.'''</span>
+        <span class="p_word">yield</span> self.queue.put(msg, **kwargs)
+        
+    <span class="p_word">def</span> get(self, criteria=<span class="p_word">None</span>, **kwargs):
+        <span class="p_triple">'''Get a message (or filtered message) from the internal queue of this network. The
+        modules that need to receive some specific message from other modules invoke this method
+        to get the message. For example, net.get(lambda:x x.name='Route:Request')'''</span>
+        <span class="p_word">try</span>:
+            item = <span class="p_word">yield</span> self.queue.get(criteria=criteria, **kwargs)
+            <span class="p_word">raise</span> StopIteration(item)
+        <span class="p_word">except</span> multitask.Timeout:
+            <span class="p_word">raise</span> StopIteration(<span class="p_word">None</span>)
+    
+<span class="p_word">def</span> testNetwork():
+    multitask.completed = False
+    <span class="p_word">def</span> sendrecv():
+        <span class="p_word">try</span>:
+            n1, n2 = Network(), Network()
+            multitask.add(n1.receiver())
+            multitask.add(n2.receiver())
+            <span class="p_word">yield</span> n1.send(msg=Message(name=<span class="p_string">'Join:Request'</span>), node=n2.node)
+            msg = <span class="p_word">yield</span> n2.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Join:Request'</span>, timeout=<span class="p_number">2</span>)
+        <span class="p_word">except</span>:
+            <span class="p_word">print</span> <span class="p_string">'testNetwork() didnot pass'</span>
+        multitask.completed = True
+    multitask.add(sendrecv())
+    <span class="p_word">while</span> <span class="p_word">not</span> multitask.completed: 
+        multitask.get_default_task_manager().run_next()
+
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># Routing logic implements the specific routing algorithm, in this case </span>
+<span class="p_commentline"># Pastry/Bamboo.</span>
+<span class="p_commentline">#===============================================================================</span>
+
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_commentline"># RoutingTable </span>
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_word">class</span> RoutingTable(list):
+    <span class="p_triple">'''A two-dimensional container for routing table abstraction.'''</span>
+    <span class="p_word">class</span> Entry: <span class="p_word">pass</span> <span class="p_commentline"># routing table entry</span>
+
+    <span class="p_word">def</span> __init__(self, node, columns=<span class="p_number">16</span>, scale=<span class="p_number">0.9</span>):
+        <span class="p_triple">'''Construct a new routing table for the given self node, with columns. The modulus is
+        same as global Hmod and rows is calculated from columns and modulus.'''</span>
+        self.node, self.columns, self.scale = node, columns, scale
+        self.bitsPerDigit = int(math.log(columns, <span class="p_number">2</span>))
+        self.rows = (Hsize*<span class="p_number">8</span>) / self.bitsPerDigit <span class="p_commentline"># modulus==2**(Hsize*8) and rows*columns==modulus</span>
+        self.size, self.highestLevel, self.length = <span class="p_number">0</span>, -<span class="p_number">1</span>, self.rows
+        self.entry = entry = self.Entry(); entry.node = node; entry.latency = <span class="p_number">0.0</span>
+        self.digits = self.guid2digits(node.guid)
+        <span class="p_word">for</span> row <span class="p_word">in</span> xrange(<span class="p_number">0</span>, self.rows): <span class="p_commentline"># initialize the two-dimensional list (array)</span>
+            self.append([entry <span class="p_word">if</span> row==col <span class="p_word">else</span> <span class="p_word">None</span> <span class="p_word">for</span> col <span class="p_word">in</span> xrange(<span class="p_number">0</span>, self.columns)]) 
+        <span class="p_commentline"># print self.columns, self.rows, self.bitsPerDigit, self.digits</span>
+        
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_triple">'''Printable representation of the routing table.'''</span>
+        entries = <span class="p_string">'\n  '</span>+<span class="p_string">'\n  '</span>.join(map(<span class="p_word">lambda</span> x: <span class="p_string">'Level: %d %s'</span>%(x, <span class="p_string">'\n    '</span>.join(map(<span class="p_word">lambda</span> y: <span class="p_string">'[%d] %r'</span>%(y, self[x][y].node), filter(<span class="p_word">lambda</span> z: self[x][z] <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>, xrange(<span class="p_number">0</span>, self.columns))))), xrange(<span class="p_number">0</span>, self.highestLevel+<span class="p_number">1</span>)))
+        <span class="p_word">return</span> <span class="p_string">'&lt;RoutingTable node=%r size=%r levels=%r highestLevel=%r %s&gt;'</span>%(self.node, self.size, self.rows, self.highestLevel, entries)
+
+    <span class="p_word">def</span> __contains__(self, node):
+        <span class="p_triple">'''Check if the node exists in the routing table.'''</span>
+        dest = self.guid2digits(node.guid)
+        first = self.firstdiff(dest)
+        <span class="p_word">return</span> first != self.rows <span class="p_word">and</span> self.primary(first, dest[first]) <span class="p_word">and</span> self.primary(first, dest[first]) == node
+
+    <span class="p_word">def</span> add(self, node, latency=<span class="p_number">0</span>, pns=False):
+        <span class="p_triple">'''Add a node to the routing table if applicable. It returns None if the node could not be added,
+        else it returns an existing node if an existing node is replaced, else if not replaced, it returns
+        the self node.'''</span>
+        dest = self.guid2digits(node.guid)
+        first = self.firstdiff(dest)
+        <span class="p_word">if</span> first == self.rows: <span class="p_word">return</span> <span class="p_word">None</span>
+        ret = <span class="p_word">None</span>
+        <span class="p_commentline">#print first, dest[first], dest</span>
+        entry = self[first][dest[first]]
+        <span class="p_word">if</span> <span class="p_word">not</span> entry <span class="p_word">or</span> <span class="p_word">not</span> entry.node:
+            entry = self[first][dest[first]] = self.Entry()
+            entry.node, entry.latency = node, latency
+            self.size = self.size + <span class="p_number">1</span>
+            ret = self.node
+        <span class="p_word">elif</span> entry.node == node: <span class="p_commentline"># exists, just update the latency</span>
+            entry.latency = latency
+        <span class="p_word">elif</span> pns <span class="p_word">and</span> latency &lt; self.scale*entry.latency: <span class="p_commentline"># found a less RTT node, replace</span>
+            ret = entry.node <span class="p_commentline"># old node is returned</span>
+            entry = self[first][dest[first]] = self.Entry()
+            entry.node, entry.latency = node, latency
+        <span class="p_word">if</span> first &gt; self.highestLevel: self.highestLevel = first
+        <span class="p_word">return</span> ret
+
+    <span class="p_word">def</span> forceAdd(self, node, latency):
+        <span class="p_triple">'''Perform a forced add to the routing table.'''</span> 
+        dest = self.guid2digits(node.guid)
+        first = self.firstdiff(dest)
+        <span class="p_word">if</span> first == self.rows: <span class="p_word">return</span> <span class="p_commentline"># error</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self[first][dest[first]]: self.size = self.size + <span class="p_number">1</span>
+        entry = self[first][dest[first]] = self.Entry()
+        entry.node, entry.latency = node, latency
+        <span class="p_word">if</span> first &gt; self.highestLevel: self.highestLevel = first 
+        
+    <span class="p_word">def</span> fillsHole(self, node):
+        <span class="p_triple">'''Check whether node fills an empty hole in the table.'''</span>
+        dest = self.guid2digits(node.guid)
+        first = self.firstdiff(dest)
+        <span class="p_word">if</span> first == self.rows: <span class="p_word">return</span> False
+        <span class="p_word">return</span> self[first][dest[first]] <span class="p_word">is</span> <span class="p_word">None</span>
+
+    <span class="p_word">def</span> remove(self, node):
+        <span class="p_triple">'''Remove a node from the routing table. It returns the level of the node or -1 if not found.'''</span>
+        dest = self.guid2digits(node.guid)
+        first = self.firstdiff(dest)
+        <span class="p_word">if</span> first == self.rows: <span class="p_word">return</span> -<span class="p_number">1</span>
+        <span class="p_word">if</span> self[first][dest[first]] <span class="p_word">and</span> self[first][dest[first]].node == node:
+            self[first][dest[first]] = <span class="p_word">None</span>
+            self.size = self.size - <span class="p_number">1</span>
+            <span class="p_word">if</span> first == self.highestLevel:
+                index = -<span class="p_number">1</span>
+                <span class="p_word">for</span> i <span class="p_word">in</span> xrange(first, -<span class="p_number">1</span>, -<span class="p_number">1</span>):
+                    j = find(<span class="p_word">lambda</span> y: self[i][y] <span class="p_word">and</span> self[i][y] != self.entry, xrange(<span class="p_number">0</span>, self.columns))
+                    <span class="p_word">if</span> j&gt;= <span class="p_number">0</span>: index = i; <span class="p_word">break</span>
+                <span class="p_word">if</span> index&lt;<span class="p_number">0</span>: self.highestLevel = <span class="p_number">0</span> <span class="p_commentline"># not found, reduce the level</span>
+            <span class="p_word">return</span> first
+        <span class="p_word">return</span> -<span class="p_number">1</span>
+
+    <span class="p_word">def</span> primary(self, digit, value):
+        <span class="p_triple">'''Return the primary node from the routing table entry, or None if missing.'''</span>
+        <span class="p_word">return</span> self[digit][value] <span class="p_word">and</span> self[digit][value].node <span class="p_word">or</span> <span class="p_word">None</span> 
+
+    <span class="p_word">def</span> randomLevelNode(self, level):
+        <span class="p_triple">'''Get a random node from the routing table at the level.'''</span>
+        choices = set(filter(<span class="p_word">lambda</span> y: y <span class="p_word">and</span> y != self.entry, (self[level][x] <span class="p_word">for</span> x <span class="p_word">in</span> xrange(<span class="p_number">0</span>, self.columns))))
+        <span class="p_word">return</span> choices <span class="p_word">and</span> random.choice(list(choices)).node <span class="p_word">or</span> <span class="p_word">None</span>
+
+    @property
+    <span class="p_word">def</span> weightedRandomLevel(self):
+        <span class="p_triple">'''Weigh the valid levels, and return a random level.'''</span>
+        <span class="p_word">if</span> self.size == <span class="p_number">0</span>: <span class="p_word">return</span> <span class="p_number">0</span>
+        r = random.randint(<span class="p_number">1</span>, (self.highestLevel+<span class="p_number">1</span>)*(self.highestLevel+<span class="p_number">2</span>)/<span class="p_number">2</span>) <span class="p_commentline"># random in range 1 to sum</span>
+        level = <span class="p_number">0</span> 
+        <span class="p_word">for</span> c <span class="p_word">in</span> xrange(self.highestLevel, <span class="p_number">0</span>, -<span class="p_number">1</span>):
+            r = r - c
+            <span class="p_word">if</span> r &lt;= <span class="p_number">0</span>: <span class="p_word">break</span> 
+            level = level + <span class="p_number">1</span>
+        <span class="p_word">return</span> level
+    
+    @property
+    <span class="p_word">def</span> weightedRandomNode(self):
+        <span class="p_triple">'''Get the weighted random level and get a random node at the level.'''</span>
+        <span class="p_word">if</span> self.size == <span class="p_number">0</span>: <span class="p_word">return</span> <span class="p_word">None</span>
+        level = self.weightedRandomLevel
+        node = self.randomLevelNode(level)
+        <span class="p_word">while</span> node <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span>  level &lt;= self.highestLevel:
+            level = level + <span class="p_number">1</span> 
+            node = self.randomLevelNode(level) 
+        <span class="p_word">return</span> node
+
+    @property
+    <span class="p_word">def</span> weightedRandomKey(self):
+        <span class="p_triple">'''Get the weighted random level and then get a random key below this level.'''</span>
+        level = self.weightedRandomLevel
+        value = random.randint(<span class="p_number">0</span>, self.columns-<span class="p_number">1</span>)
+        digits = map(<span class="p_word">lambda</span> x: self.digits[x] <span class="p_word">if</span> x&lt;level <span class="p_word">else</span> (value <span class="p_word">if</span> x == level <span class="p_word">else</span> random.randint(<span class="p_number">0</span>, self.columns-<span class="p_number">1</span>)), xrange(<span class="p_number">0</span>, self.rows))
+        <span class="p_word">return</span> self.digits2guid(digits)
+    
+    @property 
+    <span class="p_word">def</span> weightedRandomValue(self):
+        <span class="p_triple">'''Get a weighted random key whose first few digits are same as ours, followed by one digit same as
+        routing table value and followed by remaining random digits.'''</span>
+        choices = []
+        <span class="p_word">for</span> d <span class="p_word">in</span> xrange(<span class="p_number">0</span>, self.highestLevel+<span class="p_number">1</span>):
+            <span class="p_word">for</span> v <span class="p_word">in</span> xrange(<span class="p_number">0</span>, self.columns):
+                <span class="p_word">if</span> self[d][v]: choices.append((d, v))
+        <span class="p_word">if</span> <span class="p_word">not</span> choices: <span class="p_word">return</span> <span class="p_word">None</span>
+        level, value = random.choice(choices)
+        digits = map(<span class="p_word">lambda</span> x: self.digits[x] <span class="p_word">if</span> x&lt;level <span class="p_word">else</span>(value <span class="p_word">if</span> x == level <span class="p_word">else</span> random.randint(<span class="p_number">0</span>, self.columns-<span class="p_number">1</span>)), xrange(<span class="p_number">0</span>, self.rows))
+        <span class="p_word">return</span> self.digits2guid(digits)
+
+    <span class="p_word">def</span> matching(self, guid):
+        <span class="p_triple">'''Return the matching digits with this node's guid.'''</span>
+        <span class="p_word">return</span> self.firstdiff(self.guid2digits(guid))
+
+    <span class="p_word">def</span> nextHop(self, guid, ignore=<span class="p_word">None</span>):
+        <span class="p_triple">'''Get the next hop node for the destination guid, ignoring the nodes in the ignore set.'''</span>
+        dest = self.guid2digits(guid)
+        first = self.firstdiff(dest)
+        <span class="p_word">if</span> first == self.rows: <span class="p_word">return</span> self.node
+        ret = self.primary(first, dest[first])
+        <span class="p_word">if</span> ignore <span class="p_word">and</span> find(<span class="p_word">lambda</span> x: x == ret, ignore)&gt;=<span class="p_number">0</span>: <span class="p_commentline"># found in ignore</span>
+            ret = <span class="p_word">None</span>
+        <span class="p_word">return</span> ret;
+    
+    @property
+    <span class="p_word">def</span> list(self):
+        <span class="p_triple">'''A list (array) representation of routing table.'''</span>
+        ret = []
+        <span class="p_word">for</span> row <span class="p_word">in</span> self:
+            <span class="p_word">for</span> col <span class="p_word">in</span> row:
+                <span class="p_word">if</span> col <span class="p_word">and</span> col != self.entry:
+                    ret.append(col.node)
+        <span class="p_word">return</span> ret
+
+    <span class="p_word">def</span> guid2digits(self, guid):
+        <span class="p_word">return</span> int2dig(guid, self.bitsPerDigit, self.rows)
+
+    <span class="p_word">def</span> digits2guid(self, digits):
+        <span class="p_word">return</span> dig2int(digits, self.bitsPerDigit, self.rows)
+
+    <span class="p_word">def</span> firstdiff(self, digits):
+        <span class="p_triple">'''Return the first difference with the other digits array.'''</span>
+        first = <span class="p_number">0</span>
+        <span class="p_word">while</span> first &lt; self.rows <span class="p_word">and</span> self.digits[first] == digits[first]:
+            first = first + <span class="p_number">1</span>
+        <span class="p_word">return</span> first
+
+<span class="p_word">def</span> _testRoutingTable():  
+    rt = []
+    <span class="p_word">for</span> port <span class="p_word">in</span> xrange(<span class="p_number">0</span>, <span class="p_number">100</span>):
+        rt.append(RoutingTable(node=Node(ip=<span class="p_string">'0.0.0.0'</span>,port=port,type=socket.SOCK_DGRAM,guid=H(<span class="p_string">'0.0.0.0:'</span>+str(port)))))
+    <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">1</span>, <span class="p_number">100</span>):
+        <span class="p_commentline">#print 'adding', i</span>
+        rt[<span class="p_number">0</span>].add(rt[i].node, <span class="p_number">0.0</span>)
+    <span class="p_commentline">#print rt[0]</span>
+
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_commentline"># LeafSet</span>
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_word">class</span> LeafSet(object):
+    <span class="p_triple">'''This is a one dimensional container with index from -len to +len, where len is
+    the length of one side of the leaf-set. The 0'th element is the self node, and i'th element
+    is the i'th successor for i&gt;0 and i'th predecessor for i&lt;0, i=1,2,...length.
+    
+    &gt;&gt;&gt; node = Node(ip='0.0.0.0', port=0, type=socket.SOCK_DGRAM, guid=H('0.0.0.0:0'))
+    &gt;&gt;&gt; ls = LeafSet(node=node)
+    &gt;&gt;&gt; for port in xrange(1, 100): 
+    ...    ignore = ls.add(Node(ip='0.0.0.0', port=port, type=socket.SOCK_DGRAM, guid=H('0.0.0.0:'+str(port))))
+    &gt;&gt;&gt; print ls
+    &lt;LeafSet &lt;node ip='0.0.0.0' port=25 type=2 guid=332553500505024118139453427259589985268347006514L&gt;
+        &lt;node ip='0.0.0.0' port=76 type=2 guid=344256270334124892387775982735564292838031798975L&gt;
+        &lt;node ip='0.0.0.0' port=95 type=2 guid=345064513834135878542882879036800526214322188981L&gt;
+        &lt;node ip='0.0.0.0' port=75 type=2 guid=384537642324149417382945675086589485089817610081L&gt;
+        &lt;node ip='0.0.0.0' port=0 type=2 guid=386487918899427893147283785174226450560216948519L&gt;
+        &lt;node ip='0.0.0.0' port=48 type=2 guid=393644250941402407785204206553305568458866605816L&gt;
+        &lt;node ip='0.0.0.0' port=58 type=2 guid=415748779641751273361359367594880519561321642612L&gt;
+        &lt;node ip='0.0.0.0' port=84 type=2 guid=420350901529310083152176181882612694359107974252L&gt;
+        &lt;node ip='0.0.0.0' port=82 type=2 guid=447023377445164417508254939667924928525196135428L&gt;&gt;
+    &gt;&gt;&gt; print len(ls), ls.maxsize
+    4 4
+    &gt;&gt;&gt; print ls['low'].guid &lt; ls[0].guid &lt; ls['high'].guid
+    True
+    &gt;&gt;&gt; print (ls['high'].guid-1 in ls), (ls['high'].guid+1) in ls
+    True False
+    &gt;&gt;&gt; print ls.closest(ls[-2].guid+10).guid == ls[-2].guid
+    True
+    &gt;&gt;&gt; print ls.replicas(ls[-2].guid+10, 4) == set([ls[0], ls[-1], ls[-2]])
+    True
+    &gt;&gt;&gt; print ls.intermediates(ls[-2].guid) == [ls[-1]]
+    True
+    &gt;&gt;&gt; print (ls.random in ls)
+    True
+    '''</span> 
+    <span class="p_word">def</span> __init__(self, node, maxsize=<span class="p_number">4</span>):
+        self.node, self.maxsize = node, maxsize
+        self._preds, self._succs, self.overlap = list(), list(), False
+        self._set = self._list = <span class="p_word">None</span> <span class="p_commentline"># set and list returns by to set and list properties</span>
+        self._updateOverlap()
+
+    <span class="p_word">def</span> __len__(self):
+        <span class="p_triple">'''Return the current length of the leaf-set, which is length of preds or succes. 
+        The actual number of elements are 2*len+1 that includes len predecessors, len successors 
+        and self node.'''</span>
+        <span class="p_word">if</span> len(self._preds) != len(self._succs):
+            <span class="p_word">raise</span> AssertionError, <span class="p_string">'length of self._preds[%d] != self._succs[%d]\npreds=%s\nsuccs=%s'</span>%(len(self._preds),len(self._succs),<span class="p_string">' '</span>.join(map(repr, self._preds)),<span class="p_string">' '</span>.join(map(repr, self._succs))) 
+        <span class="p_word">return</span> len(self._preds)
+    
+    <span class="p_word">def</span> __getitem__(self, index):
+        <span class="p_triple">'''Get the i'th item in the leaf-set. Special index such as 'low' and 'high' are recognized to
+        return the lowest or highest element from leaf set including self node.'''</span>
+        <span class="p_word">if</span> index == <span class="p_number">0</span>: <span class="p_word">return</span> self.node
+        <span class="p_word">elif</span> index == <span class="p_string">'low'</span>: <span class="p_word">return</span> self._preds[-<span class="p_number">1</span>] <span class="p_word">if</span> len(self._preds) &gt; <span class="p_number">0</span> <span class="p_word">else</span> self.node
+        <span class="p_word">elif</span> index == <span class="p_string">'high'</span>: <span class="p_word">return</span> self._succs[-<span class="p_number">1</span>] <span class="p_word">if</span> len(self._succs) &gt; <span class="p_number">0</span> <span class="p_word">else</span> self.node
+        <span class="p_word">elif</span> index&gt;<span class="p_number">0</span>: <span class="p_word">return</span> index &lt;= len(self._succs) <span class="p_word">and</span> self._succs[index-<span class="p_number">1</span>] <span class="p_word">or</span> <span class="p_word">None</span>
+        <span class="p_word">elif</span> index&lt;<span class="p_number">0</span>: <span class="p_word">return</span> -index &lt;= len(self._preds) <span class="p_word">and</span> self._preds[-index-<span class="p_number">1</span>] <span class="p_word">or</span> <span class="p_word">None</span>
+
+    <span class="p_word">def</span> __contains__(self, item):
+        <span class="p_triple">'''If item is Node, then return True if it exists in the leaf set, else if item is int
+        return True if it belongs to our range of leaf-set, else return False.'''</span>
+        <span class="p_word">if</span> isinstance(item, Node): <span class="p_word">return</span> find(<span class="p_word">lambda</span> x: x.guid==item.guid, self._preds+self._succs)&gt;=<span class="p_number">0</span> <span class="p_word">if</span> self.node.guid != item.guid <span class="p_word">else</span> False
+        <span class="p_word">else</span>: <span class="p_word">return</span> inrange(self[<span class="p_string">'low'</span>].guid, self.node.guid, item) <span class="p_word">or</span> inrange(self.node.guid, self[<span class="p_string">'high'</span>].guid, item)
+    
+    @property
+    <span class="p_word">def</span> random(self):
+        <span class="p_triple">'''Return a random element from the leaf-set, not including the self node.'''</span>
+        <span class="p_word">if</span> len(self._preds)==<span class="p_number">0</span>: <span class="p_word">return</span> <span class="p_word">None</span>
+        index = random.randint(<span class="p_number">0</span>, len(self._preds)+len(self._succs)-<span class="p_number">1</span>)
+        <span class="p_word">return</span> index &lt; len(self) <span class="p_word">and</span> self._preds[index] <span class="p_word">or</span> self._succs[index-len(self._preds)]
+
+    @property
+    <span class="p_word">def</span> list(self):
+        <span class="p_triple">'''Return a list (array) representation of the leaf set.'''</span>
+        <span class="p_word">if</span> self._list == <span class="p_word">None</span>: self._list = self._preds + self._succs
+        <span class="p_word">return</span> self._list
+
+    @property
+    <span class="p_word">def</span> set(self):
+        <span class="p_triple">'''Return the set representation of the leaf set.'''</span>
+        <span class="p_word">if</span> self._set == <span class="p_word">None</span>: self._set = set(self._preds + self._succs)
+        <span class="p_word">return</span> self._set
+
+    @property
+    <span class="p_word">def</span> sorted(self):
+        <span class="p_triple">'''Return a sorted list (array) representation with preds, self node and succs.'''</span>
+        <span class="p_word">return</span> [x <span class="p_word">for</span> x <span class="p_word">in</span> reversed(self._preds)] + [self.node] + self._succs
+
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_triple">'''Printable representation of the leaf set.'''</span>
+        <span class="p_word">return</span> <span class="p_string">'&lt;LeafSet %s&gt;'</span>%(<span class="p_string">'\n    '</span>.join(map(repr, self.sorted)) <span class="p_word">if</span> len(self._preds)&gt;<span class="p_number">0</span> <span class="p_word">else</span> <span class="p_string">'empty'</span>)
+
+    <span class="p_word">def</span> closest(self, guid, ignore=()):
+        <span class="p_triple">'''Return closest node to the given guid, ignoring elements in ignore (set).'''</span>
+        mn, md = self.node, distance(self.node.guid, guid) <span class="p_commentline"># result node and distance</span>
+        <span class="p_word">for</span> n <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: x <span class="p_word">not</span> <span class="p_word">in</span> ignore, (self._preds + self._succs)):
+            d = distance(n.guid, guid) <span class="p_commentline"># distance with node n, check if it smaller than md.</span>
+            <span class="p_word">if</span> d&lt;md <span class="p_word">or</span> d==md <span class="p_word">and</span> n!=mn <span class="p_word">and</span> inrange(mn.guid, n.guid, guid) <span class="p_word">and</span> <span class="p_word">not</span> inrange(n.guid, mn.guid, guid):
+                mn, md = n, d <span class="p_commentline"># a better match found, update result</span>
+        <span class="p_word">return</span> mn
+    
+    <span class="p_word">def</span> intermediates(self, guid):
+        <span class="p_triple">'''Return a list of nodes from self node to the given guid in our leaf set, or None if empty list.'''</span>
+        p = find(<span class="p_word">lambda</span> x: x.guid == guid, self._preds)  <span class="p_commentline"># the guid is found in leaf set</span>
+        s = find(<span class="p_word">lambda</span> x: x.guid == guid, self._succs)  <span class="p_commentline"># the guid is found in leaf set</span>
+        result = (filter(<span class="p_word">lambda</span> x: inrange(guid, self.node.guid, x.guid), self._preds[<span class="p_number">0</span>:p]) <span class="p_word">if</span> p&gt;=<span class="p_number">0</span> <span class="p_word">else</span> []) + \
+                 (filter(<span class="p_word">lambda</span> x: inrange(self.node.guid, guid, x.guid), self._succs[<span class="p_number">0</span>:s]) <span class="p_word">if</span> s&gt;=<span class="p_number">0</span> <span class="p_word">else</span> [])
+        <span class="p_word">return</span> result <span class="p_word">if</span> len(result)&gt;<span class="p_number">0</span> <span class="p_word">else</span> <span class="p_word">None</span>
+
+    <span class="p_word">def</span> replicas(self, guid, desired):
+        <span class="p_triple">'''Return a set of nodes that should have replicas for the given guid.'''</span>
+        desired, result = min(desired, len(self._preds) + len(self._succs)), set() <span class="p_commentline"># result is set of nodes</span>
+        <span class="p_word">assert</span> desired % <span class="p_number">2</span> == <span class="p_number">0</span> <span class="p_commentline"># must be even number since preds and succs are equal lengths</span>
+        <span class="p_word">if</span> len(self._preds) == <span class="p_number">0</span>: result.add(self.node) <span class="p_commentline"># self node is a must</span>
+        <span class="p_word">else</span>: <span class="p_commentline"># get the closest node in pred and succ and add all between those and us.</span>
+            m = distance(self.node.guid, guid)
+            m, closest, ignore = reduce(<span class="p_word">lambda</span> a,b: (b,a[<span class="p_number">2</span>]-<span class="p_number">1</span>,a[<span class="p_number">2</span>]-<span class="p_number">1</span>) <span class="p_word">if</span> b&lt;a[<span class="p_number">0</span>] <span class="p_word">else</span> (a[<span class="p_number">0</span>],a[<span class="p_number">1</span>],a[<span class="p_number">2</span>]-<span class="p_number">1</span>), map(<span class="p_word">lambda</span> x: distance(x.guid, guid), self._preds), (m, <span class="p_number">0</span>, <span class="p_number">0</span>))
+            m, closest, ignore = reduce(<span class="p_word">lambda</span> a,b: (b,a[<span class="p_number">2</span>]+<span class="p_number">1</span>,a[<span class="p_number">2</span>]+<span class="p_number">1</span>) <span class="p_word">if</span> b&lt;a[<span class="p_number">0</span>] <span class="p_word">else</span> (a[<span class="p_number">0</span>],a[<span class="p_number">1</span>],a[<span class="p_number">2</span>]+<span class="p_number">1</span>), map(<span class="p_word">lambda</span> x: distance(x.guid, guid), self._succs), (m, closest, <span class="p_number">0</span>))
+            half = desired / <span class="p_number">2</span>
+            start = <span class="p_number">0</span>
+            <span class="p_word">if</span> self.overlap <span class="p_word">or</span> (<span class="p_number">0</span>-closest != len(self._preds)) <span class="p_word">and</span> (closest != len(self._succs)):
+                <span class="p_word">if</span> closest == <span class="p_number">0</span>: start = (closest - half) <span class="p_word">if</span> inrange(self._preds[<span class="p_number">0</span>].guid, self.node.guid, guid) <span class="p_word">else</span> (closest - half + <span class="p_number">1</span>)
+                <span class="p_word">elif</span> closest &lt; <span class="p_number">0</span>: start = (closest - half + <span class="p_number">1</span>) <span class="p_word">if</span> inrange(self._preds[-<span class="p_number">1</span>*closest-<span class="p_number">1</span>].guid, self.node.guid, guid) <span class="p_word">else</span> (closest - half)
+                <span class="p_word">else</span>: start = (closest - half) <span class="p_word">if</span> inrange(self.node.guid, self._succs[closest-<span class="p_number">1</span>].guid, guid) <span class="p_word">else</span> (closest - half + <span class="p_number">1</span>)
+                stop = start + desired
+                <span class="p_word">for</span> index <span class="p_word">in</span> xrange(start, stop):
+                    <span class="p_word">if</span> index == <span class="p_number">0</span>: result.add(self.node)
+                    <span class="p_word">elif</span> index &lt; <span class="p_number">0</span> <span class="p_word">and</span> <span class="p_number">1</span>-index &lt; len(self._preds): result.add(self._preds[-index-<span class="p_number">1</span>])
+                    <span class="p_word">elif</span> index &gt; <span class="p_number">0</span> <span class="p_word">and</span> index-<span class="p_number">1</span> &lt; len(self._succs): result.add(self._succs[index-<span class="p_number">1</span>])
+        <span class="p_word">return</span> result
+    
+    <span class="p_word">def</span> promising(self, node):
+        <span class="p_triple">'''Is the given node a promising candidate for this leaf set?'''</span>
+        <span class="p_word">if</span> node.guid == self.node.guid: <span class="p_word">return</span> False
+        <span class="p_word">if</span> len(self._preds) == <span class="p_number">0</span>: <span class="p_word">return</span> True <span class="p_commentline"># everything is promising in empty list</span>
+        <span class="p_word">if</span> find(<span class="p_word">lambda</span> x: x.guid == node.guid, self._preds+self._succs)&gt;=<span class="p_number">0</span>: <span class="p_word">return</span> False <span class="p_commentline"># exists</span>
+        <span class="p_word">if</span> len(self._preds)&lt;self.maxsize <span class="p_word">or</span> len(self._succs)&lt;self.maxsize: <span class="p_word">return</span> True <span class="p_commentline"># can always accomodate until max size is reached</span>
+        <span class="p_word">return</span> find(<span class="p_word">lambda</span> x: inrange(x.guid, self.node.guid, node.guid), self._preds)&gt;=<span class="p_number">0</span> <span class="p_word">or</span> \
+               find(<span class="p_word">lambda</span> x: inrange(self.node.guid, x.guid, node.guid), self._succs)&gt;=<span class="p_number">0</span>
+
+    <span class="p_word">def</span> add(self, node):
+        <span class="p_triple">'''Add a node in the leaf set if possible. It returns None if node is not added, and returns
+        self node if node is added without replacing, and returns old node if the old node is replaced
+        by the newly added node.'''</span>
+        <span class="p_word">assert</span> node.ip != <span class="p_word">None</span> <span class="p_word">and</span> node.port != <span class="p_number">0</span> <span class="p_commentline"># just a sanity check</span>
+        self._set = self._list = <span class="p_word">None</span> <span class="p_commentline"># reset to recalculate on next access</span>
+        <span class="p_word">if</span> self.node.guid == node.guid: <span class="p_word">return</span> <span class="p_word">None</span>
+        <span class="p_word">if</span> len(self._preds)==<span class="p_number">0</span>:
+            self._preds.append(node); self._succs.append(node); self.overlap = True <span class="p_commentline"># preds and succs overlap</span>
+            <span class="p_word">return</span> self.node
+        ret = <span class="p_word">None</span>
+        
+        <span class="p_word">if</span> findNode(node.guid, self._preds)&lt;<span class="p_number">0</span>: <span class="p_commentline"># not found in preds</span>
+            <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, len(self._preds)+<span class="p_number">1</span>):
+                <span class="p_word">if</span> i&lt;len(self._preds) <span class="p_word">and</span> inrange(self._preds[i].guid, self.node.guid, node.guid) <span class="p_word">or</span> i==len(self._preds)&lt;self.maxsize:
+                    self._preds.insert(i, node)
+                    ret = len(self._preds)&gt;self.maxsize <span class="p_word">and</span> self._preds.pop() <span class="p_word">or</span> self.node
+                    <span class="p_word">break</span>
+        <span class="p_word">if</span> findNode(node.guid, self._succs)&lt;<span class="p_number">0</span>: <span class="p_commentline"># not found in preds</span>
+            <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, len(self._succs)+<span class="p_number">1</span>):
+                <span class="p_word">if</span> i&lt;len(self._succs) <span class="p_word">and</span> inrange(self.node.guid, self._succs[i].guid, node.guid) <span class="p_word">or</span> i==len(self._succs)&lt;self.maxsize:
+                    self._succs.insert(i, node)
+                    ret = len(self._succs)&gt;self.maxsize <span class="p_word">and</span> self._succs.pop() <span class="p_word">or</span> self.node
+                    <span class="p_word">break</span>
+        <span class="p_word">if</span> ret <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: <span class="p_commentline"># leaf set changed</span>
+            self._updateOverlap()
+        <span class="p_word">return</span> ret
+
+    <span class="p_word">def</span> remove(self, node):
+        <span class="p_triple">'''Remove a node from the leaf set, and returns type as one of 'none', 'pred', 'succ', 
+        'both' depending on whether the node was removed or not, and what type.'''</span>
+        p, s = find(<span class="p_word">lambda</span> x: x.guid == node.guid, self._preds), find(<span class="p_word">lambda</span> x: x.guid == node.guid, self._succs)
+        <span class="p_word">if</span> p&gt;=<span class="p_number">0</span>: <span class="p_word">del</span> self._preds[p]
+        <span class="p_word">if</span> s&gt;=<span class="p_number">0</span>: <span class="p_word">del</span> self._succs[s]
+        <span class="p_word">assert</span> len(self._preds) == len(self._succs)
+        <span class="p_word">if</span> p&gt;=<span class="p_number">0</span> <span class="p_word">or</span> s&gt;=<span class="p_number">0</span>:
+            self._set = self._list = <span class="p_word">None</span>
+            self._updateOverlap()
+            <span class="p_word">if</span> self.overlap: <span class="p_commentline"># overlaps then add all succs and preds to mutual lists</span>
+                <span class="p_word">for</span> n <span class="p_word">in</span> self._preds+self._succs: self.add(n)
+            <span class="p_word">return</span> p&gt;=<span class="p_number">0</span> <span class="p_word">and</span> s&gt;=<span class="p_number">0</span> <span class="p_word">and</span> <span class="p_string">'both'</span> <span class="p_word">or</span> p&gt;=<span class="p_number">0</span> <span class="p_word">and</span> <span class="p_string">'pred'</span> <span class="p_word">or</span> <span class="p_string">'succ'</span>
+        <span class="p_word">else</span>: 
+            <span class="p_word">return</span> <span class="p_string">'none'</span>
+
+    <span class="p_word">def</span> _updateOverlap(self):
+        <span class="p_triple">'''Update the overlap field depending on whether the succs and preds overlap or not?'''</span>
+        <span class="p_word">if</span> len(self._preds) == <span class="p_number">0</span> <span class="p_word">or</span> len(self._succs) == <span class="p_number">0</span>: 
+            self.overlap = True
+        <span class="p_word">else</span>:
+            self.overlap = False
+            <span class="p_word">for</span> p <span class="p_word">in</span> self._preds:
+                <span class="p_word">for</span> s <span class="p_word">in</span> self._succs:
+                    <span class="p_word">if</span> p.guid == s.guid:
+                        self.overlap = True
+                        <span class="p_word">return</span>
+                    
+    <span class="p_word">def</span> coversAll(self, replicas):
+        <span class="p_triple">'''Return true if there is an overlap in the leaf set and it covers all range for given
+        replica size.'''</span>
+        size = min(len(self), replicas/<span class="p_number">2</span>)
+        <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, size):
+            <span class="p_word">if</span> self._preds[i] == self._succs[size-<span class="p_number">1</span>]:
+                <span class="p_word">return</span> True
+        <span class="p_word">return</span> False
+
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_commentline"># NodeCache</span>
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_word">class</span> NodeCache(object):
+    <span class="p_triple">'''A one-dimensional container that provides host cache for Node objects with two abstractions:
+    sorted for nodes sorted using guid, and recent for recently used nodes.
+    
+    &gt;&gt;&gt; cache = NodeCache(maxsize=4)
+    &gt;&gt;&gt; for port in range(0, cache.maxsize): # until the cache is full
+    ...    cache.add(Node(ip='0.0.0.0', port=port, type=socket.SOCK_DGRAM, guid=H('0.0.0.0:'+str(port))))
+    &gt;&gt;&gt; print cache
+    &lt;NodeCache len=4
+        sorted='[386487918899427893147283785174226450560216948519L, 696085870186638593551070967803585453548489714879L, 852739581864525514108676383126943539373951595004L, 1270878719196245987460471235562079865445211503331L]'
+        recent='[696085870186638593551070967803585453548489714879L, 852739581864525514108676383126943539373951595004L, 1270878719196245987460471235562079865445211503331L, 386487918899427893147283785174226450560216948519L]'&gt;
+    &gt;&gt;&gt; for port in range(cache.maxsize, 2*cache.maxsize): # add additional 4 so that previous ones are replaced
+    ...    cache.add(Node(ip='0.0.0.0', port=port, type=socket.SOCK_DGRAM, guid=H('0.0.0.0:'+str(port))))
+    &gt;&gt;&gt; print cache
+    &lt;NodeCache len=4
+        sorted='[252478387135709829778192334194629447386561244062L, 893097759797013506484723759710183999272836968151L, 910908089409371729128886584183916560096870579416L, 1321123319433667090818861432786256425521662391362L]'
+        recent='[893097759797013506484723759710183999272836968151L, 252478387135709829778192334194629447386561244062L, 910908089409371729128886584183916560096870579416L, 1321123319433667090818861432786256425521662391362L]'&gt;
+    &gt;&gt;&gt; for port in range(cache.maxsize, 2*cache.maxsize): # repeated entries, cache remains the same
+    ...    cache.add(Node(ip='0.0.0.0', port=port, type=socket.SOCK_DGRAM, guid=H('0.0.0.0:'+str(port))))
+    &gt;&gt;&gt; print cache
+    &lt;NodeCache len=4
+        sorted='[252478387135709829778192334194629447386561244062L, 893097759797013506484723759710183999272836968151L, 910908089409371729128886584183916560096870579416L, 1321123319433667090818861432786256425521662391362L]'
+        recent='[893097759797013506484723759710183999272836968151L, 252478387135709829778192334194629447386561244062L, 910908089409371729128886584183916560096870579416L, 1321123319433667090818861432786256425521662391362L]'&gt;
+    '''</span>
+    <span class="p_word">def</span> __init__(self, maxsize=<span class="p_number">20</span>):
+        <span class="p_triple">'''Create a cache with specified maxsize, defaults to 20.'''</span>
+        self.maxsize = maxsize
+        self.sorted = []   <span class="p_commentline"># sorted list of Node</span>
+        self.recent = []   <span class="p_commentline"># recently used list of Node</span>
+        self.dict = dict() <span class="p_commentline"># index from guid to Node</span>
+    
+    <span class="p_word">def</span> __len__(self):
+        <span class="p_triple">'''Length of the node cache.'''</span>
+        <span class="p_word">return</span> len(self.dict)
+    
+    <span class="p_word">def</span> __contains__(self, elem):
+        <span class="p_triple">'''Check whether the cache contains the given elem which can be a Node or a guid.'''</span>
+        <span class="p_word">if</span> isinstance(elem, Node): <span class="p_word">return</span> (elem.guid <span class="p_word">in</span> self.dict)
+        <span class="p_word">else</span>: <span class="p_word">return</span> (elem <span class="p_word">in</span> self.dict)
+    
+    <span class="p_word">def</span> add(self, elem):
+        <span class="p_triple">'''Add to modify the index in sorted and recent.'''</span>
+        <span class="p_word">if</span> self.maxsize&gt;<span class="p_number">0</span>:
+            <span class="p_word">if</span> elem.guid <span class="p_word">in</span> self.dict: <span class="p_commentline"># exists, just update the recent list by moving elem to front.</span>
+                elem0 = self.dict[elem.guid] <span class="p_commentline"># this is the elem present in sorted or recent</span>
+                s, r = self.sorted.index(elem0), self.recent.index(elem0) <span class="p_commentline"># index in sorted and recent lists</span>
+                <span class="p_word">del</span> self.recent[r] <span class="p_commentline"># move it to front of recent</span>
+                self.sorted[s] = elem <span class="p_commentline"># just in case elem0 is different from elem</span>
+            <span class="p_word">else</span>: <span class="p_commentline"># need to add to self set, and sorted and recent lists.</span>
+                <span class="p_word">if</span> len(self.dict) &gt;= self.maxsize: <span class="p_commentline"># need to make room by discarding the least recently recent elem</span>
+                    self.remove(self.recent[-<span class="p_number">1</span>]) <span class="p_commentline"># this will remove from all lists and set</span>
+                s = find(<span class="p_word">lambda</span> x: elem.guid &lt; x.guid, self.sorted) <span class="p_commentline"># insert in sorted list</span>
+                self.sorted.insert(s <span class="p_word">if</span> s&gt;=<span class="p_number">0</span> <span class="p_word">else</span> len(self.sorted), elem)
+        self.dict[elem.guid] = elem          <span class="p_commentline"># just in case, override previous elem0</span>
+        self.recent.insert(<span class="p_number">0</span>, elem)          <span class="p_commentline"># add as most recently used item</span>
+        <span class="p_word">assert</span> len(self.sorted) == len(self.recent) == len(self)
+
+    <span class="p_word">def</span> remove(self, elem):
+        <span class="p_triple">'''Remove method to modify the sorted and recent lists.'''</span>
+        <span class="p_word">if</span> elem.guid <span class="p_word">in</span> self.dict:
+            elem = self.dict[elem.guid] <span class="p_commentline"># this is the object that is present in sorted or recent</span>
+            s, r = self.sorted.index(elem), self.recent.index(elem)
+            <span class="p_word">del</span> self.sorted[s]
+            <span class="p_word">del</span> self.recent[r]
+            <span class="p_word">del</span> self.dict[elem.guid]
+        <span class="p_word">assert</span> len(self.sorted) == len(self.recent) == len(self)
+
+    <span class="p_word">def</span> clear(self):
+        <span class="p_triple">'''Override the base class's clear method to clear the sorted and recent lists.'''</span>
+        self.sorted.clear()
+        self.recent.clear()
+        self.dict.clear()
+    
+    <span class="p_word">def</span> closest(self, guid):
+        <span class="p_triple">'''Return the node that has guid closest to the given guid in this cache, or None if cache is empty.'''</span>
+        <span class="p_word">if</span> len(self)&gt;<span class="p_number">0</span>:
+            <span class="p_word">if</span> guid <span class="p_word">in</span> self.dict: <span class="p_word">return</span> self.sorted[self.dict[guid][<span class="p_number">0</span>]] <span class="p_commentline"># found an exact match, return it</span>
+            first = self.sorted[<span class="p_number">0</span>]
+            last =  self.sorted[-<span class="p_number">1</span>]
+            <span class="p_word">if</span> guid&lt;first.guid <span class="p_word">or</span> guid&gt;last.guid: <span class="p_commentline"># not in range, return either first or last</span>
+                <span class="p_word">return</span> distance(guid, first.guid)&lt;distance(guid, last.guid) <span class="p_word">and</span> first <span class="p_word">or</span> last
+            <span class="p_word">else</span>:
+                <span class="p_word">for</span> a <span class="p_word">in</span> xrange(<span class="p_number">0</span>, len(self.sorted)-<span class="p_number">1</span>):
+                    first, last = self.sorted[a], self.sorted[a+<span class="p_number">1</span>]
+                    <span class="p_word">if</span> first.guid&lt;guid&lt;last.guid: <span class="p_commentline"># found the containing range, return one of the endpoint of the range</span>
+                        <span class="p_word">return</span> distance(guid, first.guid)&lt;distance(guid,last.guid) <span class="p_word">and</span> first <span class="p_word">or</span> last
+        <span class="p_word">return</span> <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> __repr__(self): <span class="p_commentline"># print out a printable representation</span>
+        <span class="p_word">return</span> <span class="p_string">'&lt;NodeCache len=%r\n    sorted=%r\n    recent=%r&gt;'</span>%(len(self), repr(map(<span class="p_word">lambda</span> x: x.guid, self.sorted)), repr(map(<span class="p_word">lambda</span> x: x.guid, self.recent)))
+
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_commentline"># Other data structures for router</span>
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_word">class</span> LatencyTable(dict):
+    <span class="p_triple">'''Hash table from Node to a tuple (latency, last-activity-time). It uses the guid of the node
+    as the index in the table.'''</span>
+    <span class="p_word">def</span> __init__(self):
+        dict.__init__(self)
+    <span class="p_word">def</span> add(self, node, latency, time):
+        self[node] = (latency, time)
+    <span class="p_word">def</span> remove(self, node):
+        <span class="p_word">del</span> self[node]
+    <span class="p_word">def</span> get(self, node):
+        <span class="p_word">return</span> dict.get(self, node, (-<span class="p_number">1.0</span>, <span class="p_number">0.0</span>))
+    <span class="p_word">def</span> isActive(self, node, validity=<span class="p_number">5.0</span>):
+        <span class="p_word">return</span> (self[node][<span class="p_number">1</span>]-time.time()&lt;validity) <span class="p_word">if</span> (node <span class="p_word">in</span> self) <span class="p_word">else</span> False 
+    <span class="p_word">def</span> getLatency(self, node):
+        <span class="p_word">return</span> self[node][<span class="p_number">0</span>] <span class="p_word">if</span> (node <span class="p_word">in</span> self) <span class="p_word">else</span> -<span class="p_number">1.0</span>
+
+<span class="p_word">class</span> DownSet(set):
+    <span class="p_triple">'''Set of down nodes with a cap on maxsize. A special property, random, returns a
+    random element from the set.'''</span>
+    <span class="p_word">def</span> __init__(self, maxsize=<span class="p_number">20</span>):
+        self.maxsize = maxsize
+        set.__init__(self)
+    <span class="p_word">def</span> add(self, item):
+        <span class="p_word">if</span> len(self)&gt;=self.maxsize: self.pop() <span class="p_commentline"># discard an arbitrary element</span>
+        set.add(self, item)
+    <span class="p_word">def</span> remove(self, item):
+        set.discard(self, item) <span class="p_commentline"># always call discard to disable exception if not found</span>
+    @property
+    <span class="p_word">def</span> random(self):
+        <span class="p_word">if</span> len(self) == <span class="p_number">0</span>: <span class="p_word">return</span> <span class="p_word">None</span>
+        index = random.randint(<span class="p_number">0</span>, len(self)-<span class="p_number">1</span>)
+        <span class="p_word">for</span> item <span class="p_word">in</span> self:
+            <span class="p_word">if</span> index == <span class="p_number">0</span>: <span class="p_word">return</span> item
+            index = index - <span class="p_number">1</span>
+        <span class="p_word">return</span> <span class="p_word">None</span>
+
+<span class="p_word">class</span> PossiblyDownSet(set):
+    <span class="p_triple">'''Set of possibly down nodes.'''</span>
+    <span class="p_word">def</span> __init__(self):
+        set.__init__(self)
+    <span class="p_word">def</span> remove(self, item):
+        set.discard(self, item) <span class="p_commentline"># use discard so that it doesn't throw an error</span>
+        
+<span class="p_word">class</span> ReverseRoutingTable(set):
+    <span class="p_triple">'''Set of nodes for which we are in their routing table.'''</span>
+    <span class="p_word">def</span> __init__(self):
+        set.__init__(self)
+    <span class="p_word">def</span> remove(self, item):
+        set.discard(self, item) <span class="p_commentline"># use discard so that it doesn't throw an error</span>
+        
+<span class="p_word">def</span> randomsleep(timeout):
+    <span class="p_triple">'''Sleep for a random amound of seconds in range [0.5*timeout, 1.5*timeout].'''</span>
+    <span class="p_word">yield</span> multitask.sleep((random.random()+<span class="p_number">0.5</span>)+timeout)
+
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_commentline"># The main Router class to control the router logic.</span>
+<span class="p_commentline">#------------------------------------------------------------------------------ </span>
+<span class="p_word">class</span> Router(object):
+    <span class="p_triple">'''The router for a DHT. The application should start a router as follows.
+    Once started it starts listening for specific router related messages and
+    handles them. 
+    
+    router = Router(net).start() # net is a pre-initialized network module
+    
+    Once started it listens for messages such as Route:Message, Neighbor:Indication, etc
+    and handles them.
+    '''</span>
+    count = <span class="p_number">0</span> <span class="p_commentline"># just to name each router with Router[count]</span>
+    
+    <span class="p_word">def</span> __init__(self, net, **kwargs):
+        <span class="p_triple">'''Construct a Router module for the given network net. Optionally, other properties
+        such as rt, rrt, ls, cache, down, pdown, lt and bs can be supplied as keyword arguments.'''</span>
+        Router.count = Router.count + <span class="p_number">1</span>; self.name  = <span class="p_string">'Router[%d]'</span>%(Router.count)
+        self.starttime = time.time() <span class="p_commentline"># start time of the router module</span>
+        self.initialized = False <span class="p_commentline"># updated when router is joined the DHT</span>
+        self.node, self.net = net.node, net
+        self.rt    = kwargs.get(<span class="p_string">'rt'</span>,    RoutingTable(node=self.node)) <span class="p_commentline"># routing table</span>
+        self.rrt   = kwargs.get(<span class="p_string">'rrt'</span>,   ReverseRoutingTable()) <span class="p_commentline"># reverse routing table is actually a set</span>
+        self.ls    = kwargs.get(<span class="p_string">'ls'</span>,    LeafSet(node=self.node)) <span class="p_commentline"># leaf set</span>
+        self.cache = kwargs.get(<span class="p_string">'cache'</span>, NodeCache()) <span class="p_commentline"># node cache</span>
+        self.down  = kwargs.get(<span class="p_string">'down'</span>,  DownSet())  <span class="p_commentline"># set of Node that are down</span>
+        self.pdown = kwargs.get(<span class="p_string">'pdown'</span>, PossiblyDownSet())   <span class="p_commentline"># set of Node that are possibly down</span>
+        self.lt    = kwargs.get(<span class="p_string">'lt'</span>,    LatencyTable())  <span class="p_commentline"># table with index Node and value (latency, last-activity-time)</span>
+        self.bs    = kwargs.get(<span class="p_string">'bs'</span>,    list())  <span class="p_commentline"># list of bootstrap Node objects</span>
+        self._pings  = set() <span class="p_commentline"># nodes that are currently being pinged using Ping:Request or some other.</span>
+        self._queue = multitask.SmartQueue() <span class="p_commentline"># queue for receiving message delivered to this node</span>
+        self._gens = []      <span class="p_commentline"># currently active generators, started on start or later, closed on stop.</span>
+        self._ignore= set()  <span class="p_commentline"># the set that needs to be ignored in nextHop. Use value as self.pdown if needed.</span>
+        
+        <span class="p_commentline"># modify the add/remove of rt, ls, pdown, lt to local methods, which pings before adding or does additional processing.</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> hasattr(self.rt, <span class="p_string">'_origadd'</span>): self.rt._origadd = self.rt.add
+        self.rt.add = self.rtadd <span class="p_commentline">#new.instancemethod(rtadd, self.rt, RoutingTable)</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> hasattr(self.ls, <span class="p_string">'_origadd'</span>): self.ls._origadd = self.ls.add
+        self.ls.add = self.lsadd <span class="p_commentline">#new.instancemethod(lsadd, self.ls, LeafSet)</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> hasattr(self.ls, <span class="p_string">'_origremove'</span>): self.ls._origremove = self.ls.remove
+        self.ls.remove = self.lsremove <span class="p_commentline">#new.instancemethod(lsremove, self.ls, LeafSet)</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> hasattr(self.pdown, <span class="p_string">'_origadd'</span>): self.pdown._origadd = self.pdown.add
+        self.pdown.add = self.pdownadd 
+        <span class="p_word">if</span> <span class="p_word">not</span> hasattr(self.lt, <span class="p_string">'_origadd'</span>): self.lt._origadd = self.lt.add
+        self.lt.add = self.ltadd 
+    
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_word">return</span> <span class="p_string">'&lt;Router node=%r\n  rt=%r\n  ls=%r&gt;'</span>%(self.node, self.rt, self.ls)
+    
+    <span class="p_word">def</span> start(self): <span class="p_commentline"># start the periodic ping and join tasks</span>
+        <span class="p_word">for</span> gen <span class="p_word">in</span> [self.handler(), self.periodicping(), self.periodicjoin()]: 
+            self._gens.append(gen)
+            multitask.add(gen)
+        <span class="p_word">return</span> self
+
+    <span class="p_word">def</span> stop(self):
+        <span class="p_word">for</span> gen <span class="p_word">in</span> self._gens: gen.close()
+        self._gens.clear()
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> initialize(self): <span class="p_commentline"># router has joined the DHT. start other tasks.</span>
+        <span class="p_commentline"># TODO: send pending messages if any.</span>
+        <span class="p_word">for</span> gen <span class="p_word">in</span> [self.updateleafset(), self.partitioncheck(), self.updatetablenear(), self.updatetablefar()]:
+            self._gens.append(gen)
+            multitask.add(gen)
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> handler(self):
+        <span class="p_triple">'''Handle incoming requests for the router.'''</span>
+        supported = [<span class="p_string">'Route:Request'</span>, <span class="p_string">'Neighbor:Indication'</span>, <span class="p_string">'Ping:Request'</span>, <span class="p_string">'RoutingTable:Request'</span>, <span class="p_string">'LeafSet:Request'</span>, <span class="p_string">'Join:Request'</span>, <span class="p_string">'Lookup:Request'</span>, <span class="p_string">'LeafSet:Indication'</span>]
+        <span class="p_word">while</span> True: <span class="p_commentline"># schedule process message, but don't wait to start new before processing previous</span>
+            msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name <span class="p_word">in</span> supported)
+            <span class="p_word">if</span>   msg.name == <span class="p_string">'Route:Request'</span>:       multitask.add(self.routehandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Neighbor:Indication'</span>: multitask.add(self.neighborhandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'RoutingTable:Request'</span>:multitask.add(self.rthandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'LeafSet:Indication'</span>:  multitask.add(self.leafsethandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Join:Request'</span>:        multitask.add(self.joinhandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Lookup:Request'</span>:      multitask.add(self.lookuphandler(msg))
+            <span class="p_word">elif</span> msg.name != <span class="p_string">'Ping:Request'</span> <span class="p_word">and</span> _debug: <span class="p_word">print</span> <span class="p_string">'invalid message name'</span>, msg.name
+    
+    <span class="p_word">def</span> ping(self, node, second=False, timeout=<span class="p_number">5</span>):
+        <span class="p_triple">'''Send a Ping:Request to the given node, and wait for response. '''</span>
+        msg = Message(name=<span class="p_string">'Ping:Request'</span>)
+        <span class="p_word">yield</span> self.send(msg, node=node, timeout=timeout)
+    
+    <span class="p_word">def</span> send(self, msg, node, timeout=<span class="p_word">None</span>, ping=False):
+        <span class="p_triple">'''Send a message to node, and also handle the success or failure response.'''</span>
+        pinging = (node <span class="p_word">in</span> self._pings) <span class="p_commentline"># alreadying pinging this</span>
+        <span class="p_word">if</span> pinging <span class="p_word">and</span> msg.name == <span class="p_string">'Ping:Request'</span>: 
+            <span class="p_word">return</span> <span class="p_commentline"># no need to send another ping if one is in flight</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> pinging <span class="p_word">and</span> (timeout <span class="p_word">or</span> ping): 
+            self._pings.add(node) <span class="p_commentline"># start pinging</span>
+            pinging = True
+            timeout = timeout <span class="p_word">or</span> <span class="p_number">5.0</span> <span class="p_commentline"># default 5 seconds</span>
+        result = <span class="p_word">yield</span> self.net.send(msg, node=node, timeout=timeout)
+        <span class="p_word">if</span> pinging: <span class="p_commentline"># process the response only when timeout is specified.</span>
+            self._pings.discard(node) <span class="p_commentline"># remove from pinging</span>
+            <span class="p_word">if</span> result:
+                self.pdown.remove(node)
+                self.down.remove(node)
+                self.lt.add(node) <span class="p_commentline"># check if we can add it to our data structures</span>
+            <span class="p_word">elif</span> <span class="p_word">not</span> msg.second: <span class="p_commentline"># failed to send first ping</span>
+                self.cache.remove(node)
+                self.lt.remove(node)
+                multitask.add(self.pdown.add(node)) <span class="p_commentline"># in background perform second ping, and on confirmation remove the node.</span>
+    
+    <span class="p_word">def</span> periodicping(self, timeout=<span class="p_number">180</span>):
+        <span class="p_triple">'''Periodically ping with a random element from routing table, reverse routing table or leaf set.
+        The validity argument represents the interval in seconds, if a node is already pinged within that 
+        time, it is not pinged again.'''</span>
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            now = time.time()
+            all = self.rt.list + list(self.rrt) + self.ls.list
+            all = set(filter(<span class="p_word">lambda</span> x: x <span class="p_word">not</span> <span class="p_word">in</span> self._pings <span class="p_word">and</span> x <span class="p_word">not</span> <span class="p_word">in</span> self.pdown, all)) <span class="p_commentline"># remove those that are down or we recently pinged</span>
+            msg = Message(name=<span class="p_string">'Ping:Request'</span>)
+            <span class="p_word">for</span> node <span class="p_word">in</span> all:
+                <span class="p_word">yield</span> self.send(msg, node=node, timeout=<span class="p_number">5</span>)
+    
+    <span class="p_word">def</span> rtadd(self, node, *args, **kwargs):
+        rt = self.rt
+        <span class="p_word">if</span> node <span class="p_word">not</span> <span class="p_word">in</span> rt:
+            <span class="p_word">if</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.lt: <span class="p_commentline"># no information about the node, ping it.</span>
+                multitask.add(self.ping(node))
+                node = <span class="p_word">None</span>
+            <span class="p_word">else</span>:
+                result = rt._origadd(node, *args, **kwargs)
+                <span class="p_word">if</span> result: 
+                    <span class="p_word">if</span> self.node != result: multitask.add(self.net.send(Message(name=<span class="p_string">'Neighbor:Indication'</span>, node=self.node, add=False), node=result))
+                    multitask.add(self.net.send(Message(name=<span class="p_string">'Neighbor:Indication'</span>, node=self.node, add=True), node=node))
+                node = result
+        <span class="p_word">return</span> node
+        
+    <span class="p_word">def</span> lsadd(self, node): 
+        <span class="p_word">if</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.ls:
+            <span class="p_word">if</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.lt:
+                multitask.add(self.ping(node))
+                node = <span class="p_word">None</span>
+            <span class="p_word">else</span>:
+                node = self.ls._origadd(node)
+        <span class="p_word">return</span> node
+        
+    <span class="p_word">def</span> lsremove(self, node):
+        result = self.ls._origremove(node)
+        <span class="p_word">if</span> result != <span class="p_string">'none'</span>:
+            <span class="p_word">if</span> len(self.ls) == <span class="p_number">0</span>:
+                rt = self.rt
+                <span class="p_word">for</span> row <span class="p_word">in</span> xrange(rt.rows):
+                    <span class="p_word">for</span> col <span class="p_word">in</span> xrange(rt.columns):
+                        <span class="p_word">if</span> rt[row][col] <span class="p_word">and</span> rt.node != rt[row][col].node <span class="p_word">and</span> node != rt[row][col]:
+                            self.ls._origadd(rt[row][col].node) 
+            <span class="p_commentline"># TODO: how do we inform listeners (storage) that leaf set is changed?</span>
+        <span class="p_word">return</span> result
+    
+    <span class="p_word">def</span> pdownadd(self, node):
+        <span class="p_triple">'''Add to the possibly down nodes set.'''</span>
+        <span class="p_word">if</span> (node <span class="p_word">not</span> <span class="p_word">in</span> self.pdown) <span class="p_word">and</span> ((node <span class="p_word">in</span> self.rt) <span class="p_word">or</span> (node <span class="p_word">in</span> self.ls) <span class="p_word">or</span> (node <span class="p_word">in</span> self.rrt)): <span class="p_commentline"># otherwise we don't care</span>
+            self.pdown._origadd(node)
+            msg = Message(name=<span class="p_string">'Ping:Request'</span>, second=True)
+            result = <span class="p_word">yield</span> self.net.send(msg, timeout=<span class="p_number">60</span>, node=node)
+            <span class="p_word">if</span> <span class="p_word">not</span> result: <span class="p_commentline"># node is down, remove from data structures</span>
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'node is down'</span>, node
+                self.down.add(node)
+                <span class="p_word">for</span> ds <span class="p_word">in</span> [self.lt, self.ls, self.rt, self.rrt]:
+                    ds.remove(node)
+            <span class="p_word">else</span>: <span class="p_commentline"># surprisingly, the retry worked.</span>
+                self.pdown.remove(node)
+                self.down.remove(node)
+                self.lt.add(node)
+            <span class="p_word">raise</span> StopIteration(<span class="p_word">not</span> result <span class="p_word">and</span> node <span class="p_word">or</span> <span class="p_word">None</span>)
+        <span class="p_word">raise</span> StopIteration(<span class="p_word">None</span>)
+
+    <span class="p_word">def</span> ltadd(self, node, latency=<span class="p_number">0.0</span>):
+        <span class="p_triple">'''Add to latency map, and also to other data structures if needed.'''</span>
+        self.lt._origadd(node, latency, time.time())
+        self.rt.add(node)
+        self.ls.add(node)
+        self.cache.add(node)
+        <span class="p_word">if</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.ls <span class="p_word">and</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.rt <span class="p_word">and</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.rrt:
+            self.lt.remove(node)
+        
+    <span class="p_word">def</span> join(self, bs, cached=True, timeout=<span class="p_number">30</span>):
+        <span class="p_triple">'''Send a Join:Request to remote bootstrap (ns) node, and wait for response. The response is True
+        for success and False or error or timeout. Internal data structures are updated on response'''</span>
+        <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Join:Request'</span>, returnaddr=self.node, path=[]), node=bs)
+        msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name == <span class="p_string">'Join:Response'</span>, timeout=timeout)
+        <span class="p_word">if</span> msg <span class="p_word">and</span> len(msg.path)&gt;<span class="p_number">0</span>:
+            root = msg.path[-<span class="p_number">1</span>] <span class="p_commentline"># last node in the path is the root for this node's guid</span>
+            self.cache.add(root) 
+            <span class="p_word">for</span> node <span class="p_word">in</span> [root]+msg.leafset:
+                <span class="p_word">if</span> node != self.node: 
+                    self.ls.add(node) <span class="p_commentline"># update our leafset</span>
+                    <span class="p_word">if</span> <span class="p_word">not</span> self.initialized: self.rt.add(node) <span class="p_commentline"># and routing table</span>
+            <span class="p_word">if</span> <span class="p_word">not</span> self.initialized:
+                <span class="p_word">for</span> node <span class="p_word">in</span> msg.path: <span class="p_commentline"># add all elements in path in routing table if needed</span>
+                    <span class="p_word">if</span> node != self.node: self.rt.add(node)
+            <span class="p_word">if</span> <span class="p_word">not</span> self.initialized: 
+                self.initialized = True <span class="p_commentline"># router is now initialized</span>
+                self.initialize()
+        <span class="p_word">raise</span> StopIteration(msg <span class="p_word">and</span> True <span class="p_word">or</span> False)
+    
+    <span class="p_word">def</span> joinhandler(self, msg):
+        <span class="p_triple">'''Process a Join:Request msg, and either send a Join:Response, or further propagate the request.
+        It updates local datastructures (rt and ls).'''</span>
+        <span class="p_word">if</span> findNode(self.node.guid, msg.path)&gt;=<span class="p_number">0</span>: <span class="p_word">return</span>  <span class="p_commentline"># check if we have a routing loop, then don't process.</span>
+        next = self.nextHop(msg.returnaddr.guid, useCache=False) <span class="p_commentline"># find next hop for source node; don't use node cache.</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> next <span class="p_word">or</span> next == self.node <span class="p_word">or</span> next == msg.returnaddr: <span class="p_commentline"># invalid next or matches local; send response.</span>
+            old = list(self.ls.set)                <span class="p_commentline"># old set before updating it</span>
+            self.rt.add(msg.returnaddr)
+            self.ls.add(msg.returnaddr)  <span class="p_commentline"># update local datastructures</span>
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Join:Response'</span>, path=msg.path+[self.node], leafset=old), node=msg.returnaddr)
+        <span class="p_word">else</span>:
+            <span class="p_word">del</span> msg[<span class="p_string">'remote'</span>]
+            msg.path.append(self.node); msg[<span class="p_string">'inbound'</span>] = False <span class="p_commentline"># add this node in the path</span>
+            result = <span class="p_word">yield</span> self.net.send(msg, node=next, timeout=<span class="p_number">5</span>)<span class="p_commentline"># and proxy the message to next hop</span>
+            <span class="p_word">if</span> result: self.down.remove(next)  <span class="p_commentline"># request was sent successfully, remove next from down nodes.</span>
+    
+    <span class="p_word">def</span> partitioncheck(self, timeout=<span class="p_number">600</span>, jointimeout=<span class="p_number">10</span>):
+        <span class="p_triple">'''Periodically check for partition. This must be invoked only after join() is successful.
+        It periodically pings the down (list) nodes, and updates our ls and cache if they respond. 
+        The jointimeout is used to wait for join response, and timeout is randomized for periodicity.'''</span>
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            <span class="p_word">if</span> len(self.down)&gt;<span class="p_number">0</span>:
+                node = self.down.random()
+                result = <span class="p_word">yield</span> self.join(bs=node, timeout=jointimeout)
+                <span class="p_word">if</span> result: self.down.remove(node)
+        
+    <span class="p_word">def</span> periodicjoin(self):
+        <span class="p_triple">'''Periodically join using one of the bootstrap nodes.'''</span>
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(<span class="p_number">120</span>)
+            <span class="p_word">if</span> len(self.bs)&gt;<span class="p_number">0</span> <span class="p_word">and</span> <span class="p_word">not</span> self.initialized:
+                node = random.choice(self.bs)
+                <span class="p_word">if</span> node:
+                    self.bs.remove(node)
+                    self.bs.append(node)
+                    result = <span class="p_word">yield</span> self.join(node)
+                    <span class="p_word">if</span> <span class="p_word">not</span> result:
+                        self.bs.remove(node)
+                        <span class="p_word">if</span> len(self.bs)==<span class="p_number">0</span>: self.initialized = False <span class="p_commentline"># no more connected to bootstrap</span>
+        
+    <span class="p_word">def</span> nextHop(self, guid, useCache=False):
+        <span class="p_triple">'''Return the next hop Node based on routing-table, leaf-set and optionally cache.'''</span>
+        <span class="p_word">if</span> guid <span class="p_word">in</span> self.ls: <span class="p_commentline"># guid is in leaf-set range, find the closest node in leaf set</span>
+            <span class="p_word">return</span> self.ls.closest(guid, self._ignore)
+        <span class="p_word">else</span>:
+            node = self.rt.nextHop(guid, self._ignore)
+            <span class="p_word">if</span> <span class="p_word">not</span> node: node = self.ls.closest(guid, self._ignore)
+            cached = useCache <span class="p_word">and</span> self.cache.closest(guid) <span class="p_word">or</span> <span class="p_word">None</span>
+            <span class="p_word">if</span> cached <span class="p_word">and</span> distance(cached.guid, guid)&lt;distance(node.guid, guid): node = cached
+            <span class="p_word">return</span> node
+    
+    <span class="p_word">def</span> route(self, guid, payload):
+        <span class="p_triple">'''Route the given msg to the destination guid using the underlying network net, based on
+        the nextHop result for guid. If the next hop if local node, just delivers it to the queue of net.'''</span>
+        next = self.nextHop(guid, useCache=True)
+        <span class="p_word">if</span> <span class="p_word">not</span> next <span class="p_word">or</span> next == self.node: <span class="p_commentline"># deliver to this node</span>
+            <span class="p_word">yield</span> self.net.put(payload)
+            result = True
+        <span class="p_word">else</span>: <span class="p_commentline"># proxy recursively to next hop</span>
+            msg = Message(name=<span class="p_string">'Route:Request'</span>, src=self.node.guid, dest=guid, payload=payload)
+            result = <span class="p_word">yield</span> self.send(msg, node=next, timeout=<span class="p_number">5</span>)
+        <span class="p_word">raise</span> StopIteration(result)
+    
+    <span class="p_word">def</span> routehandler(self, msg):
+        <span class="p_triple">'''Handle an incoming Route:Request.'''</span>
+        <span class="p_word">if</span> msg.remote: self.cache.add(msg.remote)
+        next = self.nextHop(guid=msg.dest, useCache=True)
+        <span class="p_word">if</span> <span class="p_word">not</span> next <span class="p_word">or</span> next == self.node:
+            <span class="p_word">yield</span> self.net.put(msg.payload)
+        <span class="p_word">else</span>:
+            <span class="p_word">del</span> msg[<span class="p_string">'remote'</span>] <span class="p_commentline"># remove additional parameter that was added by network</span>
+            <span class="p_word">yield</span> self.send(msg, node=next, timeout=<span class="p_number">5</span>)
+        
+    <span class="p_word">def</span> neighborhandler(self, msg):
+        <span class="p_triple">'''Handle a Neighbor:Indication message by updating our reverse routing table.'''</span>
+        <span class="p_word">if</span> msg.add == True: self.rrt.add(msg.remote)
+        <span class="p_word">else</span>: self.rrt.remove(msg.remote)
+        <span class="p_word">yield</span> 
+    
+    <span class="p_word">def</span> leafsethandler(self, msg):
+        <span class="p_triple">'''Respond to an incoming LeafSet:Indication by optionally sending a LeafSet:Indication, 
+        and performing any leaf set updates.'''</span>
+        self.cache.add(msg.remote)
+        <span class="p_word">for</span> node <span class="p_word">in</span> msg.leafset:
+            <span class="p_word">if</span> self.ls.promising(node): 
+                self.ls.add(node) <span class="p_commentline"># add to ls in background</span>
+        <span class="p_word">if</span> self.ls.promising(msg.remote):
+            self.ls.add(msg.remote) <span class="p_commentline"># add in background</span>
+        <span class="p_word">if</span> msg.wantreply <span class="p_word">and</span> msg.remote != self.node:
+            <span class="p_word">yield</span> self.send(Message(name=<span class="p_string">'LeafSet:Indication'</span>, node=self.node, leafset=list(self.ls.set)), node=msg.remote, timeout=<span class="p_number">5</span>, ping=True)
+        <span class="p_word">yield</span>
+
+    <span class="p_word">def</span> updateleafset(self, timeout=<span class="p_number">40</span>):
+        <span class="p_triple">'''Periodically update the leaf set.'''</span>
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            node = self.ls.random
+            <span class="p_word">if</span> node <span class="p_word">and</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.pdown:
+                <span class="p_word">yield</span> self.send(Message(name=<span class="p_string">'LeafSet:Indication'</span>, node=self.node, leafset=list(self.ls.set), wantreply=True), node=node, timeout=<span class="p_number">5</span>, ping=True)
+        
+    <span class="p_word">def</span> rthandler(self, msg):
+        <span class="p_triple">'''Handle an incoming RoutingTable:Request message.'''</span>
+        <span class="p_word">if</span> msg.level &gt;= self.rt.rows: <span class="p_word">return</span> <span class="p_commentline"># level was too high </span>
+        node, rt = msg.remote, self.rt
+        self.cache.add(node)
+        nodes = []
+        <span class="p_word">for</span> col <span class="p_word">in</span> xrange(<span class="p_number">0</span>, rt.columns):
+            <span class="p_word">if</span> rt[msg.level][col] <span class="p_word">and</span> self.node != rt[msg.level][col].node:
+                nodes.append(rt[msg.level][col].node)
+        msg = Message(name=<span class="p_string">'RoutingTable:Response'</span>, node=self.node, neighbors=nodes)
+        <span class="p_word">if</span> node <span class="p_word">in</span> self.ls <span class="p_word">or</span> node <span class="p_word">in</span> self.rt <span class="p_word">or</span> node <span class="p_word">in</span> self.rrt:
+            <span class="p_word">yield</span> self.send(msg, node=node, timeout=<span class="p_number">5</span>)
+        <span class="p_word">else</span>:
+            <span class="p_word">yield</span> self.send(msg, node=node) <span class="p_commentline"># no need to wait for ack</span>
+        
+    <span class="p_word">def</span> updatetablenear(self, timeout=<span class="p_number">100</span>):
+        <span class="p_triple">'''Periodically update near routing table.'''</span>
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            node = self.rt.weightedRandomNode
+            <span class="p_word">if</span> len(self.rt)&gt;<span class="p_number">0</span> <span class="p_word">and</span> node <span class="p_word">and</span> node <span class="p_word">not</span> <span class="p_word">in</span> self.pdown:
+                <span class="p_word">yield</span> self.send(Message(name=<span class="p_string">'RoutingTable:Request'</span>, level=self.rt.weightedRandomLevel), node=node, timeout=<span class="p_number">5</span>, ping=True)
+                msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'RoutingTable:Response'</span>, timeout=<span class="p_number">5</span>)
+                <span class="p_word">if</span> msg:
+                    self.cache.add(node)
+                    nodes = filter(<span class="p_word">lambda</span> x: x.guid &lt; Hmod <span class="p_word">and</span> x != self.node <span class="p_word">and</span> x <span class="p_word">not</span> <span class="p_word">in</span> self.ls <span class="p_word">and</span> x <span class="p_word">not</span> <span class="p_word">in</span> self.rt, msg.neighbors)
+                    <span class="p_word">if</span> nodes: 
+                        notadded = []
+                        <span class="p_word">for</span> x <span class="p_word">in</span> nodes:
+                            <span class="p_word">if</span> self.rt.fillsHole(x):
+                                self.rt.add(x)
+                            <span class="p_word">else</span>:
+                                notadded.append(x)
+                        <span class="p_word">if</span> notadded:
+                            x = random.choice(notadded)
+                            self.rt.add(x)
+                            <span class="p_word">if</span> node != x: <span class="p_commentline"># do a ping to random entry so that we may discover a better node</span>
+                                <span class="p_word">yield</span> self.send(Message(name=<span class="p_string">'Ping:Request'</span>), node=x, timeout=<span class="p_number">5</span>)
+        
+    <span class="p_word">def</span> lookuphandler(self, msg):
+        <span class="p_triple">'''Handle an incoming lookup message.'''</span>
+        node = msg.returnaddr
+        self.cache.add(node)
+        <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Lookup:Response'</span>, guid=msg.guid, node=self.node), node=node)
+        
+    <span class="p_word">def</span> updatetablefar(self, timeout=<span class="p_number">200</span>):
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            guid = self.rt.weightedRandomKey
+            <span class="p_word">if</span> guid:
+                <span class="p_word">yield</span> self.route(guid=guid, payload=Message(name=<span class="p_string">'Lookup:Request'</span>, guid=guid, returnaddr=self.node))
+                msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Lookup:Response'</span>, timeout=<span class="p_number">5</span>)
+                <span class="p_word">if</span> msg: 
+                    self.cache.add(msg.node)
+                    <span class="p_word">yield</span> self.rt.add(msg.node)
+    
+<span class="p_word">def</span> testRouter():
+    multitask.completed = False
+    <span class="p_word">def</span> jointest():
+        <span class="p_word">try</span>:
+            n = [Network().start() <span class="p_word">for</span> x <span class="p_word">in</span> xrange(<span class="p_number">0</span>, <span class="p_number">10</span>)]
+            r = [Router(x).start() <span class="p_word">for</span> x <span class="p_word">in</span> n] 
+            <span class="p_word">for</span> ri <span class="p_word">in</span> r[<span class="p_number">1</span>:]:
+                ri.bs = [n[<span class="p_number">0</span>].node]
+                <span class="p_word">yield</span> ri.join(bs=n[<span class="p_number">0</span>].node)
+                <span class="p_word">yield</span> multitask.sleep(<span class="p_number">5</span>)
+        <span class="p_word">except</span>:
+            <span class="p_word">print</span> <span class="p_string">'testRouter.jointest() didnot pass'</span>
+            traceback.print_exc()
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">600</span>) <span class="p_commentline"># check if all updates go fine?</span>
+        multitask.completed = True
+        
+    multitask.add(jointest())
+    <span class="p_word">while</span> <span class="p_word">not</span> multitask.completed: 
+        multitask.get_default_task_manager().run_next()
+
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># The Storage logic for in-memory database. It uses a simple data synchronization</span>
+<span class="p_commentline"># algorithm for replication. </span>
+<span class="p_commentline">#===============================================================================</span>
+
+<span class="p_word">class</span> Key(object):
+    <span class="p_word">def</span> __init__(self, **kwargs):
+        _fmt = <span class="p_string">'!LLLLB%ds%ds%ds%ds'</span>%(Hsize, Hsize, Hsize, Hsize)
+        _fmtindex = <span class="p_string">'!%ds%ds%ds%ds'</span>%(Hsize, Hsize, Hsize, Hsize) 
+        <span class="p_word">if</span> <span class="p_string">'value'</span> <span class="p_word">in</span> kwargs: <span class="p_commentline"># need to parse</span>
+            self.str = kwargs.get(<span class="p_string">'value'</span>)
+            t1, t2, e1, e2, put, guid, hash, nonce, owner = struct.unpack(_fmt, self.str)
+            self.time, self.expires = long(t1*(<span class="p_number">2</span>**<span class="p_number">32</span>)+t2), long(e1*(<span class="p_number">2</span>**<span class="p_number">32</span>)+e2)
+            self.put = (put != <span class="p_number">0</span>)
+            self.guid, self.hash, self.nonce, self.owner = bin2int(guid), bin2int(hash), bin2int(nonce), bin2int(owner)
+        <span class="p_word">else</span>: <span class="p_commentline"># need to construct from individual fields</span>
+            <span class="p_word">for</span> n <span class="p_word">in</span> (<span class="p_string">'time'</span>, <span class="p_string">'expires'</span>, <span class="p_string">'put'</span>, <span class="p_string">'guid'</span>, <span class="p_string">'hash'</span>, <span class="p_string">'nonce'</span>, <span class="p_string">'owner'</span>, <span class="p_string">'client'</span>):
+                <span class="p_word">exec</span> <span class="p_string">'self.%s = kwargs.get("%s", None)'</span>%(n,n)
+            self.time = long(self.time); self.expires = long(self.expires)
+            t1, t2, e1, e2 = int(self.time/(<span class="p_number">2</span>**<span class="p_number">32</span>)), int(self.time%(<span class="p_number">2</span>**<span class="p_number">32</span>)), int(self.expires/(<span class="p_number">2</span>**<span class="p_number">32</span>)), int(self.expires%(<span class="p_number">2</span>**<span class="p_number">32</span>))
+            put = (self.put <span class="p_word">and</span> <span class="p_number">1</span> <span class="p_word">or</span> <span class="p_number">0</span>)
+            guid, hash, nonce, owner = int2bin(self.guid), int2bin(self.hash), int2bin(self.nonce), int2bin(self.owner)
+            self.str = struct.pack(_fmt, t1, t2, e1, e2, put, guid, hash, nonce, owner)
+            <span class="p_word">if</span> len(self.str) != <span class="p_number">97</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid length of the key %d'</span>%(len(self.str))
+        self.index = struct.pack(_fmtindex, int2bin(self.guid), int2bin(self.hash), int2bin(self.nonce), int2bin(self.owner))
+    <span class="p_word">def</span> __repr__(self): 
+        <span class="p_word">return</span> <span class="p_string">'&lt;Key time=%r expires=%r put=%r guid=%r hash=%r nonce=%r owner=%r&gt;'</span>%(self.time, self.expires, self.put, self.guid, self.hash, self.nonce, self.owner)
+    <span class="p_word">def</span> __str__(self): <span class="p_word">return</span> self.str
+    <span class="p_word">def</span> __cmp__(self, other): <span class="p_word">return</span> <span class="p_number">0</span> <span class="p_word">if</span> id(self) == id(other) <span class="p_word">else</span> cmp(self.str, other.str)
+    <span class="p_word">def</span> __hash__(self): <span class="p_word">return</span> self.str.__hash__()
+     
+<span class="p_word">class</span> Value(object):
+    <span class="p_word">def</span> __init__(self, **kwargs):
+        <span class="p_word">if</span> <span class="p_string">'raw'</span> <span class="p_word">in</span> kwargs:
+            raw = kwargs.get(<span class="p_string">'raw'</span>)
+            l, = struct.unpack(<span class="p_string">'!H'</span>, raw[:<span class="p_number">2</span>]); self.value, raw = raw[<span class="p_number">2</span>:<span class="p_number">2</span>+l], raw[<span class="p_number">2</span>+<span class="p_number">1</span>:]
+            l, = struct.unpack(<span class="p_string">'!H'</span>, raw[:<span class="p_number">2</span>]); self.hash, raw = bin2int(raw[<span class="p_number">2</span>:<span class="p_number">2</span>+l]), raw[<span class="p_number">2</span>+<span class="p_number">1</span>:]
+            l, = struct.unpack(<span class="p_string">'!H'</span>, raw[:<span class="p_number">2</span>]); self.Kp, raw = PublicKey(value=raw[<span class="p_number">2</span>:<span class="p_number">2</span>+l]), raw[<span class="p_number">2</span>+<span class="p_number">1</span>:]
+            l, = struct.unpack(<span class="p_string">'!H'</span>, raw[:<span class="p_number">2</span>]); self.sigma, raw = raw[<span class="p_number">2</span>:<span class="p_number">2</span>+l], raw[<span class="p_number">2</span>+<span class="p_number">1</span>:]
+        <span class="p_word">else</span>:
+            <span class="p_word">for</span> n <span class="p_word">in</span> (<span class="p_string">'value'</span>, <span class="p_string">'hash'</span>, <span class="p_string">'Kp'</span>, <span class="p_string">'sigma'</span>):
+                <span class="p_word">exec</span> <span class="p_string">'self.%s = kwargs.get("%s", None)'</span>%(n,n)
+    <span class="p_word">def</span> __repr__(self): <span class="p_word">return</span> <span class="p_string">'&lt;value value-len=%d hash=%r Kp=%r sigma=%r, value=%r&gt;'</span>%(len(self.value), self.hash, self.Kp, self.sigma, self.value)
+    <span class="p_word">def</span> __str__(self):
+        value, hash, Kp, sigma = str(self.value), int2bin(self.hash), str(self.Kp), str(self.sigma)
+        <span class="p_word">return</span> struct.pack(<span class="p_string">'!H'</span>, len(value)) + value + struct.pack(<span class="p_string">'!H'</span>, len(hash)) + hash + struct.pack(<span class="p_string">'!H'</span>, len(Kp)) + Kp + struct.pack(<span class="p_string">'!H'</span>, len(sigma)) + sigma 
+
+<span class="p_commentline"># TODO: see TODO.txt on why I didn't use sqlite3 for now.</span>
+<span class="p_word">class</span> Database(object):
+    <span class="p_triple">'''A database abstraction using python sqlite3.'''</span>
+    <span class="p_word">def</span> __init__(self):
+        self._data, self._guid, self._uniq = dict(), dict(), dict()
+    <span class="p_word">def</span> __del__(self):
+        <span class="p_word">del</span> self._data, self._guid, self._uniq
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_word">return</span> <span class="p_string">'&lt;Database count=%d&gt;'</span>%(len(self._data))
+    
+    <span class="p_word">def</span> clear(self):
+        self._data.clear(); self._guid.clear(); self._uniq.clear()
+        
+    <span class="p_word">def</span> put(self, key, value):
+        <span class="p_triple">'''Put a key, value pair.'''</span>
+        <span class="p_word">if</span> key <span class="p_word">in</span> self._data: <span class="p_word">return</span> (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>) <span class="p_commentline"># successful</span>
+        self._cleanup(key.guid)
+        toput, result = self._remove(key, value)
+        <span class="p_word">if</span> toput: 
+            self._data[key] = value
+            self._put(key, value)
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'db.put(key=%r,value=%r) returns %r'</span>%(key, value, result)
+        <span class="p_word">return</span> result
+
+    <span class="p_word">def</span> _cleanup(self, guid):
+        <span class="p_word">if</span> guid <span class="p_word">not</span> <span class="p_word">in</span> self._guid: <span class="p_word">return</span>
+        now, o, oc = time.time(), self._guid[guid], <span class="p_number">0</span>
+        <span class="p_word">for</span> oi <span class="p_word">in</span> o.keys():
+            v, vc = o[oi], <span class="p_number">0</span>
+            <span class="p_word">for</span> vi <span class="p_word">in</span> v.keys():
+                i = v.get(vi, <span class="p_word">None</span>)
+                d = self._data[i] <span class="p_word">if</span> (i <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> i <span class="p_word">in</span> self._data) <span class="p_word">else</span> <span class="p_word">None</span>
+                <span class="p_word">if</span> d <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> i.expires&lt;now:
+                    <span class="p_word">del</span> self._data[i]
+                    <span class="p_word">del</span> v[vi]
+                <span class="p_word">else</span>: vc = vc + <span class="p_number">1</span>
+            <span class="p_word">if</span> vc == <span class="p_number">0</span>: <span class="p_word">del</span> o[oi]
+            <span class="p_word">else</span>: oc = oc + <span class="p_number">1</span>
+        <span class="p_word">if</span> oc == <span class="p_number">0</span>: <span class="p_word">del</span> self._guid[guid]
+       
+    <span class="p_word">def</span> _remove(self, key, value):
+        <span class="p_word">if</span> key.index <span class="p_word">not</span> <span class="p_word">in</span> self._uniq: <span class="p_word">return</span> (True, (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>))
+        i = self._uniq[key.index]
+        v = self._data[i]
+        <span class="p_word">if</span> v <span class="p_word">is</span> <span class="p_word">None</span>: <span class="p_word">del</span> self._uniq[key.index]; <span class="p_word">return</span> (True, (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>))
+        oldkey, oldvalue = i, v
+        toput = True
+        toremove = <span class="p_word">not</span> True
+        <span class="p_word">if</span> key == oldkey: toput = False; result=(<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>)
+        <span class="p_word">else</span>:
+            <span class="p_word">if</span> key.put <span class="p_word">and</span> oldkey.put: 
+                <span class="p_word">if</span> key.expires &lt;= oldkey.expires: toput = False; result = (key, value, <span class="p_word">None</span>, <span class="p_word">None</span>)
+                <span class="p_word">else</span>: toremove = True; result = (oldkey, oldvalue, <span class="p_word">None</span>, <span class="p_word">None</span>)
+            <span class="p_word">elif</span> <span class="p_word">not</span> key.put <span class="p_word">and</span> <span class="p_word">not</span> oldkey.put:
+                <span class="p_word">if</span> key.expires &lt;= oldkey.expires: toput = False, result = (<span class="p_word">None</span>, <span class="p_word">None</span>, key, value)
+                <span class="p_word">else</span>: toremove = True; result = (<span class="p_word">None</span>, <span class="p_word">None</span>, oldkey, oldvalue)
+            <span class="p_word">elif</span> key.put <span class="p_word">and</span> <span class="p_word">not</span> oldkey.put: toput = False, result = (key, value, <span class="p_word">None</span>, <span class="p_word">None</span>)
+            <span class="p_word">elif</span> <span class="p_word">not</span> key.put <span class="p_word">and</span> oldkey.put: toremove = True;  result = (oldkey, oldvalue, <span class="p_word">None</span>, <span class="p_word">None</span>)
+        <span class="p_word">if</span> toremove:
+            <span class="p_word">del</span> self._data[i]
+            <span class="p_word">del</span> self._uniq[key.index]
+        <span class="p_word">return</span> (toput, result)
+    
+    <span class="p_word">def</span> _put(self, key, value):
+        self._uniq[key.index] = key
+        <span class="p_word">if</span> key.guid <span class="p_word">in</span> self._guid: o = self._guid[key.guid]
+        <span class="p_word">else</span>: o = self._guid[key.guid] = dict()
+        owner = key.owner <span class="p_word">or</span> randomNonce()
+        <span class="p_word">if</span> owner <span class="p_word">in</span> o: v = o[owner]
+        <span class="p_word">else</span>: v = o[owner] = dict()
+        i = int2bin(key.hash) + int2bin(key.nonce)
+        <span class="p_word">if</span> i <span class="p_word">in</span> v <span class="p_word">and</span> v[i] != key <span class="p_word">and</span> v[i] <span class="p_word">in</span> self._data: <span class="p_word">del</span> self._data[v[i]]
+        v[i] = key
+
+    <span class="p_word">def</span> get(self, guid, owner=<span class="p_word">None</span>, maxvalues=<span class="p_number">32</span>):
+        <span class="p_triple">'''Get all the values for the guid, optionally for the given owner, with a cap of maxvalues.'''</span>
+        self._cleanup(guid)
+        result = []
+        <span class="p_word">if</span> guid <span class="p_word">not</span> <span class="p_word">in</span> self._guid: <span class="p_word">return</span> result
+        o = self._guid[guid]
+        <span class="p_word">if</span> owner <span class="p_word">is</span> <span class="p_word">None</span>: v = set(sum(map(<span class="p_word">lambda</span> x: x.values(), o.values()), []))
+        <span class="p_word">else</span>: v = set(sum(o[owner].values(), [])) <span class="p_word">if</span> owner <span class="p_word">in</span> o <span class="p_word">else</span> set()
+        result = map(<span class="p_word">lambda</span> y: self._data[y], filter(<span class="p_word">lambda</span> x: x <span class="p_word">in</span> self._data, v))
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'db.get(guid=%r,owner=%r,maxvalues=%r) returns %r'</span>%(guid, owner, maxvalues, result)
+        <span class="p_word">return</span> result
+    
+    <span class="p_word">def</span> getkeys(self, low, high):
+        <span class="p_triple">'''Get all the keys in the range [low, high).'''</span>
+        <span class="p_word">if</span> low&lt;=high: guids = sorted(filter(<span class="p_word">lambda</span> x: low&lt;=x&lt;=high, self._guid.keys()))
+        <span class="p_word">else</span>: guids = sorted(filter(<span class="p_word">lambda</span> x: x&gt;=low, self._guid.keys())) + sorted(filter(<span class="p_word">lambda</span> x: x&lt;=high, self._guid.keys()))
+        now = time.time()
+        <span class="p_word">return</span> filter(<span class="p_word">lambda</span> y: y.expires&gt;=now, sum(map(<span class="p_word">lambda</span> z: sum(map(<span class="p_word">lambda</span> w: w.values(), self._guid[z].values()), []), guids), []))
+        
+    <span class="p_word">def</span> getvalue(self, key):
+        <span class="p_triple">'''Get the value for the specific key.'''</span>
+        <span class="p_word">return</span> self._data.get(key, <span class="p_word">None</span>)
+    <span class="p_word">def</span> discard(self, key):
+        <span class="p_triple">'''Remove the specific key.'''</span>
+        <span class="p_word">if</span> key <span class="p_word">in</span> self._data: <span class="p_word">del</span> self._data[key]
+
+<span class="p_word">def</span> _testDatabase():
+    db = Database()
+    k1 = Key(time=time.time(), expires=time.time()+<span class="p_number">60</span>, put=True, guid=<span class="p_number">10</span>, hash=<span class="p_number">10</span>, nonce=<span class="p_number">10</span>, owner=<span class="p_number">10</span>)
+    v1 = Value(value=<span class="p_string">'kundan'</span>, Kp=<span class="p_string">'empty'</span>, sigma=<span class="p_string">'empty'</span>)
+    k2 = Key(time=time.time(), expires=time.time()+<span class="p_number">60</span>, put=True, guid=<span class="p_number">10</span>, hash=<span class="p_number">10</span>, nonce=<span class="p_number">11</span>, owner=<span class="p_number">10</span>)
+    v2 = Value(value=<span class="p_string">'kundan2'</span>, Kp=<span class="p_string">'empty'</span>, sigma=<span class="p_string">'empty'</span>)
+    <span class="p_word">assert</span> db.put(k1, v1) == (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>)
+    <span class="p_word">assert</span> db.put(k1, v1) == (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>) <span class="p_commentline"># duplicate put</span>
+    k11 = Key(time=time.time(), expires=time.time()+<span class="p_number">120</span>, put=True, guid=<span class="p_number">10</span>, hash=<span class="p_number">10</span>, nonce=<span class="p_number">10</span>, owner=<span class="p_number">10</span>)
+    <span class="p_word">assert</span> db.put(k11, v1) == (k1, v1, <span class="p_word">None</span>, <span class="p_word">None</span>) <span class="p_commentline"># override expired</span>
+    <span class="p_word">assert</span> db.put(k2, v2) == (<span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>) <span class="p_commentline"># add new value</span>
+    <span class="p_word">assert</span> sorted(db.get(k1.guid)) == sorted([v1, v2])
+    <span class="p_word">assert</span> db.getvalue(k11) == v1
+    <span class="p_word">assert</span> sorted(db.getkeys(low=<span class="p_number">0</span>, high=<span class="p_number">20</span>)) == sorted([k11, k2])
+
+<span class="p_word">class</span> Range(object):
+    <span class="p_triple">'''A range object that also stores the nodes with which we have synchronized.'''</span>
+    <span class="p_word">def</span> __init__(self, low, high):
+        self.low, self.high = low, high
+        self._str = <span class="p_string">'%d-%d'</span>%(low, high)
+        self.sync = dict() <span class="p_commentline"># hash table with key as Node and value as last sync or expiration time.</span>
+        self.hash = <span class="p_number">0L</span>     <span class="p_commentline"># hash of all keys in range</span>
+        self.keys = []     <span class="p_commentline"># list of all keys in range</span>
+    <span class="p_word">def</span> __cmp__(self, other):
+        <span class="p_word">if</span> id(self) == id(other): <span class="p_word">return</span> <span class="p_number">0</span> <span class="p_commentline"># a shortcut to compare identical objects</span>
+        <span class="p_word">else</span>: <span class="p_word">return</span> cmp(self.low, other.low) <span class="p_word">or</span> cmp(self.high, other.high)
+    <span class="p_word">def</span> __hash__(self): <span class="p_word">return</span> self._str.__hash__()
+    <span class="p_word">def</span> __repr__(self): <span class="p_word">return</span> self._str
+
+<span class="p_word">class</span> Ranges(dict):
+    <span class="p_triple">'''A set of range objects. The values are mutable, hence a get(key) method can be used to
+    get the original range in the set where key is a Range.'''</span>
+    <span class="p_word">def</span> __init__(self):
+        dict.__init__(self)   <span class="p_commentline"># base class stores the set representation</span>
+        self.sorted = []      <span class="p_commentline"># sorted list of Range</span>
+    <span class="p_word">def</span> add(self, range): 
+        <span class="p_word">if</span> range <span class="p_word">not</span> <span class="p_word">in</span> self:
+            self[range] = range
+            s = find(<span class="p_word">lambda</span> x: range.low &lt; x.low <span class="p_word">or</span> (range.low==x.low <span class="p_word">and</span> range.high&lt;x.high), self.sorted) <span class="p_commentline"># insert in sorted list</span>
+            self.sorted.insert(s <span class="p_word">if</span> s&gt;=<span class="p_number">0</span> <span class="p_word">else</span> len(self.sorted), range)
+        <span class="p_word">else</span>:
+            s = self.sorted.index(self[range])
+            self.sorted[s] = self[range] = range <span class="p_commentline"># update the value with new range</span>
+    <span class="p_word">def</span> remove(self, range):
+        <span class="p_word">if</span> range <span class="p_word">in</span> self:
+            self.sorted.remove(self[range])
+            <span class="p_word">del</span> self[range]
+    <span class="p_word">def</span> clear(self):
+        self.sorted.clear()
+        dict.clear(self)
+
+    <span class="p_word">def</span> synched(self, guid, node, ls):
+        s = find(<span class="p_word">lambda</span> x: x.low&lt;=guid&lt;=x.high, self.sorted)
+        <span class="p_word">if</span> node: <span class="p_word">return</span> (s&gt;=<span class="p_number">0</span>) <span class="p_word">and</span> (node <span class="p_word">in</span> self.sorted[s].sync) <span class="p_word">or</span> False
+        <span class="p_word">elif</span> <span class="p_word">not</span> ls <span class="p_word">or</span> len(ls)==<span class="p_number">0</span>: <span class="p_word">return</span> True <span class="p_commentline"># always synced if no leafset</span>
+        <span class="p_word">else</span>: <span class="p_word">return</span> (s&gt;=<span class="p_number">0</span>) <span class="p_word">and</span> (len(self.sorted[s].sync)&gt;len(ls)) <span class="p_word">or</span> False <span class="p_commentline"># return true if we synched with more than half of leaf set</span>
+    
+    <span class="p_word">def</span> update(self, ls):
+        <span class="p_triple">'''Update the ranges by removing those which are not in leaf-set.'''</span>
+        sorted, ranges = ls.sorted, set()
+        <span class="p_word">if</span> sorted:
+            <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, len(sorted)-<span class="p_number">1</span>):
+                a, b = sorted[i], sorted[i+<span class="p_number">1</span>]
+                ranges.add((a.guid, (b.guid+Hmod-<span class="p_number">1</span>)%Hmod))
+        toremove = filter(<span class="p_word">lambda</span> x: (x.low, x.high) <span class="p_word">not</span> <span class="p_word">in</span> ranges, self.sorted)
+        <span class="p_word">for</span> r <span class="p_word">in</span> toremove: self.remove(r)
+
+    <span class="p_word">def</span> invalidate(self, guid):
+        <span class="p_triple">'''Invalidate all the ranges which covers the guid.'''</span>
+        <span class="p_word">for</span> range <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: inrange(x.low, x.high, guid), self.sorted):
+            range.hash = <span class="p_word">None</span>
+             
+<span class="p_word">class</span> Storage(object):
+    <span class="p_triple">'''A Storage controller that performs replication as well as interfacing with backend database.'''</span>
+    <span class="p_word">def</span> __init__(self, net, router, replicas=<span class="p_number">8</span>, required=<span class="p_number">5</span>):
+        <span class="p_triple">'''Construct a storage using the given network and router. The router object is required 
+        because the storage needs to perform periodic discard of data to remote peers and keep track
+        of change in router's leafset.'''</span>
+        self.node, self.net, self.router, self.ls = net.node, net, router, router.ls
+        self.replicas, self.required = (replicas/<span class="p_number">2</span>)*<span class="p_number">2</span>, required <span class="p_commentline"># make it even</span>
+        self.low, self.high, self.ranges = <span class="p_number">0L</span>, (Hmod-<span class="p_number">1</span>), Ranges()
+        self._gens, self.db = [], Database()
+        
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_word">return</span> <span class="p_string">'&lt;Storage node=%r\n  data=%r&gt;'</span>%(self.node, self.db)
+    
+    <span class="p_word">def</span> start(self):
+        <span class="p_word">for</span> gen <span class="p_word">in</span> [self.handler(), self.periodicantropy(), self.periodicdiscard()]:
+            self._gens.append(gen)
+            multitask.add(gen)
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> stop(self):
+        <span class="p_word">for</span> gen <span class="p_word">in</span> self._gens: gen.close()
+        self._gens.clear()
+        self.db.clear()
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> handler(self):
+        supported = [<span class="p_string">'Put:Request'</span>, <span class="p_string">'Get:Request'</span>, <span class="p_string">'Replicate:Request'</span>, <span class="p_string">'ReplicaSet:Request'</span>, <span class="p_string">'Hash:Request'</span>, <span class="p_string">'Keys:Request'</span>, <span class="p_string">'Data:Request'</span>]
+        <span class="p_word">while</span> True:
+            msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name <span class="p_word">in</span> supported)
+            <span class="p_word">if</span> msg.name == <span class="p_string">'Put:Request'</span>: multitask.add(self.puthandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Get:Request'</span>: multitask.add(self.gethandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Replicate:Request'</span>: multitask.add(self.replicatehandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Hash:Request'</span>: multitask.add(self.hashhandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Keys:Request'</span>: multitask.add(self.keyshandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'Data:Request'</span>: multitask.add(self.datahandler(msg))
+            <span class="p_word">elif</span> msg.name == <span class="p_string">'ReplicaSet:Request'</span>: multitask.add(self.rshandler(msg))
+            <span class="p_word">elif</span> _debug: <span class="p_word">print</span> <span class="p_string">'invalid message'</span>, msg.name
+
+    <span class="p_word">def</span> puthandler(self, msg, timeout=<span class="p_number">60</span>, defaultTTL=<span class="p_number">600</span>):
+        <span class="p_triple">'''Handle a put request with items time, seq, guid, value or hash, nonce, expires, put, 
+        Kp and sigma. On completion put a Put:Response message with result=True or False.
+        '''</span>
+        <span class="p_word">try</span>:
+            start = time.time()
+            value, hash = msg.value, msg.hash
+            <span class="p_word">if</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> hash <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> hash != H(str(value)):
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid hash for the value'</span>
+            <span class="p_word">if</span> value <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span> hash <span class="p_word">is</span> <span class="p_word">None</span>:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'value and hash are both missing'</span>
+            <span class="p_word">if</span> hash <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                hash = H(str(value))
+            owner = msg.Kp <span class="p_word">and</span> H(str(msg.Kp)) <span class="p_word">or</span> <span class="p_number">0</span> <span class="p_commentline"># owner's identity</span>
+
+            replicas = self.replicaNodes(msg.guid)
+            <span class="p_word">if</span> <span class="p_word">not</span> msg.time: msg[<span class="p_string">'time'</span>] = start
+            <span class="p_word">if</span> <span class="p_word">not</span> msg.expires: msg[<span class="p_string">'expires'</span>] =  msg.time + defaultTTL
+            
+            key = Key(time=msg.time, expires=msg.expires, put=msg.put, guid=msg.dest, hash=hash, nonce=msg.nonce, owner=owner)
+            value = Value(value=value, hash=hash, Kp=msg.Kp, sigma=msg.sigma)
+            self.ranges.invalidate(key.guid)
+            p, r = <span class="p_word">yield</span> self.db.put(key, value)
+            <span class="p_word">if</span> p: self.ranges.invalidate(p.guid)
+            <span class="p_word">if</span> r: self.ranges.invalidate(r.guid)
+        
+            <span class="p_word">if</span> <span class="p_word">not</span> replicas:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'no replica node available'</span>
+            msg = msg.dup()
+            msg.name = <span class="p_string">'Replicate:Request'</span>
+            <span class="p_word">global</span> _seq; _seq = _seq + <span class="p_number">1</span>; msg.seq = _seq
+            <span class="p_word">for</span> node <span class="p_word">in</span> replicas:
+                <span class="p_word">yield</span> self.net.send(msg, node=node)
+            <span class="p_word">while</span> len(replicas)&gt;(self.replicas-self.required): <span class="p_commentline"># wait for more responses</span>
+                resp = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Replicate:Response'</span> <span class="p_word">and</span> x.seq==msg.seq, timeout=(timeout-(time.time()-start)))
+                <span class="p_word">if</span> <span class="p_word">not</span> resp: <span class="p_commentline"># timed out waiting for response</span>
+                    <span class="p_word">raise</span> ValueError, <span class="p_string">'timedout waiting for replication'</span>
+                <span class="p_word">elif</span> resp.remote <span class="p_word">in</span> replicas:
+                    replicas.remove(resp.remote)
+                    
+            <span class="p_commentline"># response is sent directly to the source</span>
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Put:Response'</span>, seq=msg.seq, result=True), node=msg.src) 
+        
+        <span class="p_word">except</span> ValueError, E:
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Put:Response'</span>, seq=msg.seq, result=False, error=str(E)), node=msg.src)
+    
+    <span class="p_word">def</span> replicatehandler(self, msg):
+        <span class="p_triple">'''Handle a Replicate:Request message.'''</span>
+        <span class="p_word">try</span>:
+            start = time.time()
+            value, hash = msg.value, msg.hash
+            <span class="p_word">if</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> hash <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span> <span class="p_word">and</span> hash != H(str(value)):
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid hash for the value'</span>
+            <span class="p_word">if</span> value <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span> hash <span class="p_word">is</span> <span class="p_word">None</span>:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'value and hash are both missing'</span>
+            <span class="p_word">if</span> hash <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">and</span> value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                hash = H(str(value))
+            owner = Kp <span class="p_word">and</span> H(str(Kp)) <span class="p_word">or</span> <span class="p_word">None</span> <span class="p_commentline"># owner's identity</span>
+
+            key = Key(time=msg.time, expires=msg.expires, guid=msg.guid, hash=hash, nonce=msg.nonce, owner=owner)
+            value = Value(value=value, hash=hash, Kp=Kp, sigma=sigma)
+            self.ranges.invalidate(key.guid)
+            p, r = <span class="p_word">yield</span> self.db.put(key, value)
+            <span class="p_word">if</span> p: self.ranges.invalidate(p.guid)
+            <span class="p_word">if</span> r: self.ranges.invalidate(r.guid)
+            
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Replicate:Response'</span>, seq=msg.seq), node=msg.remote)
+        
+        <span class="p_word">except</span> ValueError, E:
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Replicate:Error'</span>, seq=msg.seq, error=str(E)), node=msg.remote)
+
+
+    <span class="p_word">def</span> gethandler(self, msg):
+        <span class="p_triple">'''Handle a Get:Request with items seq, guid, and optional owner.'''</span>
+        vals = <span class="p_word">yield</span> self.db.get(guid=msg.dest, owner=msg.owner, maxvalues=msg.maxvalues)
+        <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Get:Response'</span>, seq=msg.seq, guid=msg.dest, vals=vals), node=msg.src) <span class="p_commentline"># send response directly to the source</span>
+    
+    <span class="p_word">def</span> leafsetchanged(self):
+        <span class="p_triple">'''The routers' leafset changed, hence the replicas for data also changed.'''</span>
+        ls = self.router.ls
+        <span class="p_word">if</span> len(ls) == <span class="p_number">0</span>:
+            self.low, self.high = <span class="p_number">0</span>, (Hmod-<span class="p_number">1</span>)
+            self.ranges.clear()
+            <span class="p_word">return</span>
+        <span class="p_word">if</span> ls.coversAll(self.replicas):
+            self.low, self.high = <span class="p_number">0</span>, (Hmod-<span class="p_number">1</span>)
+            self.ranges.clear()
+        <span class="p_word">else</span>:
+            size = min(len(ls), self.replicas/<span class="p_number">2</span>)
+            self.low, self.high = ls._preds[size-<span class="p_number">1</span>].guid, (ls._succs[size-<span class="p_number">1</span>].guid-<span class="p_number">1</span>)
+            <span class="p_word">if</span> self.high == -<span class="p_number">1</span>: self.high = (Hmod-<span class="p_number">1</span>)
+            self.ranges.update(ls=self.ls)
+
+    <span class="p_word">def</span> periodicantropy(self, timeout=<span class="p_number">3</span>, reset=<span class="p_number">30</span>):
+        <span class="p_word">global</span> _seq 
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            start = time.time()
+            node = self.ls.random
+            <span class="p_word">if</span> <span class="p_word">not</span> node: <span class="p_word">continue</span>   <span class="p_commentline"># no leaf set node</span>
+            ranges = self.getSharedRanges(node.guid)
+            <span class="p_word">if</span> <span class="p_word">not</span> ranges: <span class="p_word">continue</span> <span class="p_commentline"># no shared range</span>
+            range = random.choice(ranges.keys())
+            keys = <span class="p_word">yield</span> self.db.getkeys(low=range.low, high=range.high)
+            hash = H(<span class="p_string">''</span>.join(map(str, keys))) <span class="p_commentline"># hash of all the keys in the range</span>
+            seq = _seq = _seq + <span class="p_number">1</span>
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Hash:Request'</span>, seq=seq, low=range.low, high=range.high, hash=hash), node=node)
+            msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Hash:Response'</span> <span class="p_word">and</span> seq==seq, timeout=(reset-time.time()+start))
+            <span class="p_word">if</span> <span class="p_word">not</span> msg: <span class="p_commentline"># timedout</span>
+                self.unsynched(range=range, node=node)
+                <span class="p_word">continue</span>
+            <span class="p_word">if</span> msg.hash == hash: <span class="p_commentline"># we are in sync</span>
+                self.synched(range=range, node=node)
+                <span class="p_word">continue</span>
+            <span class="p_word">else</span>:
+                seq = _seq = _seq+<span class="p_number">1</span>
+                <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Keys:Request'</span>, seq=seq, low=range.low, high=range.high), node=node)
+                msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Keys:Response'</span> <span class="p_word">and</span> seq==seq, timeout=(reset-time.time()+start))
+                <span class="p_word">if</span> <span class="p_word">not</span> msg <span class="p_word">or</span> <span class="p_word">not</span> msg.keyss:
+                    self.unsynched(range=range, node=node)
+                    <span class="p_word">continue</span>
+                <span class="p_word">try</span>:
+                    remotekeys = filter(<span class="p_word">lambda</span> y: find(<span class="p_word">lambda</span> x: str(x)==str(y), keys)&lt;<span class="p_number">0</span>, msg.keyss) <span class="p_commentline"># all keys in msg which are not in local keys</span>
+                <span class="p_word">except</span>: 
+                    <span class="p_word">print</span> <span class="p_string">'msg.keys='</span>, msg.keyss, <span class="p_string">'keys='</span>, keys
+                    <span class="p_word">raise</span> 
+                <span class="p_word">for</span> key <span class="p_word">in</span> remotekeys: <span class="p_commentline"># for each unmatched key, synchronize the data.</span>
+                    seq = _seq = _seq + <span class="p_number">1</span>
+                    <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Data:Request'</span>, seq=seq, key=key), node=node)
+                    msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'Data:Response'</span> <span class="p_word">and</span> seq==seq, timeout=(reset-time.time()+start))
+                    <span class="p_word">if</span> msg.key.expires &gt; time.time(): <span class="p_commentline"># not yet expired key</span>
+                        valid = True 
+                        <span class="p_word">if</span> <span class="p_word">not</span> msg.key.put: <span class="p_commentline"># a remove record</span>
+                            hash = H(str(msg.value))
+                            <span class="p_word">if</span> hash != msg.key.hash: valid = False
+                        <span class="p_word">if</span> valid:
+                            self.unsynched(range=range, node=node)
+                            ranges.invalidate(msg.key.guid)
+                            value = Value(msg.value <span class="p_word">if</span> msg.key.put <span class="p_word">else</span> msg.hash, msg.Kp, msg.sigma)
+                            <span class="p_word">yield</span> self.db.put(msg.key, value)
+    
+    <span class="p_word">def</span> synched(self, range, node):
+        <span class="p_triple">'''The data in this range is synchronized with the given node.'''</span>
+        <span class="p_word">if</span> range <span class="p_word">not</span> <span class="p_word">in</span> self.ranges: self.ranges.add(range)
+        <span class="p_word">else</span>: range = self.ranges.get(range)
+        size = len(self.ls)
+        n = <span class="p_number">4</span>*size*size*<span class="p_number">3</span>
+        t = math.ceil(n*math.log(n)/math.log(<span class="p_number">2</span>))
+        range.sync[node] = time.time() + t
+        <span class="p_commentline"># yield multitask.sleep(t) # TODO: check why this is needed, and then uncomment</span>
+        <span class="p_commentline"># if node in range.sync and time.time()&gt;=range[node]:</span>
+        <span class="p_commentline">#    del range.sync[node.hostport]</span>
+            
+    <span class="p_word">def</span> unsynched(self, range, node):
+        <span class="p_triple">'''The data in this range is not synchronized with the given node.'''</span>
+        <span class="p_word">if</span> range <span class="p_word">in</span> self.ranges:
+            <span class="p_word">try</span>: <span class="p_word">del</span> self.ranges.get(range).sync[node]
+            <span class="p_word">except</span> KeyError: <span class="p_word">pass</span> <span class="p_commentline"># ignore if not found.</span>
+            
+    <span class="p_word">def</span> getSharedRanges(self, guid):
+        ret = Ranges()
+        ls = self.ls
+        <span class="p_word">if</span> ls.coversAll(self.replicas):
+            ret.add(Range(<span class="p_number">0</span>, Hmod-<span class="p_number">1</span>))
+            <span class="p_word">return</span> ret
+        low = high = <span class="p_number">0L</span>
+        <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, len(ls)):
+            <span class="p_word">if</span> guid == ls._succs[i].guid:
+                low, high = (<span class="p_number">0</span> <span class="p_word">if</span> (i==len(ls)-<span class="p_number">1</span>) <span class="p_word">else</span> (-len(ls)+i+<span class="p_number">1</span>)), len(ls)
+                <span class="p_word">break</span>
+            <span class="p_word">elif</span> guid == ls._preds[i].guid:
+                low, high = -len(ls), (<span class="p_number">0</span> <span class="p_word">if</span> (i==len(ls)-<span class="p_number">1</span>) <span class="p_word">else</span> (len(ls)-i-<span class="p_number">1</span>))
+
+        guid = self.node.guid
+        <span class="p_word">for</span> j,k <span class="p_word">in</span> map(<span class="p_word">lambda</span> x: (x, x+<span class="p_number">1</span>), xrange(low, high)):
+            a = guid <span class="p_word">if</span> j==<span class="p_number">0</span> <span class="p_word">else</span> (ls._preds[-j-<span class="p_number">1</span>].guid <span class="p_word">if</span> j&lt;<span class="p_number">0</span> <span class="p_word">else</span> ls._succs[j-<span class="p_number">1</span>].guid)
+            b = guid <span class="p_word">if</span> k==<span class="p_number">0</span> <span class="p_word">else</span> (ls._preds[-k-<span class="p_number">1</span>].guid <span class="p_word">if</span> k&lt;<span class="p_number">0</span> <span class="p_word">else</span> ls._succs[k-<span class="p_number">1</span>].guid)
+            b = b-<span class="p_number">1</span>
+            <span class="p_word">if</span> b==-<span class="p_number">1</span>: b = (Hmod-<span class="p_number">1</span>)
+            ret.add(Range(a,b))
+        <span class="p_word">return</span> ret
+    
+    <span class="p_word">def</span> hashhandler(self, msg):
+        node, range = msg.remote, Range(low=msg.low, high=msg.high)
+        ranges = self.getSharedRanges(node.guid)
+        <span class="p_word">if</span> len(self.ls)==<span class="p_number">0</span> <span class="p_word">or</span> len(ranges)==<span class="p_number">0</span> <span class="p_word">or</span> (range <span class="p_word">not</span> <span class="p_word">in</span> ranges): <span class="p_commentline"># not a valid range with this node</span>
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Hash:Response'</span>, seq=msg.seq, error=<span class="p_string">'invalid range'</span>), node=node)
+            <span class="p_word">return</span>
+        keys = <span class="p_word">yield</span> self.db.getkeys(low=range.low, high=range.high)
+        <span class="p_word">if</span> range <span class="p_word">not</span> <span class="p_word">in</span> self.ranges: self.ranges.add(range)
+        <span class="p_word">else</span>: range = self.ranges.get(range)
+        hash = H(<span class="p_string">''</span>.join(map(str, keys)))
+        <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Hash:Response'</span>, seq=msg.seq, hash=hash), node=node)
+    
+    <span class="p_word">def</span> keyshandler(self, msg):
+        node = msg.remote
+        range = Range(low=msg.low, high=msg.high)
+        <span class="p_word">if</span> range <span class="p_word">in</span> self.ranges:
+            range = self.ranges.get(range)
+            keys = <span class="p_word">yield</span> self.db.getkeys(low=range.low, high=range.high)
+            <span class="p_commentline"># TODO: send response in multiple messages with a cap of number of keys per response.</span>
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Keys:Response'</span>, seq=msg.seq, keyss=keys), node=node)
+        <span class="p_word">else</span>:
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Keys:Response'</span>, seq=msg.seq, error=<span class="p_string">'invalid range'</span>), node=node)
+
+    <span class="p_word">def</span> datahandler(self, msg):
+        node = msg.remote
+        value = <span class="p_word">yield</span> self.db.getvalue(key=msg.key)
+        <span class="p_word">if</span> value.value <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: 
+            <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Data:Response'</span>, seq=msg.seq, key=msg.key, value=value), node=node)
+
+    <span class="p_word">def</span> periodicdiscard(self, timeout=<span class="p_number">5</span>):
+        <span class="p_word">global</span> _seq
+        <span class="p_word">while</span> True:
+            <span class="p_word">yield</span> randomsleep(timeout)
+            <span class="p_word">if</span> self.ls.coversAll(self.replicas): <span class="p_word">continue</span> <span class="p_commentline"># no need to discard if we cover all</span>
+            keys = <span class="p_word">yield</span> self.db.getkeys(low=self.ls[<span class="p_string">'high'</span>].guid, high=self.ls[<span class="p_string">'low'</span>].guid) <span class="p_commentline"># get keys in inverse range</span>
+            keys = filter(<span class="p_word">lambda</span> x: <span class="p_word">not</span> inrange(self.low, self.high, x.guid), keys)
+            <span class="p_word">for</span> key <span class="p_word">in</span> keys:
+                seq = _seq = _seq + <span class="p_number">1</span>
+                <span class="p_word">yield</span> self.route(guid=key.guid, payload=Message(name=<span class="p_string">'ReplicaSet:Request'</span>, seq=seq, src=self.node.guid, dest=key.guid))
+                msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'ReplicaSet:Response'</span> <span class="p_word">and</span> x.seq==seq, timeout=timeout)
+                replicas = msg.nodes
+                <span class="p_word">if</span> replicas:
+                    node = random.choice(replicas)
+                    value = <span class="p_word">yield</span> self.db.getvalue(key=key)
+                    seq = _seq = _seq + <span class="p_number">1</span>
+                    <span class="p_word">yield</span> self.net.send(Message(name=<span class="p_string">'Replicate:Request'</span>, time=key.time, seq=seq, guid=key.guid, value=value.value, hash=key.hash, nonce=key.nonce, expires=key.expires, put=key.put, owner=key.owner, Kp=value.Kp, sigma=value.sigma), node=node)
+                    msg = <span class="p_word">yield</span> self.net.get(<span class="p_word">lambda</span> x: x.name==<span class="p_string">'ReplicateResponse'</span> <span class="p_word">and</span> seq==seq)
+                    <span class="p_word">if</span> msg: <span class="p_commentline"># received a response</span>
+                        <span class="p_word">yield</span> self.db.discard(key=key)
+
+    <span class="p_word">def</span> rshandler(self, msg):
+        replicas = [self.node] + list(self.replicaNodes(msg.dest))
+        <span class="p_word">yield</span> self.route(guid=msg.src, payload=Message(name=<span class="p_string">'ReplicaSet:Response'</span>, seq=msg.seq, nodes=replicas))
+
+
+    <span class="p_word">def</span> replicaNodes(self, guid):
+        ls, size, replicas = self.ls, len(self.ls), set()
+        <span class="p_word">if</span> size&gt;<span class="p_number">0</span>:
+            <span class="p_word">for</span> i <span class="p_word">in</span> xrange((size-<span class="p_number">1</span>) <span class="p_word">if</span> inrange(ls._preds[<span class="p_number">0</span>].guid, self.node.guid, guid) <span class="p_word">else</span> (size-<span class="p_number">2</span>), -<span class="p_number">1</span>, -<span class="p_number">1</span>):
+                replicas.add(ls._preds[i])
+            <span class="p_word">for</span> i <span class="p_word">in</span> xrange((size-<span class="p_number">1</span>) <span class="p_word">if</span> inrange(ls._succs[<span class="p_number">0</span>].guid, self.node.guid, guid) <span class="p_word">else</span> (size-<span class="p_number">2</span>), -<span class="p_number">1</span>, -<span class="p_number">1</span>):
+                replicas.add(ls._succs[i])
+        <span class="p_word">return</span> replicas
+    
+<span class="p_commentline">#===============================================================================</span>
+<span class="p_commentline"># High level DHT (hash table) API such as put and get. The remove is done using</span>
+<span class="p_commentline"># the put function with argument put=False.</span>
+<span class="p_commentline">#===============================================================================</span>
+
+<span class="p_word">def</span> put(net, guid, value, nonce, expires, Ks=<span class="p_word">None</span>, put=True, timeout=<span class="p_number">30</span>, retry=<span class="p_number">7</span>):
+    <span class="p_triple">'''Put the given (guid, value) pair with given expiration and for owner represented
+    by the private key Ks. The nonce identifies this instance of put value, and is used
+    in removing or replacing this value.
+    If the put argument is False, it removes the given (guid, value) pair which was 
+    originally written by owner with private key Ks and with specified nonce. The 
+    expires should be greater than or equal to the expires of the corresponding put value.
+    
+    result = yield put()
+    '''</span>
+    <span class="p_word">global</span> _seq
+    seq = _seq = _seq + <span class="p_number">1</span>
+    request = Message(name=<span class="p_string">'Put:Request'</span>, date=time.time(), seq=seq, src=net.node, dest=guid, nonce=nonce, expires=expires, put=put, \
+                value=value <span class="p_word">if</span> put <span class="p_word">else</span> H(str(value)), Kp=Ks <span class="p_word">and</span> extractPublicKey(Ks) <span class="p_word">or</span> <span class="p_word">None</span>, \
+                sigma=sign(Ks, H(str(guid) + str(value) + str(nonce) + str(expires))) <span class="p_word">if</span> Ks <span class="p_word">else</span> <span class="p_word">None</span>) 
+
+    <span class="p_word">while</span> retry&gt;<span class="p_number">0</span>:
+        <span class="p_word">yield</span> net.put(Message(name=<span class="p_string">'Route:Request'</span>, src=net.node, dest=guid, payload=request), timeout=<span class="p_number">5</span>)
+        response = <span class="p_word">yield</span> net.get(timeout=timeout, criteria=<span class="p_word">lambda</span> x: x.seq==seq <span class="p_word">and</span> x.name==<span class="p_string">'Put:Response'</span>) <span class="p_commentline"># wait for response</span>
+        <span class="p_word">if</span> response: <span class="p_word">raise</span> StopIteration(response.result)
+        <span class="p_word">else</span>: retry = retry - <span class="p_number">1</span>
+    <span class="p_word">raise</span> StopIteration(False) <span class="p_commentline"># exhausted all retries</span>
+
+<span class="p_word">def</span> remove(net, guid, value, nonce, expires, Ks=<span class="p_word">None</span>, timeout=<span class="p_number">30</span>, retry=<span class="p_number">7</span>):
+    <span class="p_triple">'''A convinience method that just invokes put(..., put=False,...).'''</span>
+    result = <span class="p_word">yield</span> put(net, guid, value, nonce, expires, Ks, False, timeout, retry)
+    <span class="p_word">raise</span> StopIteration(result)
+
+<span class="p_word">def</span> get(net, guid, maxvalues=<span class="p_number">16</span>, Kp=<span class="p_word">None</span>, timeout=<span class="p_number">5</span>):
+    <span class="p_triple">'''This is an function that returns all the values for the given guid. 
+    A maximum of maxvalues values are returned, defaults to 16. If Kp is specified
+    then only values by the owner with public key Kp are fectched.
+    
+    results = yield get(H(key))
+    for value, nonce, expires, hashKp in results:
+        do something
+    '''</span>
+    <span class="p_word">global</span> _seq
+    seq = _seq = _seq + <span class="p_number">1</span>
+    request = Message(name=<span class="p_string">'Get:Request'</span>, seq=seq, src=net.node, dest=guid, maxvalues=maxvalues, hash=Kp <span class="p_word">and</span> H(str(Kp)) <span class="p_word">or</span> <span class="p_word">None</span>)
+    
+    retry = <span class="p_number">1</span> <span class="p_commentline"># we don't do retries for get, hence set this to 1.</span>
+    <span class="p_word">while</span> retry&gt;<span class="p_number">0</span>:
+        <span class="p_word">yield</span> net.put(Message(name=<span class="p_string">'Route:Request'</span>, src=net.node, dest=guid, payload=request), timeout=<span class="p_number">5</span>)
+        response = <span class="p_word">yield</span> net.get(timeout=timeout, criteria=<span class="p_word">lambda</span> x: x.seq == seq <span class="p_word">and</span> x.name ==<span class="p_string">'Get:Response'</span>) <span class="p_commentline"># wait for response</span>
+        <span class="p_word">if</span> response: <span class="p_word">raise</span> StopIteration(response[<span class="p_string">'vals'</span>]) <span class="p_commentline"># don't use response.values as it is a built-in method of base class dict of Message.</span>
+        <span class="p_word">else</span>: retry = retry - <span class="p_number">1</span>
+    <span class="p_word">raise</span> StopIteration(<span class="p_word">None</span>) <span class="p_commentline"># exhausted all retries</span>
+
+<span class="p_word">def</span> _testDHT():
+    n1, n2 = Network().start(), Network().start()
+    Storage(n1, Router(n1).start()).start()
+    <span class="p_word">yield</span> put(net=n1, guid=H(<span class="p_string">'kundan'</span>), value=<span class="p_string">'Kundan Singh'</span>, nonce=randomNonce(), expires=time.time()+<span class="p_number">60</span>, Ks=PrivateKey())
+    data = <span class="p_word">yield</span> get(net=n1, guid=H(<span class="p_string">'kundan'</span>))
+    <span class="p_word">print</span> <span class="p_string">'got value='</span>, data
+
+
+<span class="p_word">import</span> linecache, random, sys
+
+<span class="p_word">def</span> traceit(frame, event, arg):
+    <span class="p_word">if</span> event == <span class="p_string">"line"</span>:
+        lineno = frame.f_lineno
+        filename = frame.f_globals[<span class="p_string">"__file__"</span>]
+        <span class="p_word">if</span> filename == <span class="p_string">"&lt;stdin&gt;"</span>:
+            filename = <span class="p_string">"dht.py"</span>
+        <span class="p_commentline">#if lineno &gt; 288 and filename.find('rfc3261')&gt;=0:</span>
+        <span class="p_word">if</span> lineno &gt;= <span class="p_number">896</span> <span class="p_word">and</span> filename.find(<span class="p_string">'dht'</span>)&gt;=<span class="p_number">0</span>:
+            <span class="p_word">if</span> (filename.endswith(<span class="p_string">".pyc"</span>) <span class="p_word">or</span>
+                filename.endswith(<span class="p_string">".pyo"</span>)):
+                filename = filename[:-<span class="p_number">1</span>]
+            name = frame.f_globals[<span class="p_string">"__name__"</span>]
+            line = linecache.getline(filename, lineno)
+            <span class="p_word">print</span> <span class="p_string">"%s:%s: %s"</span> % (name, lineno, line.rstrip())
+    <span class="p_word">return</span> traceit
+
+<span class="p_commentline"># sys.settrace(traceit)</span>
+<span class="p_commentline">#multitask.add(_testDHT())</span>
+<span class="p_commentline">#multitask.run()</span>
+<span class="p_commentline">#exit()</span>
+        
+<span class="p_commentline">#--------------------------------------- Testing --------------------------</span>
+
+_apps = dict()
+<span class="p_word">def</span> start(app=<span class="p_word">None</span>, options=<span class="p_word">None</span>):
+    <span class="p_triple">'''Start the module.'''</span>
+    <span class="p_word">global</span> _apps
+    <span class="p_word">if</span> app <span class="p_word">in</span> _apps: <span class="p_word">raise</span> IndexError, <span class="p_string">'dht already started'</span>
+    n = Network().start()
+    r = Router(n).start()
+    s = Storage(n, r).start()
+    _apps[app] = (n, r, s)
+    <span class="p_word">return</span> n <span class="p_commentline"># return the network so that application can call get/put on that.</span>
+    
+<span class="p_word">def</span> stop(app=<span class="p_word">None</span>):
+    <span class="p_triple">'''Stop the module.'''</span>
+    <span class="p_word">global</span> _apps
+    <span class="p_word">if</span> app <span class="p_word">not</span> <span class="p_word">in</span> _apps: <span class="p_word">raise</span> IndexError, <span class="p_string">'dht not started'</span>
+    n, r, s = _apps[app]
+    <span class="p_word">del</span> _apps[app]
+    s.stop(); r.stop(); n.stop()
+    
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()    <span class="p_commentline"># first run doctest,</span>
+    <span class="p_word">for</span> f <span class="p_word">in</span> dir():      <span class="p_commentline"># then run all _test* functions</span>
+        <span class="p_word">if</span> str(f).find(<span class="p_string">'_test'</span>) == <span class="p_number">0</span> <span class="p_word">and</span> callable(eval(f)):
+            <span class="p_word">exec</span> f + <span class="p_string">'()'</span>
+    
+<span class="p_triple">'''
+    start()
+    try:
+        multitask.run()
+    except KeyboardInterrupt:
+        pass
+    stop()
+    sys.exit()
+'''</span>
+
+  </PRE></BODY>
+</HTML>

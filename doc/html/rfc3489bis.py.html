@@ -1,0 +1,707 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements draft-ietf-behave-rfc3489bis-10 (STUN)</b></DIV><PRE>
+<span class="p_commentline"># implements minimum necessary features (no auth and no TLS)</span>
+
+
+</PRE><DIV class="commentbox"><b>This file implements draft-ietf-behave-nat-behavior-discovery-01 (NAT behavior discovery)</b></DIV><PRE>
+<span class="p_commentline"># implements only mapping and filtering detection, but not binding lifetime detection.</span>
+
+
+</PRE><DIV class="commentbox"><b>This file implements draft-rosenberg-midcom-turn-08 (TURN with modifications)</b></DIV><PRE>
+
+
+<span class="p_word">from</span> __future__ <span class="p_word">import</span> with_statement
+<span class="p_word">from</span> contextlib <span class="p_word">import</span> closing
+<span class="p_word">from</span> kutil <span class="p_word">import</span> getlocaladdr
+<span class="p_word">import</span> sys, traceback, struct, socket, multitask, random, time
+<span class="p_word">try</span>:
+    <span class="p_word">from</span> os <span class="p_word">import</span> urandom <span class="p_commentline"># urandom returns random bytes (str) of given length</span>
+<span class="p_word">except</span>:
+    <span class="p_commentline"># use package random to implement urandom</span>
+    <span class="p_word">def</span> urandom(count):
+        <span class="p_word">import</span> random
+        <span class="p_word">return</span> <span class="p_string">''</span>.join([chr(random.randint(<span class="p_number">0</span>,<span class="p_number">255</span>)) <span class="p_word">for</span> x <span class="p_word">in</span> range(count)])
+
+
+_debug = False
+
+defaultPort = <span class="p_number">3478</span> <span class="p_commentline"># default port number to use</span>
+defaultServers = [<span class="p_string">'sip.iptel.org'</span>, <span class="p_string">'stun.xten.net'</span>, <span class="p_string">'stun2.wirlab.net'</span>] <span class="p_commentline"># list of default known servers to use</span>
+defaultServers = [(x, defaultPort) <span class="p_word">for</span> x <span class="p_word">in</span> defaultServers] <span class="p_commentline"># update the list with port number to have list elements as (host, port)</span>
+
+<span class="p_commentline"># This is used as decorator to define a property.</span>
+<span class="p_word">def</span> Property(func):
+    <span class="p_word">return</span> property(doc=func.__doc__, **func())
+
+<span class="p_word">def</span> _addr2str(value, family=socket.AF_INET):
+    <span class="p_triple">'''Convert bytes to dotted-decimal representation.'''</span>
+    <span class="p_word">return</span> (family == socket.AF_INET) <span class="p_word">and</span> <span class="p_string">'.'</span>.join([str(ord(x)) <span class="p_word">for</span> x <span class="p_word">in</span> value[:<span class="p_number">4</span>]]) \
+        <span class="p_word">or</span> (family == socket.AF_INET6) <span class="p_word">and</span> <span class="p_string">':'</span>.join([<span class="p_string">'%02x'</span>%ord(x) <span class="p_word">for</span> x <span class="p_word">in</span> value[:<span class="p_number">16</span>]]) \
+        <span class="p_word">or</span> <span class="p_word">None</span>
+
+<span class="p_word">def</span> _str2addr(value, family=socket.AF_INET):
+    <span class="p_triple">'''Convert dotted-decimal representation to bytes.'''</span>
+    <span class="p_word">return</span> (family == socket.AF_INET) <span class="p_word">and</span> <span class="p_string">''</span>.join([chr(int(x)) <span class="p_word">for</span> x <span class="p_word">in</span> value.split(<span class="p_string">'.'</span>)]) \
+        <span class="p_word">or</span> (family == socket.AF_INET6) <span class="p_word">and</span> <span class="p_string">''</span>.join([(x <span class="p_word">and</span> chr(int(<span class="p_string">'0x%s'</span>%x)) <span class="p_word">or</span> <span class="p_string">'\x00'</span>) <span class="p_word">for</span> x <span class="p_word">in</span> value.split(<span class="p_string">':'</span>)]) \
+        <span class="p_word">or</span> value
+
+<span class="p_word">class</span> Attribute(object):
+    <span class="p_triple">'''A single attribute in STUN message. Only type (int) and value (str) are
+    valid fields in this object.'''</span>
+    
+    <span class="p_commentline"># attribute type definitions. Combines definitions from multiple internet-drafts.</span>
+    MAPPED_ADDRESS    = <span class="p_number">0x0001</span>;  CHANGE_REQUEST    = <span class="p_number">0x0003</span>;  SOURCE_ADDRESS    = <span class="p_number">0x0004</span>
+    OTHER_ADDRESS     = <span class="p_number">0x0005</span>;  USERNAME          = <span class="p_number">0x0006</span>;  MESSAGE_INTEGRITY = <span class="p_number">0x0008</span>
+    ERROR_CODE        = <span class="p_number">0x0009</span>;  UNKNOWN_ATTRIBUTE = <span class="p_number">0x000A</span>;  LIFETIME          = <span class="p_number">0x000D</span>
+    <span class="p_string">'ALTERNATE_SERVER = 0x000E'</span>; BANDWIDTH         = <span class="p_number">0x0010</span>;  DESTINATION_ADDRESS=<span class="p_number">0x0011</span>
+    REMOTE_ADDRESS    = <span class="p_number">0x0012</span>;  DATA              = <span class="p_number">0x0013</span>;  REALM             = <span class="p_number">0x0014</span>;
+    NONCE             = <span class="p_number">0x0015</span>;  XOR_MAPPED_ADDRESS= <span class="p_number">0x0020</span>;  XOR_REFLECTED_FROM= <span class="p_number">0x0023</span>
+    PADDING           = <span class="p_number">0x0026</span>;  XOR_RESPONSE_ADDRESS=<span class="p_number">0x0027</span>;
+    <span class="p_commentline"># TODO: there is difference in definition of REALM and NONCE in <a href="http://www.rfc-editor.org/rfc/rfc3489.txt">RFC3489</a>bis and TURN. </span>
+    <span class="p_commentline"># Also in the ALTERNATE_SERVER. I used <a href="http://www.rfc-editor.org/rfc/rfc3489.txt">RFC3489</a>bis definition.</span>
+    <span class="p_commentline"># optional</span>
+    SERVER            = <span class="p_number">0x8022</span>;  ALTERNATE_SERVER  = <span class="p_number">0x8023</span>;  CACHE_TIMEOUT     = <span class="p_number">0x8026</span>
+    FINGERPRINT       = <span class="p_number">0x8028</span>;
+
+    <span class="p_commentline"># list of comprehension-required attributes on which we don't choke. </span>
+    <span class="p_commentline"># Needed for backward compatibility with <a href="http://www.rfc-editor.org/rfc/rfc3489.txt">RFC 3489</a></span>
+    knownTypes = [<span class="p_number">0x0001</span>, <span class="p_number">0x0004</span>, <span class="p_number">0x0005</span>, <span class="p_number">0x0006</span>, <span class="p_number">0x0008</span>, <span class="p_number">0x0009</span>, <span class="p_number">0x000A</span>, <span class="p_number">0x0014</span>, <span class="p_number">0x0015</span>, <span class="p_number">0x0020</span>]
+    
+    <span class="p_word">def</span> __init__(self, type=<span class="p_word">None</span>, value=<span class="p_word">None</span>):
+        <span class="p_triple">'''Construct an empty attribute or parsed one if value is supplied.'''</span>
+        self.type, self.value = type, value
+        
+    @property
+    <span class="p_word">def</span> optional(self):
+        <span class="p_triple">'''Whether this attribute is optional or not?'''</span>
+        <span class="p_word">return</span> (self.type &amp; <span class="p_number">0x8000</span>) != <span class="p_number">0</span>
+    
+    @Property
+    <span class="p_word">def</span> address():
+        <span class="p_triple">'''The address tuple (family, ip, port) where family is socket.AF_INET or AF_INET6,
+        ip is dotted IPv4 or IPv6 string and port is int. Must be accessed only for 
+        address-based attributes such as MAPPED-ADDRESS, OTHER-ADDRESS and ALTERNATE-SERVER.'''</span>
+        <span class="p_word">def</span> fget(self): 
+            ignore, family, port = struct.unpack(<span class="p_string">'!BBH'</span>, self.value[:<span class="p_number">4</span>])
+            family = (family == <span class="p_number">0x01</span>) <span class="p_word">and</span> socket.AF_INET <span class="p_word">or</span> (family == <span class="p_number">0x02</span>) <span class="p_word">and</span> socket.AF_INET6 <span class="p_word">or</span> socket.AF_UNSPEC
+            <span class="p_word">return</span> (family, _addr2str(self.value[<span class="p_number">4</span>:], family), port)
+        <span class="p_word">def</span> fset(self, value):
+            family, address, port = value
+            address = _str2addr(address, family)
+            family = (family == socket.AF_INET) <span class="p_word">and</span> <span class="p_number">0x01</span> <span class="p_word">or</span> (family == socket.AF_INET6) <span class="p_word">and</span> <span class="p_number">0x02</span> <span class="p_word">or</span> <span class="p_number">0x00</span>
+            self.value = struct.pack(<span class="p_string">'!BBH'</span>, <span class="p_number">0</span>, family, port) + address
+        <span class="p_word">return</span> locals()
+    
+    @Property
+    <span class="p_word">def</span> xorAddress():
+        <span class="p_triple">'''The address tuple (family, ip, port) with values similar to the address property,
+        but used only for XOR-MAPPED-ADDRESS, XOR-REFLECTED-FROM and XOR-RESPONSE-ADDRESS attributes.'''</span>
+        <span class="p_word">def</span> fget(self): 
+            ignore, family, port = struct.unpack(<span class="p_string">'!BBH'</span>, self.value[:<span class="p_number">4</span>])
+            family = (family == <span class="p_number">0x01</span>) <span class="p_word">and</span> socket.AF_INET <span class="p_word">or</span> (family == <span class="p_number">0x02</span>) <span class="p_word">and</span> socket.AF_INET6 <span class="p_word">or</span> socket.AF_UNSPEC
+            <span class="p_word">if</span> family == socket.AF_INET: self.value[<span class="p_number">4</span>:<span class="p_number">8</span>] = struct.pack(<span class="p_string">'!l'</span>, (struct.unpack(<span class="p_string">'!l'</span>, self.value[<span class="p_number">4</span>:<span class="p_number">8</span>]) ^ Message.MAGIC))
+            <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'XOR-ADDRESS not implemented for IPv6'</span>
+            <span class="p_word">return</span> (family, _addr2str(self.value[<span class="p_number">4</span>:], socket.AF_INET), (port ^ ((Message.MAGIC &amp; <span class="p_number">0xffff0000</span>) &gt;&gt; <span class="p_number">16</span>)) &amp; <span class="p_number">0x00ffff</span>)
+        <span class="p_word">def</span> fset(self, value):
+            family, address, port = value
+            address = _str2addr(address, family)
+            family = (family == socket.AF_INET) <span class="p_word">and</span> <span class="p_number">0x01</span> <span class="p_word">or</span> (family == socket.AF_INET6) <span class="p_word">and</span> <span class="p_number">0x02</span> <span class="p_word">or</span> <span class="p_number">0x00</span>
+            self.value = struct.pack(<span class="p_string">'!BBH'</span>, <span class="p_number">0</span>, family, port) + address
+        <span class="p_word">return</span> locals()
+
+    @Property
+    <span class="p_word">def</span> error():
+        <span class="p_triple">'''A tuple (number, text) representing error code for the ERROR-CODE attribute.'''</span>
+        <span class="p_word">def</span> fget(self):
+            ignore, cls, num = struct.unpack(<span class="p_string">'!HBB'</span>, self.value[:<span class="p_number">4</span>])
+            <span class="p_word">return</span> ((cls &amp; <span class="p_number">0x07</span>) * <span class="p_number">100</span> + (num % <span class="p_number">100</span>), self.value[<span class="p_number">4</span>:])
+        <span class="p_word">def</span> fset(self, value):
+            cls, num = value[<span class="p_number">0</span>] / <span class="p_number">100</span>, value[<span class="p_number">0</span>] % <span class="p_number">100</span>
+            self.value = struct.pack(<span class="p_string">'!HBB'</span>, <span class="p_number">0</span>, cls, num) + value[<span class="p_number">1</span>]
+        <span class="p_word">return</span> locals()
+
+    @Property
+    <span class="p_word">def</span> unknown():
+        <span class="p_triple">'''A list [type, type, ...] of attributes for the UNKNOWN-ATTRIBUTE.'''</span>
+        <span class="p_word">def</span> fget(self):
+            <span class="p_word">return</span> [x <span class="p_word">for</span> x <span class="p_word">in</span> struct.unpack(<span class="p_string">'!'</span>+str(len(self.value)/<span class="p_number">2</span>)+<span class="p_string">'H'</span>, self.value)]
+        <span class="p_word">def</span> fset(self, value):
+            self.value = <span class="p_string">''</span>.join([struct.pack(<span class="p_string">'!H'</span>, x) <span class="p_word">for</span> x <span class="p_word">in</span> value])
+        <span class="p_word">return</span> locals()
+            
+
+<span class="p_word">class</span> Message(object):
+    <span class="p_triple">'''A STUN message definition. The properties method, type and tid are defined in the spec.
+    The attrs property is a list of STUN attributes in this Message object.'''</span>
+    
+    BINDING, ignore, ALLOCATE, SEND, DATA, SET_ACTIVE_DESTINATION = range(<span class="p_number">1</span>,<span class="p_number">7</span>) <span class="p_commentline"># method: 1,3,4,5,6 </span>
+    REQUEST, INDICATION, RESPONSE, ERROR = tuple(range(<span class="p_number">0</span>, <span class="p_number">4</span>)) <span class="p_commentline"># type</span>
+    MAGIC = <span class="p_number">0x2112A442</span> <span class="p_commentline"># magic cookie</span>
+    
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>):
+        <span class="p_triple">'''Construct a Message. Attributes are method (12-bits), type (two-bits), tid 
+        (12 bytes) and list of attr. Parse the value if given.'''</span>
+        self.method = self.type = <span class="p_number">0</span> 
+        self.tid, self.attrs = <span class="p_string">''</span>, []
+        <span class="p_word">if</span> value:
+            type, length, magic, self.tid = struct.unpack(<span class="p_string">'!HHL12s'</span>, value[:<span class="p_number">20</span>])
+            <span class="p_word">if</span> (type &amp; <span class="p_number">0xC000</span>) != <span class="p_number">0</span>:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'incorrect message type: %x'</span>%type
+            <span class="p_word">if</span> magic != Message.MAGIC:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'incorrect magic cookie: %x'</span>%magic
+            <span class="p_word">if</span> length != (len(value)-<span class="p_number">20</span>):
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'incorrect length: %d != %d'</span>%(length, len(value)-<span class="p_number">20</span>)
+            <span class="p_word">if</span> (length &amp; <span class="p_number">0x0003</span>) != <span class="p_number">0</span>:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'incorrect length %d, must be multiple of four'</span>%length
+            
+            self.method = (type &amp; <span class="p_number">0x000F</span>) | ((type &amp; <span class="p_number">0x00E0</span>) &gt;&gt; <span class="p_number">1</span>) | ((type &amp; <span class="p_number">0x3E00</span>) &gt;&gt; <span class="p_number">2</span>)
+            self.type = ((type &amp; <span class="p_number">0x0100</span>) &gt;&gt; <span class="p_number">7</span>) | ((type &amp; <span class="p_number">0x0010</span>) &gt;&gt; <span class="p_number">4</span>)
+
+            value = value[<span class="p_number">20</span>:]
+            <span class="p_word">while</span> value <span class="p_word">and</span> len(value)&gt;<span class="p_number">0</span>:
+                attrtype, attrlen = struct.unpack(<span class="p_string">'!HH'</span>, value[:<span class="p_number">4</span>])
+                self.attrs.append(Attribute(attrtype, value[<span class="p_number">4</span>:<span class="p_number">4</span>+attrlen])) <span class="p_commentline"># parse attr</span>
+                value = value[(<span class="p_number">4</span>+attrlen+(<span class="p_number">4</span>-attrlen%<span class="p_number">4</span>)%<span class="p_number">4</span>):]                <span class="p_commentline"># padding</span>
+            
+    <span class="p_word">def</span> __str__(self):
+        <span class="p_triple">'''Format a message into byte stream.'''</span>
+        type = (self.method &amp; <span class="p_number">0x000F</span>) | ((self.method &amp; <span class="p_number">0x0070</span>) &lt;&lt; <span class="p_number">1</span>) | ((self.method &amp; <span class="p_number">0x0F80</span>) &lt;&lt; <span class="p_number">2</span>) \
+                | ((self.type &amp; <span class="p_number">0x01</span>) &lt;&lt; <span class="p_number">4</span>) | ((self.type &amp; <span class="p_number">0x02</span>) &lt;&lt; <span class="p_number">7</span>) 
+        <span class="p_word">if</span> <span class="p_word">not</span> self.tid:  self.tid = urandom(<span class="p_number">12</span>)
+        attrstr = <span class="p_string">''</span>
+        <span class="p_word">for</span> attr <span class="p_word">in</span> self.attrs:
+            value = str(attr.value)
+            attrstr += struct.pack(<span class="p_string">'!HH'</span>, attr.type, len(value)) + value
+            <span class="p_word">if</span> (len(value) % <span class="p_number">4</span>) != <span class="p_number">0</span>:
+                attrstr += <span class="p_string">''</span>.join([chr(<span class="p_number">0</span>) <span class="p_word">for</span> x <span class="p_word">in</span> range(<span class="p_number">0</span>, (<span class="p_number">4</span>-len(value)%<span class="p_number">4</span>)%<span class="p_number">4</span>)])
+        result = struct.pack(<span class="p_string">"!HHL12s"</span>, <span class="p_number">0x3FFF</span> &amp; type, len(attrstr), Message.MAGIC, self.tid)
+        result += attrstr
+        <span class="p_word">return</span> result
+    
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_triple">'''User friendly display of the STUN Message.'''</span>
+        result = <span class="p_string">'&lt;rfc3489bis.Message method=%r type=%r tid=%r'</span>%(self.method, self.type, self.tid)
+        <span class="p_word">if</span> self.attrs:
+            <span class="p_word">for</span> attr <span class="p_word">in</span> self.attrs:
+                result += <span class="p_string">'\n   attr=%d value=%r'</span>%(attr.type, (attr.type <span class="p_word">in</span> [Attribute.MAPPED_ADDRESS, Attribute.ALTERNATE_SERVER]) <span class="p_word">and</span> attr.address <span class="p_word">or</span> attr.value)
+        <span class="p_word">else</span>: result += <span class="p_string">'&gt;'</span>
+        <span class="p_word">return</span> result
+
+    <span class="p_commentline"># container access for message attributes</span>
+    <span class="p_word">def</span> __getitem__(self, name):
+        <span class="p_triple">'''Return the first attribute matching the name (attribute type).'''</span> 
+        <span class="p_word">for</span> attr <span class="p_word">in</span> self.attrs:
+            <span class="p_word">if</span> attr.type == name:
+                <span class="p_word">return</span> attr
+        <span class="p_word">return</span> <span class="p_word">None</span>
+    <span class="p_word">def</span> __setitem__(self, name, value): 
+        <span class="p_triple">'''Override or add an attribute with the name (attribute type) and value.
+        Note the different in set and get semantics. In set you set the value (str), but
+        get returns an Attribute object.'''</span>
+        <span class="p_word">for</span> attr <span class="p_word">in</span> self.attrs:
+            <span class="p_word">if</span> attr.type == name:
+                attr.value = value
+                <span class="p_word">return</span>
+        self.attrs.append(Attribute(name, value))
+    <span class="p_word">def</span> __contains__(self, name): 
+        <span class="p_triple">'''Check if the name (attribute type) exists in the message?'''</span>
+        <span class="p_word">for</span> attr <span class="p_word">in</span> self.attrs:
+            <span class="p_word">if</span> attr.type == name:
+                <span class="p_word">return</span> True
+        <span class="p_word">return</span> False
+
+        
+<span class="p_word">def</span> request(sock, server=<span class="p_word">None</span>, **kwargs):
+    <span class="p_triple">'''Send a STUN client request with retransmissions and return the response.
+    This is a generator function, and can be called as
+        response, external = yield request(sock, ('stun.iptel.org', 3478))
+
+    It raises ValueError in case of failure and multitask.Timeout in case of timeout
+    or failure to connect TCP or invalid response received. For TCP, the sock remains
+    connected after successful return or exception from this function.
+    
+    Arguments are as follows:
+        sock: the socket to use for sending request and receiving response.
+        server: optional server (ip, port), defaults to defaultServers[0]. For TCP if sock
+          is already connected, then server argument is ignored.
+        method: optional STUN method, defaults to Message.BINDING.
+        tid: optional transaction id, by default generates a new.
+        attrs: optional attributes, by default empty list [].
+        rto: optional RTO, defaults to 0.1 for UDP and 9.3 for TCP.
+        retry: optional retry count, defaults to 7 for UDP and 1 for TCP.
+        maxsize: optional maximum packet size, defaults to 1500. 
+        handler: optional handler function, that receives any message that was received
+          but not handled by the request method. 
+    The handler argument allows demultiplexing other types of received messages on the 
+    same socket. Note that raising an exception is not good, because we still want to 
+    wait for response instead of exiting. The handler is invoked as 
+    handler(sock, remote, data) where data is raw data string and remote is usually 
+    server (ip, port). If no handler is specified, then invalid data raises a ValueError.
+    '''</span>
+    
+    server = server <span class="p_word">or</span> defaultServers[<span class="p_number">0</span>] <span class="p_commentline"># use first server if missing</span>
+    handler = kwargs.get(<span class="p_string">'handler'</span>, <span class="p_word">None</span>)
+    maxsize = kwargs.get(<span class="p_string">'maxsize'</span>, <span class="p_number">1500</span>)
+    
+    m = Message()
+    m.method = kwargs.get(<span class="p_string">'method'</span>, Message.BINDING)
+    m.type = Message.REQUEST
+    m.tid = kwargs.get(<span class="p_string">'tid'</span>, urandom(<span class="p_number">12</span>))
+    m.attrs = kwargs.get(<span class="p_string">'attrs'</span>, [])
+    mstr = str(m) <span class="p_commentline"># formatted message bytes to send</span>
+    
+    <span class="p_word">if</span> len(mstr) &gt;= maxsize: <span class="p_word">raise</span> ValueError, <span class="p_string">'Cannot send packet of length&gt;%d'</span>%(maxsize)
+    
+    <span class="p_word">if</span> sock.type == socket.SOCK_STREAM:
+        remote = <span class="p_word">None</span>
+        <span class="p_word">try</span>: remote = sock.getpeername()
+        <span class="p_word">except</span>: <span class="p_word">pass</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> remote: 
+            <span class="p_word">try</span>: 
+                sock.connect(server)
+                remote = server <span class="p_commentline"># connect if not already connected.</span>
+            <span class="p_word">except</span>: 
+                <span class="p_word">raise</span> multitask.Timeout() <span class="p_commentline"># can't connect, then raise a timeout error.</span>
+        tcp, rto, retry = True, kwargs.get(<span class="p_string">'rto'</span>, <span class="p_number">9.3</span>), kwargs.get(<span class="p_string">'retry'</span>, <span class="p_number">1</span>)
+    <span class="p_word">else</span>:
+        tcp, rto, retry = False, kwargs.get(<span class="p_string">'rto'</span>, <span class="p_number">0.100</span>), kwargs.get(<span class="p_string">'retry'</span>, <span class="p_number">7</span>) 
+    
+    <span class="p_word">while</span> retry&gt;<span class="p_number">0</span>:
+        retry = retry - <span class="p_number">1</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'sending STUN request method=%d, len=%d, remaining-retry=%d'</span>%(m.method, len(mstr), retry)
+        <span class="p_word">if</span> tcp: 
+            <span class="p_word">yield</span> multitask.send(sock, mstr) <span class="p_commentline"># send the request</span>
+        <span class="p_word">else</span>: 
+            <span class="p_word">yield</span> multitask.sendto(sock, mstr, server)
+        <span class="p_word">try</span>:
+            <span class="p_word">if</span> tcp: <span class="p_commentline"># receiving a TCP packet is complicated. remote is already set</span>
+                data = (<span class="p_word">yield</span> multitask.recv(sock, maxsize, timeout=rto))
+                <span class="p_word">if</span> <span class="p_word">not</span> data: <span class="p_word">break</span>
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'request() received data'</span>
+                type, length, magic = struct.unpack(<span class="p_string">'!HHL'</span>, data[:<span class="p_number">8</span>])
+                <span class="p_word">if</span> type &amp; <span class="p_number">0xC000</span> != <span class="p_number">0</span> <span class="p_word">or</span> magic != Message.MAGIC:
+                    <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid STUN response from server type=0x%x, magic=0x%x'</span>%(type, magic)
+                <span class="p_word">if</span> length &gt; (maxsize-<span class="p_number">8</span>):
+                    <span class="p_word">raise</span> ValueError, <span class="p_string">'very large response length[%d]&gt;%d'</span>%(length+<span class="p_number">8</span>, maxsize)
+            <span class="p_word">else</span>: <span class="p_commentline"># receive a UDP datagram</span>
+                data, remote = (<span class="p_word">yield</span> multitask.recvfrom(sock, maxsize, timeout=rto))
+                
+            <span class="p_word">if</span> data:
+                <span class="p_word">try</span>:
+                    response = Message(data) <span class="p_commentline"># parse the message if any</span>
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'received STUN message method=%d, type=%d'</span>%(response.method, response.type)
+                <span class="p_word">except</span>:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'received invalid STUN message len=%d'</span>%(len(response))
+                    <span class="p_word">if</span> handler: 
+                        handler(sock, remote, data) <span class="p_commentline"># allow app to demultiplex</span>
+                        <span class="p_word">continue</span> <span class="p_commentline"># retry next</span>
+                    <span class="p_word">else</span>:
+                        <span class="p_word">raise</span> ValueError, <span class="p_string">'Invalid response from server'</span>
+                    
+                <span class="p_word">if</span> response.tid != m.tid: 
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'The tid does not match. ignoring'</span>
+                    <span class="p_word">if</span> handler: handler(sock, remote, data)
+                    <span class="p_word">continue</span> <span class="p_commentline"># probably a old response, don't raise exception.</span>
+                
+                external = <span class="p_word">None</span>
+                <span class="p_word">for</span> attr <span class="p_word">in</span> response.attrs:
+                    <span class="p_word">if</span> <span class="p_word">not</span> attr.optional <span class="p_word">and</span> attr.type <span class="p_word">not</span> <span class="p_word">in</span> Attribute.knownTypes:
+                        <span class="p_word">raise</span> ValueError, <span class="p_string">'Attribute 0x%04x not understood in response'</span>%attr.type
+                <span class="p_word">if</span> response.type == Message.RESPONSE: <span class="p_commentline"># success response</span>
+                    <span class="p_word">for</span> attr <span class="p_word">in</span> response.attrs:
+                        <span class="p_word">if</span> m.method == Message.BINDING:
+                            <span class="p_word">if</span> attr.type == Attribute.XOR_MAPPED_ADDRESS:
+                                external = attr.xorAddress <span class="p_commentline"># (family, ip, port)</span>
+                            <span class="p_word">elif</span> attr.type == Attribute.MAPPED_ADDRESS: <span class="p_commentline"># for backward compatibility with <a href="http://www.rfc-editor.org/rfc/rfc3489.txt">RFC 3489</a></span>
+                                external = attr.address 
+                <span class="p_word">elif</span> response.type == Message.ERROR: <span class="p_commentline"># error response</span>
+                    error = <span class="p_word">None</span>
+                    <span class="p_word">for</span> attr <span class="p_word">in</span> response.attrs:
+                        <span class="p_word">if</span> attrs.type == Attribute.ERROR_CODE:
+                            error = attrs.error  <span class="p_commentline"># (code, reason)</span>
+                            <span class="p_word">break</span>
+                    <span class="p_word">raise</span> ValueError, <span class="p_string">'Request failed with error %r'</span>%error
+                <span class="p_word">if</span> external:
+                    external = external[<span class="p_number">1</span>:] <span class="p_commentline"># ignore the address family</span>
+                    <span class="p_word">raise</span> StopIteration(response, external) <span class="p_commentline"># result to the caller</span>
+                <span class="p_commentline"># TODO: else do we continue or raise an error?</span>
+        <span class="p_word">except</span> multitask.Timeout:
+            rto = rto * <span class="p_number">2</span> <span class="p_commentline"># double the rto</span>
+        <span class="p_word">except</span> StopIteration:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'request() returning external='</span> + str(external)
+            <span class="p_word">raise</span>
+        <span class="p_word">except</span>: <span class="p_commentline"># any other exception, fall back to Timeout exception</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'Some ValueError exception'</span>, sys.exc_info()
+            <span class="p_word">break</span>
+        
+    <span class="p_word">raise</span> multitask.Timeout  <span class="p_commentline"># no response after all retransmissions</span>
+    
+
+<span class="p_word">def</span> _createSocket():
+    <span class="p_triple">'''Create a socket, bind and return (socket, (localip, localport)).'''</span>
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, <span class="p_number">0</span>)
+    sock.bind((<span class="p_string">''</span>, <span class="p_number">0</span>))
+    local = (socket.gethostbyname(socket.gethostname()), sock.getsockname()[<span class="p_number">1</span>])  <span class="p_commentline"># get the local port</span>
+    <span class="p_word">return</span> (sock, local)
+    
+<span class="p_word">def</span> discoverBehavior(servers=defaultServers):
+    <span class="p_triple">'''Discover the NAT behavior and return the result as a tuple (type, mapping, filtering, external).
+    There are four types: public, blocked, good and bad which correspond to as follows:
+    public: mapping = filtering = 'Endpoing Independent', i.e., no NAT.
+    blocked: mapping = filtering = None, i.e., UDP is blocked.
+    good: mapping = 'Endpoint Independent', filtering='Address Independent', i.e., full-cone.
+    bad: anything else is a bad NAT, hence requires ICE or tunneling.
+    
+    If the servers list is not provided, a default servers list (defaultServers)
+    is used. Each element in the servers should be 'host:port' of the server.
+    This is a generator function and can be invoked as
+     nattype, mapping, filtering, external = yield discoverBehavior()
+    The external result represents the external (ip, port) and is useful only if the mapping
+    is 'Address Independent' or 'Endpoint Independent'.
+    '''</span>
+    
+    sock, local = _createSocket()
+    mapping = filtering = external = <span class="p_word">None</span>
+    
+    <span class="p_word">for</span> server <span class="p_word">in</span> servers:
+        <span class="p_word">try</span>:
+            response, external = (<span class="p_word">yield</span> request(sock, server=server))
+
+            <span class="p_word">if</span> external == local:
+                mapping = filtering = <span class="p_string">'Endpoint Independent'</span>
+            <span class="p_word">elif</span> Attribute.OTHER_ADDRESS <span class="p_word">in</span> response:
+                other = response[Attribute.OTHER_ADDRESS].address[<span class="p_number">1</span>:] <span class="p_commentline"># ignore address family</span>
+                response, external2 = (<span class="p_word">yield</span> request(sock, (other[<span class="p_number">0</span>], server[<span class="p_number">1</span>])))
+                <span class="p_word">if</span> external == external2:
+                    mapping = <span class="p_string">'Endpoint Independent'</span>
+                <span class="p_word">else</span>:
+                    response, external3 = (<span class="p_word">yield</span> request(sock, server=other))
+                    mapping = external3 == external2 <span class="p_word">and</span> <span class="p_string">'Address Dependent'</span> <span class="p_word">or</span> <span class="p_string">'Address and Port Dependent'</span> 
+                
+                sock2, local2 = _createSocket() <span class="p_commentline"># allocate new socket to detect filtering behavior</span>
+                <span class="p_commentline"># skip test I of filtering behavior; reuse previous result</span>
+                
+                <span class="p_word">try</span>:
+                    response, external4 = (<span class="p_word">yield</span> request(sock2, server, attrs=[Attribute(Attribute.CHANGE_REQUEST, <span class="p_string">'\x00\x00\x00\x06'</span>)])) <span class="p_commentline"># change IP and port</span>
+                    filtering = <span class="p_string">'Address Independent'</span>
+                <span class="p_word">except</span> multitask.Timeout: <span class="p_commentline"># didn't receive any</span>
+                    <span class="p_word">try</span>:
+                        response, external5 = (<span class="p_word">yield</span> request(sock2, server, attrs=[Attribute(Attribute.CHANGE_REQUEST, <span class="p_string">'\x00\x00\x00\x02'</span>)])) <span class="p_commentline"># change port</span>
+                        filtering = <span class="p_string">'Address Dependent'</span>
+                    <span class="p_word">except</span> multitask.Timeout: 
+                        filtering = <span class="p_string">'Address and Port Dependent'</span>
+                        
+            <span class="p_word">else</span>: <span class="p_commentline"># can't detect behavior. Just make it dependent.</span>
+                mapping = filtering = <span class="p_string">'Unknown'</span>
+                i = servers.index(server)
+                <span class="p_word">if</span> i &lt; len(servers) <span class="p_word">and</span> servers[i+<span class="p_number">1</span>][<span class="p_number">0</span>] != server[<span class="p_number">0</span>]: <span class="p_commentline"># try the next server</span>
+                    other = servers[i+<span class="p_number">1</span>]
+                    response, external2 = (<span class="p_word">yield</span> request(sock, other))
+                    <span class="p_word">if</span> external == external2:
+                        mapping = <span class="p_string">'Address Independent'</span>
+                    <span class="p_word">else</span>:
+                        mapping = <span class="p_string">'Address and Port Dependent'</span>
+            
+            <span class="p_word">if</span> mapping <span class="p_word">or</span> filtering: 
+                <span class="p_word">break</span> <span class="p_commentline"># no exception means we discovered behavior</span>
+            
+        <span class="p_word">except</span>:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'Continuing after an exception or timeout with server='</span>, server, (sys <span class="p_word">and</span> sys.exc_info() <span class="p_word">or</span> <span class="p_word">None</span>)
+
+    nattype = (<span class="p_word">not</span> mapping <span class="p_word">or</span> <span class="p_word">not</span> filtering) <span class="p_word">and</span> <span class="p_string">'blocked'</span> \
+            <span class="p_word">or</span> mapping == filtering == <span class="p_string">'Endpoint Independent'</span> <span class="p_word">and</span> <span class="p_string">'public'</span> \
+            <span class="p_word">or</span> mapping.find(<span class="p_string">'Independent'</span>)&gt;=<span class="p_number">0</span> <span class="p_word">and</span> filtering.find(<span class="p_string">'Independent'</span>)&gt;=<span class="p_number">0</span> <span class="p_word">and</span> <span class="p_string">'good'</span> \
+            <span class="p_word">or</span> <span class="p_string">'bad'</span>
+    <span class="p_word">raise</span> StopIteration(nattype, mapping, filtering, external) <span class="p_commentline"># result to the caller</span>
+
+
+<span class="p_word">def</span> server(sock1, **kwargs):
+    <span class="p_triple">'''A simple server implementation to test the code or to use in real deployment.
+    The application should start the server as multitask.add(server(sock)).
+    
+    The caller should make sure that the sock1 argument is a UDP or TCP socket
+    which is already bound. Additionally, sock2, sock3, and sock4 can be supplied
+    as keyword arguments and represent the socket to use for change-IP, change-port
+    and change IP+port commands respectively. Other keyword arguments are as follows:
+      timeout: optional acivity timeout (second) if relay is activated, defaults to 180.
+      external: optional external (ip, port) of the socket in case it is behind
+        a full-cone NAT and still acts as a (relay) server.
+      handler: optional function that gets invoked as handler(sock, remote, data) for 
+        non-STUN data, and allows the application to demultiplex other types of data.
+      maxsize: optional maximum size of packet to handle, defaults to 1500.'''</span>
+        
+    sock2, sock3, sock4 = kwargs.get(<span class="p_string">'sock2'</span>, <span class="p_word">None</span>), kwargs.get(<span class="p_string">'sock3'</span>, <span class="p_word">None</span>), kwargs.get(<span class="p_string">'sock4'</span>, <span class="p_word">None</span>)
+    addr1 = getlocaladdr(sock1)    
+    addr4 = sock4 <span class="p_word">and</span> getlocaladdr(sock4) <span class="p_word">or</span> <span class="p_word">None</span>
+    timeout = kwargs.get(<span class="p_string">'timeout'</span>, <span class="p_number">180</span>) <span class="p_commentline"># three minutes</span>
+    external = kwargs.get(<span class="p_string">'external'</span>, addr1)
+    handler = kwargs.get(<span class="p_string">'handler'</span>, <span class="p_word">None</span>)
+    maxsize = kwargs.get(<span class="p_string">'maxsize'</span>, <span class="p_number">1500</span>)
+    
+    tcp = (sock1.type == socket.SOCK_STREAM) <span class="p_commentline"># whether the server is on tcp or udp.</span>
+    binding = dict()  <span class="p_commentline"># allocated relay bindings if any</span>
+    
+    <span class="p_word">def</span> respond(sock, data, remote):
+        <span class="p_word">if</span> sock.type == socket.SOCK_STREAM:
+            <span class="p_word">yield</span> multitask.send(sock, data)
+        <span class="p_word">else</span>:
+            <span class="p_word">yield</span> multitask.sendto(sock, data, remote)
+    
+    <span class="p_word">def</span> bindingRequest(sock, m, remote): <span class="p_commentline"># Serve a binding request of STUN</span>
+        res = Message()
+        res.method, res.type, res.tid = Message.BINDING, Message.RESPONSE, m.tid
+        mapped = Attribute(Attribute.MAPPED_ADDRESS) <span class="p_commentline"># mapped-address attribute</span>
+        mapped.address = (sock.family, addr1[<span class="p_number">0</span>], addr1[<span class="p_number">1</span>])
+        res.attrs.append(mapped)
+        <span class="p_word">if</span> Attribute.CHANGE_REQUEST <span class="p_word">not</span> <span class="p_word">in</span> m: <span class="p_commentline"># send from same address:port</span>
+            <span class="p_word">if</span> addr4: <span class="p_commentline"># add the other address attribute</span>
+                other = Attribute(Attribute.OTHER_ADDRESS)
+                other.address = (sock4.family, addr4[<span class="p_number">0</span>], addr4[<span class="p_number">1</span>])
+                res.attrs.append(other)
+        <span class="p_word">else</span>:
+            change = m[Attribute.CHANGE_REQUEST]
+            sock = change.value == <span class="p_string">'\x00\x00\x00\x06'</span> <span class="p_word">and</span> sock4 <span class="p_word">or</span> change.value == <span class="p_string">'\x00\x00\x00\x02'</span> <span class="p_word">and</span> sock3 <span class="p_word">or</span> change.value == <span class="p_string">'\x00\x00\x00\x04'</span> <span class="p_word">and</span> sock2 <span class="p_word">or</span> <span class="p_word">None</span>
+        <span class="p_word">if</span> sock:
+            <span class="p_word">yield</span> respond(sock, str(res), remote)
+        <span class="p_word">raise</span> StopIteration()
+
+    <span class="p_word">def</span> allocateRequest(sock, m, remote): <span class="p_commentline"># serve the allocate request of TURN</span>
+        fivetuple = (sock.type, getlocaladdr(sock), remote)
+        lifetime = timeout
+        <span class="p_word">if</span> Attribute.LIFETIME <span class="p_word">in</span> m:
+            lt = struct.unpack(<span class="p_string">'!L'</span>, m[Attribute.LIFETIME].value)
+            <span class="p_word">if</span> lt &lt; lifetime: lifetime = lt
+        <span class="p_word">if</span> fivetuple <span class="p_word">in</span> binding: <span class="p_commentline"># already found</span>
+            newsock = binding[fivetuple]
+            <span class="p_word">if</span> lifetime == <span class="p_number">0</span>: <span class="p_commentline"># terminate the binding</span>
+                <span class="p_word">del</span> binding[fivetuple]
+                <span class="p_word">del</span> binding[newsock]
+        <span class="p_word">else</span>:
+            <span class="p_word">if</span> lifetime &gt; <span class="p_number">0</span>: <span class="p_commentline"># allocate, otherwise it is already missing.</span>
+                newsock = socket.socket(sock.family, sock.type)
+                newsock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>)) <span class="p_commentline"># bind to any</span>
+                binding[newsock] = fivetuple
+                binding[fivetuple] = newsock
+            
+        res = Message()
+        res.method, res.type, res.tid = m.method, Message.RESPONSE, m.tid
+        mapped = Attribute(Attribute.MAPPED_ADDRESS) <span class="p_commentline"># mapped-address attribute</span>
+        mapped.address = (newsock.family, (external, newsock <span class="p_word">and</span> newsock.getsockname()[<span class="p_number">1</span>] <span class="p_word">or</span> <span class="p_number">0</span>))
+        res.attrs.append(mapped)
+        res.attrs.append(Attribute(Attribute.LIFETIME, struct.pack(<span class="p_string">'!L'</span>, lifetime)))
+        
+        <span class="p_word">if</span> lifetime == <span class="p_number">0</span> <span class="p_word">and</span> newsock: <span class="p_commentline"># close any previous listening function</span>
+            newsock.close() <span class="p_commentline"># this should trigger close of functions</span>
+        <span class="p_word">else</span>:
+            <span class="p_word">if</span> sock.type == socket.SOCK_STREAM:
+                multitask.add(relayaccepter(newsock, fivetuple))
+            <span class="p_word">else</span>:
+                multitask.add(relayreceiver(newsock, fivetuple))
+                
+        <span class="p_word">yield</span> respond(sock, str(res), remote)
+
+    <span class="p_word">def</span> relaytcpreceiver(sock, fivetuple):
+        <span class="p_word">pass</span>
+
+    <span class="p_word">def</span> relayaccepter(sock, fivetuple):
+        sock.listen(<span class="p_number">5</span>) <span class="p_commentline"># accept queue</span>
+        <span class="p_word">while</span> True: <span class="p_commentline"># start the main listening loop of the tcp server</span>
+            <span class="p_word">try</span>:
+                conn, remote = (<span class="p_word">yield</span> multitask.accept(sock))
+                <span class="p_word">if</span> conn:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'relayaccepter().accept() from'</span>, remote
+                    sock.close() <span class="p_commentline"># close the original listening socket -- no more connections</span>
+                    binding[fivetuple] = conn <span class="p_commentline"># update the binding</span>
+                    <span class="p_word">del</span> binding[sock]
+                    binding[conn] = fivetuple
+                    multitask.add(relaytcpreceiver(conn, fivetuple, remote))
+                    <span class="p_word">break</span>
+            <span class="p_word">except</span>: <span class="p_commentline"># some other socket error, probably sock is closed.</span>
+                <span class="p_word">break</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'relaytcpaccepter() exiting'</span>
+        
+    <span class="p_word">def</span> relayreceiver(sock, fivetuple):
+        <span class="p_word">while</span> True: <span class="p_commentline"># start the main listening loop of the udp server</span>
+            <span class="p_word">try</span>:
+                data, remote = (<span class="p_word">yield</span> multitask.recvfrom(sock, maxsize)) <span class="p_commentline"># receive a packet</span>
+                <span class="p_word">if</span> data:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'server().recvfrom() from'</span>, remote
+                    multitask.add(datahandler(sock1, data, remote))
+            <span class="p_word">except</span>: <span class="p_commentline"># some other socket error, probably sock1 is closed.</span>
+                <span class="p_word">break</span>
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'server() exiting'</span>
+        
+    <span class="p_word">def</span> sendRequest(sock, m, remote): <span class="p_commentline"># serve the send request of TURN</span>
+        fivetuple = (sock.type, getlocaladdr(sock), remote)
+        <span class="p_word">try</span>:
+            <span class="p_word">if</span> fivetuple <span class="p_word">not</span> <span class="p_word">in</span> binding: <span class="p_commentline"># not found</span>
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'no turn binding found'</span>
+            newsock = binding[fivetuple]
+            destaddr = Attribute.DESTINATION_ADDRESS <span class="p_word">in</span> m  <span class="p_word">and</span> m[Attribute.DESTINATION_ADDRESS].address[<span class="p_number">1</span>:] <span class="p_word">or</span> <span class="p_word">None</span>
+            data     = Attribute.DATA <span class="p_word">in</span> m <span class="p_word">and</span> m[Attribute.DATA] <span class="p_word">or</span> <span class="p_word">None</span>
+            <span class="p_word">if</span> sock.type == socket.SOCK_STREAM:
+                <span class="p_word">try</span>: 
+                    remote = newsock.getpeername()
+                <span class="p_word">except</span>: 
+                    remote = <span class="p_word">None</span>
+                <span class="p_word">if</span> <span class="p_word">not</span> remote: 
+                    newsock.connect(destaddr)
+                    remote = destaddr
+                <span class="p_word">yield</span> multitask.send(newsock, data)
+            <span class="p_word">else</span>:
+                <span class="p_word">yield</span> multitask.sendto(newsock, data, destaddr)
+            <span class="p_commentline"># TODO: we don't lock to destaddr. This is a security risk.</span>
+            result = True
+        <span class="p_word">except</span>:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'sendRequest() exception'</span>, sys.exc_info()
+            result = False
+        res = Message()
+        res.method, res.type, res.tid = m.method, (result <span class="p_word">and</span> Message.RESPONSE <span class="p_word">or</span> Message.ERROR), m.tid
+        <span class="p_word">if</span> <span class="p_word">not</span> result:
+            error = Attribute(Attribute.ERROR_CODE)
+            error.error = (<span class="p_number">400</span>, <span class="p_string">'cannot send request'</span>) <span class="p_commentline"># TODO: be more explicit.</span>
+            res.attrs.append(error)
+        <span class="p_word">yield</span> respond(sock, str(res), remote)
+    
+    <span class="p_word">def</span> datahandler(sock, data, remote): <span class="p_commentline">#handle a new data from given remote (ip, port)</span>
+        <span class="p_word">try</span>: 
+            m = Message(data) <span class="p_commentline"># parse the message</span>
+            func = m.type == Message.REQUEST <span class="p_word">and</span> ( \
+                    m.method == Message.BINDING <span class="p_word">and</span> bindingRequest \
+                    <span class="p_word">or</span> m.method == Message.ALLOCATE <span class="p_word">and</span> allocateRequest \
+                    <span class="p_word">or</span> m.method == Message.SEND <span class="p_word">and</span> sendRequest \
+                    ) <span class="p_word">or</span> <span class="p_word">None</span> 
+            <span class="p_word">if</span> func:
+                <span class="p_word">yield</span> func(sock, m, remote)
+            <span class="p_word">else</span>:
+                <span class="p_word">raise</span> ValueError, <span class="p_string">'unhandled request or message'</span>
+        <span class="p_word">except</span> StopIteration:
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'datahandler: stop iteration'</span>
+            <span class="p_word">raise</span>
+        <span class="p_word">except</span>: <span class="p_commentline"># parsing error or unhandled message</span>
+            <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'datahandler() exception'</span>, sys.exc_info()
+            <span class="p_word">if</span> handler: 
+                handler(sock, remote, data) <span class="p_commentline"># invoke the application's handler.</span>
+        
+    <span class="p_word">def</span> tcpreceiver(sock, remote): <span class="p_commentline"># handle a new incoming TCP connection</span>
+        <span class="p_word">while</span> True:
+            data = (<span class="p_word">yield</span> multitask.recv(sock, maxsize))
+            <span class="p_word">if</span> <span class="p_word">not</span> data: <span class="p_word">break</span> <span class="p_commentline"># socket closed</span>
+            type, length, magic = struct.unpack(<span class="p_string">'!HHL'</span>, data[:<span class="p_number">8</span>])
+            valid = (type &amp; <span class="p_number">0xC000</span> == <span class="p_number">0</span>) <span class="p_word">and</span> magic == Message.MAGIC <span class="p_word">and</span> length&lt;=(maxsize-<span class="p_number">8</span>) <span class="p_commentline"># valid</span>
+            <span class="p_word">if</span> valid: 
+                <span class="p_word">yield</span> datahandler(sock, data, remote)
+                <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'tcpreceiver() finished data handler'</span>
+            <span class="p_word">else</span>: 
+                handler(sock, data, remote)
+
+    <span class="p_word">if</span> tcp: sock1.listen(<span class="p_number">5</span>) <span class="p_commentline"># create the listen queue</span>
+
+    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'server listening on'</span>, addr1
+    <span class="p_word">while</span> True: <span class="p_commentline"># start the main listening loop of the server</span>
+        <span class="p_word">try</span>: tcp = (sock1.type == socket.SOCK_STREAM)
+        <span class="p_word">except</span>: <span class="p_word">break</span> <span class="p_commentline"># probably a bad file descriptor because sock1 is closed.</span>
+        <span class="p_word">try</span>:
+            <span class="p_word">if</span> tcp:
+                conn, remote = (<span class="p_word">yield</span> multitask.accept(sock1, timeout=<span class="p_number">5</span>))
+                <span class="p_word">if</span> conn:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'server().accept() from'</span>, remote 
+                    multitask.add(tcpreceiver(conn, remote))
+            <span class="p_word">else</span>:
+                data, remote = (<span class="p_word">yield</span> multitask.recvfrom(sock1, maxsize, timeout=<span class="p_number">5</span>)) <span class="p_commentline"># receive a packet</span>
+                <span class="p_word">if</span> data:
+                    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'server().recvfrom() from'</span>, remote
+                    multitask.add(datahandler(sock1, data, remote))
+        <span class="p_word">except</span> multitask.Timeout:
+            <span class="p_word">continue</span>
+        <span class="p_word">except</span>: <span class="p_commentline"># some other socket error, probably sock1 is closed.</span>
+            <span class="p_word">break</span>
+    <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'server() exiting'</span>
+    
+<span class="p_commentline">#----------------------------------- Testing ------------------------------</span>
+
+<span class="p_word">def</span> _testServer():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, <span class="p_number">0</span>)
+    sock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>)) <span class="p_commentline"># should use any port for testing</span>
+    multitask.add(server(sock))
+    sockaddr = getlocaladdr(sock)
+    multitask.add(_testDiscoverBehavior([sockaddr, defaultServers[<span class="p_number">0</span>]]))
+    <span class="p_word">yield</span> multitask.sleep(<span class="p_number">5</span>)
+    sock.close()
+    
+    
+<span class="p_word">def</span> _testDiscoverBehavior(servers=<span class="p_word">None</span>):
+    nattype, mapping, filtering, external = servers <span class="p_word">and</span> (<span class="p_word">yield</span> discoverBehavior(servers)) <span class="p_word">or</span> (<span class="p_word">yield</span> discoverBehavior())
+    <span class="p_word">print</span> <span class="p_string">'nattype=%r, mapping=%r, filtering=%r, external=%r'</span>%(nattype, mapping, filtering, external)
+
+<span class="p_word">def</span> _testRequest():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, <span class="p_number">0</span>)
+    sock.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+    <span class="p_word">try</span>:
+        local = getlocaladdr(sock)
+        response, external = <span class="p_word">yield</span> request(sock, (<span class="p_string">'stun.iptel.org'</span>, defaultPort))
+        <span class="p_word">print</span> <span class="p_string">'local='</span>, local, <span class="p_string">'external='</span>, external, <span class="p_string">'remote='</span>, remote
+    <span class="p_word">except</span> (ValueError, multitask.Timeout), E:
+        <span class="p_word">print</span> <span class="p_string">'exception - ValueError or Timeout'</span>, E
+    <span class="p_word">except</span>:
+        <span class="p_word">print</span> <span class="p_string">'exception'</span>, sys.exc_info()
+
+<span class="p_word">def</span> _testTcpRequest():
+    <span class="p_word">try</span>:
+        sock1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock1.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>)) <span class="p_commentline"># should use any port for testing</span>
+        multitask.add(server(sock1))
+        sockaddr = getlocaladdr(sock1)
+        
+        sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock2.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">2</span>) <span class="p_commentline"># wait for server to be started.</span>
+        response, external = (<span class="p_word">yield</span> request(sock2, sockaddr))
+        <span class="p_word">print</span> <span class="p_string">'external='</span>, external
+        sock1.close()
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">6</span>)
+        <span class="p_word">print</span> <span class="p_string">'_testTcpRequest() exiting'</span>
+    <span class="p_word">except</span> (ValueError, multitask.Timeout), E:
+        <span class="p_word">print</span> <span class="p_string">'exception - ValueError or Timeout'</span>, E
+    <span class="p_word">except</span>:
+        <span class="p_word">print</span> <span class="p_string">'exception'</span>, sys.exc_info()
+
+<span class="p_word">def</span> _testRelay():
+    <span class="p_word">try</span>:
+        sock1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock1.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+        multitask.add(server(sock1))
+        sockaddr = getlocaladdr(sock1)
+        
+        sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock2.bind((<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">2</span>)
+        response, mapped = request(sock2, sockaddr, method=Message.ALLOCATE)
+        <span class="p_word">print</span> <span class="p_string">'mapped='</span>, mapped
+        sock1.close()
+        sock2.close()
+        <span class="p_word">yield</span> multitask.sleep(<span class="p_number">6</span>)
+    <span class="p_word">except</span>:
+        <span class="p_word">print</span> <span class="p_string">'exception'</span>, sys.exc_info(), traceback.print_exc(file=sys.stdout)    
+
+<span class="p_word">if</span> __name__ == <span class="p_string">"__main__"</span>:
+    <span class="p_commentline">#multitask.add(_testRequest())</span>
+    <span class="p_commentline">#multitask.add(_testDiscoverBehavior())</span>
+    <span class="p_commentline">#multitask.add(_testTcpRequest())</span>
+    <span class="p_commentline">#multitask.add(_testServer())</span>
+    multitask.add(_testRelay())
+    multitask.run()
+    
+    
+
+
+  </PRE></BODY>
+</HTML>

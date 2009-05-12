@@ -1,0 +1,1635 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                          J. Franks
+P1L5	Request for Comments: 2617                       Northwestern University
+P1L6	Obsoletes: 2069                                          P. Hallam-Baker
+P1L7	Category: Standards Track                                 Verisign, Inc.
+P1L8	                                                            J. Hostetler
+P1L9	                                                         AbiSource, Inc.
+P1L10	                                                             S. Lawrence
+P1L11	                                                   Agranat Systems, Inc.
+P1L12	                                                                P. Leach
+P1L13	                                                   Microsoft Corporation
+P1L14	                                                             A. Luotonen
+P1L15	                                     Netscape Communications Corporation
+P1L16	                                                              L. Stewart
+P1L17	                                                       Open Market, Inc.
+P1L18	                                                               June 1999
+P1L19	
+P1L20	
+P1L21	      HTTP Authentication: Basic and Digest Access Authentication
+P1L22	
+P1L23	Status of this Memo
+P1L24	
+P1L25	   This document specifies an Internet standards track protocol for the
+P1L26	   Internet community, and requests discussion and suggestions for
+P1L27	   improvements.  Please refer to the current edition of the "Internet
+P1L28	   Official Protocol Standards" (STD 1) for the standardization state
+P1L29	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L30	
+P1L31	Copyright Notice
+P1L32	
+P1L33	   Copyright (C) The Internet Society (1999).  All Rights Reserved.
+P1L34	
+P1L35	Abstract
+P1L36	
+P1L37	   "HTTP/1.0", includes the specification for a Basic Access
+P1L38	   Authentication scheme. This scheme is not considered to be a secure
+P1L39	   method of user authentication (unless used in conjunction with some
+P1L40	   external secure system such as SSL [5]), as the user name and
+P1L41	   password are passed over the network as cleartext.
+P1L42	
+P1L43	   This document also provides the specification for HTTP's
+P1L44	   authentication framework, the original Basic authentication scheme
+P1L45	   and a scheme based on cryptographic hashes, referred to as "Digest
+P1L46	   Access Authentication".  It is therefore also intended to serve as a
+P1L47	   replacement for RFC 2069 [6].  Some optional elements specified by
+P1L48	   RFC 2069 have been removed from this specification due to problems
+P1L49	   found since its publication; other new elements have been added for
+P1L50	   compatibility, those new elements have been made optional, but are
+P1L51	   strongly recommended.
+P2L1	   Like Basic, Digest access authentication verifies that both parties
+P2L2	   to a communication know a shared secret (a password); unlike Basic,
+P2L3	   this verification can be done without sending the password in the
+P2L4	   clear, which is Basic's biggest weakness. As with most other
+P2L5	   authentication protocols, the greatest sources of risks are usually
+P2L6	   found not in the core protocol itself but in policies and procedures
+P2L7	   surrounding its use.
+P2L8	
+P2L9	Table of Contents
+P2L10	
+P2L11	   1   Access Authentication................................   3
+P2L12	    1.1   Reliance on the HTTP/1.1 Specification............   3
+P2L13	    1.2   Access Authentication Framework...................   3
+P2L14	   2   Basic Authentication Scheme..........................   5
+P2L15	   3   Digest Access Authentication Scheme..................   6
+P2L16	    3.1   Introduction......................................   6
+P2L17	     3.1.1  Purpose.........................................   6
+P2L18	     3.1.2  Overall Operation...............................   6
+P2L19	     3.1.3  Representation of digest values.................   7
+P2L20	     3.1.4  Limitations.....................................   7
+P2L21	    3.2   Specification of Digest Headers...................   7
+P2L22	     3.2.1  The WWW-Authenticate Response Header............   8
+P2L23	     3.2.2  The Authorization Request Header................  11
+P2L24	     3.2.3  The Authentication-Info Header..................  15
+P2L25	    3.3   Digest Operation..................................  17
+P2L26	    3.4   Security Protocol Negotiation.....................  18
+P2L27	    3.5   Example...........................................  18
+P2L28	    3.6   Proxy-Authentication and Proxy-Authorization......  19
+P2L29	   4   Security Considerations..............................  19
+P2L30	    4.1   Authentication of Clients using Basic
+P2L31	          Authentication....................................  19
+P2L32	    4.2   Authentication of Clients using Digest
+P2L33	          Authentication....................................  20
+P2L34	    4.3   Limited Use Nonce Values..........................  21
+P2L35	    4.4   Comparison of Digest with Basic Authentication....  22
+P2L36	    4.5   Replay Attacks....................................  22
+P2L37	    4.6   Weakness Created by Multiple Authentication
+P2L38	          Schemes...........................................  23
+P2L39	    4.7   Online dictionary attacks.........................  23
+P2L40	    4.8   Man in the Middle.................................  24
+P2L41	    4.9   Chosen plaintext attacks..........................  24
+P2L42	    4.10  Precomputed dictionary attacks....................  25
+P2L43	    4.11  Batch brute force attacks.........................  25
+P2L44	    4.12  Spoofing by Counterfeit Servers...................  25
+P2L45	    4.13  Storing passwords.................................  26
+P2L46	    4.14  Summary...........................................  26
+P2L47	   5   Sample implementation................................  27
+P2L48	   6   Acknowledgments......................................  31
+P3L1	   7   References...........................................  31
+P3L2	   8   Authors' Addresses...................................  32
+P3L3	   9   Full Copyright Statement.............................  34
+P3L4	
+P3L5	1 Access Authentication
+P3L6	
+P3L7	1.1 Reliance on the HTTP/1.1 Specification
+P3L8	
+P3L9	   This specification is a companion to the HTTP/1.1 specification [2].
+P3L10	   It uses the augmented BNF section 2.1 of that document, and relies on
+P3L11	   both the non-terminals defined in that document and other aspects of
+P3L12	   the HTTP/1.1 specification.
+P3L13	
+P3L14	1.2 Access Authentication Framework
+P3L15	
+P3L16	   HTTP provides a simple challenge-response authentication mechanism
+P3L17	   that MAY be used by a server to challenge a client request and by a
+P3L18	   client to provide authentication information. It uses an extensible,
+P3L19	   case-insensitive token to identify the authentication scheme,
+P3L20	   followed by a comma-separated list of attribute-value pairs which
+P3L21	   carry the parameters necessary for achieving authentication via that
+P3L22	   scheme.
+P3L23	
+P3L24	      auth-scheme    = token
+P3L25	      auth-param     = token "=" ( token | quoted-string )
+P3L26	
+P3L27	   The 401 (Unauthorized) response message is used by an origin server
+P3L28	   to challenge the authorization of a user agent. This response MUST
+P3L29	   include a WWW-Authenticate header field containing at least one
+P3L30	   challenge applicable to the requested resource. The 407 (Proxy
+P3L31	   Authentication Required) response message is used by a proxy to
+P3L32	   challenge the authorization of a client and MUST include a Proxy-
+P3L33	   Authenticate header field containing at least one challenge
+P3L34	   applicable to the proxy for the requested resource.
+P3L35	
+P3L36	      challenge   = auth-scheme 1*SP 1#auth-param
+P3L37	
+P3L38	   Note: User agents will need to take special care in parsing the WWW-
+P3L39	   Authenticate or Proxy-Authenticate header field value if it contains
+P3L40	   more than one challenge, or if more than one WWW-Authenticate header
+P3L41	   field is provided, since the contents of a challenge may itself
+P3L42	   contain a comma-separated list of authentication parameters.
+P3L43	
+P3L44	   The authentication parameter realm is defined for all authentication
+P3L45	   schemes:
+P3L46	
+P3L47	      realm       = "realm" "=" realm-value
+P3L48	      realm-value = quoted-string
+P4L1	   The realm directive (case-insensitive) is required for all
+P4L2	   authentication schemes that issue a challenge. The realm value
+P4L3	   (case-sensitive), in combination with the canonical root URL (the
+P4L4	   absoluteURI for the server whose abs_path is empty; see section 5.1.2
+P4L5	   of [2]) of the server being accessed, defines the protection space.
+P4L6	   These realms allow the protected resources on a server to be
+P4L7	   partitioned into a set of protection spaces, each with its own
+P4L8	   authentication scheme and/or authorization database. The realm value
+P4L9	   is a string, generally assigned by the origin server, which may have
+P4L10	   additional semantics specific to the authentication scheme. Note that
+P4L11	   there may be multiple challenges with the same auth-scheme but
+P4L12	   different realms.
+P4L13	
+P4L14	   A user agent that wishes to authenticate itself with an origin
+P4L15	   server--usually, but not necessarily, after receiving a 401
+P4L16	   (Unauthorized)--MAY do so by including an Authorization header field
+P4L17	   with the request. A client that wishes to authenticate itself with a
+P4L18	   proxy--usually, but not necessarily, after receiving a 407 (Proxy
+P4L19	   Authentication Required)--MAY do so by including a Proxy-
+P4L20	   Authorization header field with the request.  Both the Authorization
+P4L21	   field value and the Proxy-Authorization field value consist of
+P4L22	   credentials containing the authentication information of the client
+P4L23	   for the realm of the resource being requested. The user agent MUST
+P4L24	   choose to use one of the challenges with the strongest auth-scheme it
+P4L25	   understands and request credentials from the user based upon that
+P4L26	   challenge.
+P4L27	
+P4L28	   credentials = auth-scheme #auth-param
+P4L29	
+P4L30	      Note that many browsers will only recognize Basic and will require
+P4L31	      that it be the first auth-scheme presented. Servers should only
+P4L32	      include Basic if it is minimally acceptable.
+P4L33	
+P4L34	   The protection space determines the domain over which credentials can
+P4L35	   be automatically applied. If a prior request has been authorized, the
+P4L36	   same credentials MAY be reused for all other requests within that
+P4L37	   protection space for a period of time determined by the
+P4L38	   authentication scheme, parameters, and/or user preference. Unless
+P4L39	   otherwise defined by the authentication scheme, a single protection
+P4L40	   space cannot extend outside the scope of its server.
+P4L41	
+P4L42	   If the origin server does not wish to accept the credentials sent
+P4L43	   with a request, it SHOULD return a 401 (Unauthorized) response. The
+P4L44	   response MUST include a WWW-Authenticate header field containing at
+P4L45	   least one (possibly new) challenge applicable to the requested
+P4L46	   resource. If a proxy does not accept the credentials sent with a
+P4L47	   request, it SHOULD return a 407 (Proxy Authentication Required). The
+P4L48	   response MUST include a Proxy-Authenticate header field containing a
+P5L1	   (possibly new) challenge applicable to the proxy for the requested
+P5L2	   resource.
+P5L3	
+P5L4	   The HTTP protocol does not restrict applications to this simple
+P5L5	   challenge-response mechanism for access authentication. Additional
+P5L6	   mechanisms MAY be used, such as encryption at the transport level or
+P5L7	   via message encapsulation, and with additional header fields
+P5L8	   specifying authentication information. However, these additional
+P5L9	   mechanisms are not defined by this specification.
+P5L10	
+P5L11	   Proxies MUST be completely transparent regarding user agent
+P5L12	   authentication by origin servers. That is, they must forward the
+P5L13	   WWW-Authenticate and Authorization headers untouched, and follow the
+P5L14	   rules found in section 14.8 of [2]. Both the Proxy-Authenticate and
+P5L15	   the Proxy-Authorization header fields are hop-by-hop headers (see
+P5L16	   section 13.5.1 of [2]).
+P5L17	
+P5L18	2 Basic Authentication Scheme
+P5L19	
+P5L20	   The "basic" authentication scheme is based on the model that the
+P5L21	   client must authenticate itself with a user-ID and a password for
+P5L22	   each realm.  The realm value should be considered an opaque string
+P5L23	   which can only be compared for equality with other realms on that
+P5L24	   server. The server will service the request only if it can validate
+P5L25	   the user-ID and password for the protection space of the Request-URI.
+P5L26	   There are no optional authentication parameters.
+P5L27	
+P5L28	   For Basic, the framework above is utilized as follows:
+P5L29	
+P5L30	      challenge   = "Basic" realm
+P5L31	      credentials = "Basic" basic-credentials
+P5L32	
+P5L33	   Upon receipt of an unauthorized request for a URI within the
+P5L34	   protection space, the origin server MAY respond with a challenge like
+P5L35	   the following:
+P5L36	
+P5L37	      WWW-Authenticate: Basic realm="WallyWorld"
+P5L38	
+P5L39	   where "WallyWorld" is the string assigned by the server to identify
+P5L40	   the protection space of the Request-URI. A proxy may respond with the
+P5L41	   same challenge using the Proxy-Authenticate header field.
+P5L42	
+P5L43	   To receive authorization, the client sends the userid and password,
+P5L44	   separated by a single colon (":") character, within a base64 [7]
+P5L45	   encoded string in the credentials.
+P5L46	
+P5L47	      basic-credentials = base64-user-pass
+P5L48	      base64-user-pass  = <base64 [4] encoding of user-pass,
+P6L1	                       except not limited to 76 char/line>
+P6L2	      user-pass   = userid ":" password
+P6L3	      userid      = *<TEXT excluding ":">
+P6L4	      password    = *TEXT
+P6L5	
+P6L6	   Userids might be case sensitive.
+P6L7	
+P6L8	   If the user agent wishes to send the userid "Aladdin" and password
+P6L9	   "open sesame", it would use the following header field:
+P6L10	
+P6L11	      Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
+P6L12	
+P6L13	   A client SHOULD assume that all paths at or deeper than the depth of
+P6L14	   the last symbolic element in the path field of the Request-URI also
+P6L15	   are within the protection space specified by the Basic realm value of
+P6L16	   the current challenge. A client MAY preemptively send the
+P6L17	   corresponding Authorization header with requests for resources in
+P6L18	   that space without receipt of another challenge from the server.
+P6L19	   Similarly, when a client sends a request to a proxy, it may reuse a
+P6L20	   userid and password in the Proxy-Authorization header field without
+P6L21	   receiving another challenge from the proxy server. See section 4 for
+P6L22	   security considerations associated with Basic authentication.
+P6L23	
+P6L24	3 Digest Access Authentication Scheme
+P6L25	
+P6L26	3.1 Introduction
+P6L27	
+P6L28	3.1.1 Purpose
+P6L29	
+P6L30	   The protocol referred to as "HTTP/1.0" includes the specification for
+P6L31	   a Basic Access Authentication scheme[1]. That scheme is not
+P6L32	   considered to be a secure method of user authentication, as the user
+P6L33	   name and password are passed over the network in an unencrypted form.
+P6L34	   This section provides the specification for a scheme that does not
+P6L35	   send the password in cleartext,  referred to as "Digest Access
+P6L36	   Authentication".
+P6L37	
+P6L38	   The Digest Access Authentication scheme is not intended to be a
+P6L39	   complete answer to the need for security in the World Wide Web. This
+P6L40	   scheme provides no encryption of message content. The intent is
+P6L41	   simply to create an access authentication method that avoids the most
+P6L42	   serious flaws of Basic authentication.
+P6L43	
+P6L44	3.1.2 Overall Operation
+P6L45	
+P6L46	   Like Basic Access Authentication, the Digest scheme is based on a
+P6L47	   simple challenge-response paradigm. The Digest scheme challenges
+P6L48	   using a nonce value. A valid response contains a checksum (by
+P7L1	   default, the MD5 checksum) of the username, the password, the given
+P7L2	   nonce value, the HTTP method, and the requested URI. In this way, the
+P7L3	   password is never sent in the clear. Just as with the Basic scheme,
+P7L4	   the username and password must be prearranged in some fashion not
+P7L5	   addressed by this document.
+P7L6	
+P7L7	3.1.3 Representation of digest values
+P7L8	
+P7L9	   An optional header allows the server to specify the algorithm used to
+P7L10	   create the checksum or digest. By default the MD5 algorithm is used
+P7L11	   and that is the only algorithm described in this document.
+P7L12	
+P7L13	   For the purposes of this document, an MD5 digest of 128 bits is
+P7L14	   represented as 32 ASCII printable characters. The bits in the 128 bit
+P7L15	   digest are converted from most significant to least significant bit,
+P7L16	   four bits at a time to their ASCII presentation as follows. Each four
+P7L17	   bits is represented by its familiar hexadecimal notation from the
+P7L18	   characters 0123456789abcdef. That is, binary 0000 gets represented by
+P7L19	   the character '0', 0001, by '1', and so on up to the representation
+P7L20	   of 1111 as 'f'.
+P7L21	
+P7L22	3.1.4 Limitations
+P7L23	
+P7L24	   The Digest authentication scheme described in this document suffers
+P7L25	   from many known limitations. It is intended as a replacement for
+P7L26	   Basic authentication and nothing more. It is a password-based system
+P7L27	   and (on the server side) suffers from all the same problems of any
+P7L28	   password system. In particular, no provision is made in this protocol
+P7L29	   for the initial secure arrangement between user and server to
+P7L30	   establish the user's password.
+P7L31	
+P7L32	   Users and implementors should be aware that this protocol is not as
+P7L33	   secure as Kerberos, and not as secure as any client-side private-key
+P7L34	   scheme. Nevertheless it is better than nothing, better than what is
+P7L35	   commonly used with telnet and ftp, and better than Basic
+P7L36	   authentication.
+P7L37	
+P7L38	3.2 Specification of Digest Headers
+P7L39	
+P7L40	   The Digest Access Authentication scheme is conceptually similar to
+P7L41	   the Basic scheme. The formats of the modified WWW-Authenticate header
+P7L42	   line and the Authorization header line are specified below. In
+P7L43	   addition, a new header, Authentication-Info, is specified.
+P7L44	
+P7L45	
+P7L46	
+P7L47	
+P7L48	
+P8L1	3.2.1 The WWW-Authenticate Response Header
+P8L2	
+P8L3	   If a server receives a request for an access-protected object, and an
+P8L4	   acceptable Authorization header is not sent, the server responds with
+P8L5	   a "401 Unauthorized" status code, and a WWW-Authenticate header as
+P8L6	   per the framework defined above, which for the digest scheme is
+P8L7	   utilized as follows:
+P8L8	
+P8L9	      challenge        =  "Digest" digest-challenge
+P8L10	
+P8L11	      digest-challenge  = 1#( realm | [ domain ] | nonce |
+P8L12	                          [ opaque ] |[ stale ] | [ algorithm ] |
+P8L13	                          [ qop-options ] | [auth-param] )
+P8L14	
+P8L15	
+P8L16	      domain            = "domain" "=" <"> URI ( 1*SP URI ) <">
+P8L17	      URI               = absoluteURI | abs_path
+P8L18	      nonce             = "nonce" "=" nonce-value
+P8L19	      nonce-value       = quoted-string
+P8L20	      opaque            = "opaque" "=" quoted-string
+P8L21	      stale             = "stale" "=" ( "true" | "false" )
+P8L22	      algorithm         = "algorithm" "=" ( "MD5" | "MD5-sess" |
+P8L23	                           token )
+P8L24	      qop-options       = "qop" "=" <"> 1#qop-value <">
+P8L25	      qop-value         = "auth" | "auth-int" | token
+P8L26	
+P8L27	   The meanings of the values of the directives used above are as
+P8L28	   follows:
+P8L29	
+P8L30	   realm
+P8L31	     A string to be displayed to users so they know which username and
+P8L32	     password to use. This string should contain at least the name of
+P8L33	     the host performing the authentication and might additionally
+P8L34	     indicate the collection of users who might have access. An example
+P8L35	     might be "registered_users@gotham.news.com".
+P8L36	
+P8L37	   domain
+P8L38	     A quoted, space-separated list of URIs, as specified in RFC XURI
+P8L39	     [7], that define the protection space.  If a URI is an abs_path, it
+P8L40	     is relative to the canonical root URL (see section 1.2 above) of
+P8L41	     the server being accessed. An absoluteURI in this list may refer to
+P8L42	     a different server than the one being accessed. The client can use
+P8L43	     this list to determine the set of URIs for which the same
+P8L44	     authentication information may be sent: any URI that has a URI in
+P8L45	     this list as a prefix (after both have been made absolute) may be
+P8L46	     assumed to be in the same protection space. If this directive is
+P8L47	     omitted or its value is empty, the client should assume that the
+P8L48	     protection space consists of all URIs on the responding server.
+P9L1	     This directive is not meaningful in Proxy-Authenticate headers, for
+P9L2	     which the protection space is always the entire proxy; if present
+P9L3	     it should be ignored.
+P9L4	
+P9L5	   nonce
+P9L6	     A server-specified data string which should be uniquely generated
+P9L7	     each time a 401 response is made. It is recommended that this
+P9L8	     string be base64 or hexadecimal data. Specifically, since the
+P9L9	     string is passed in the header lines as a quoted string, the
+P9L10	     double-quote character is not allowed.
+P9L11	
+P9L12	     The contents of the nonce are implementation dependent. The quality
+P9L13	     of the implementation depends on a good choice. A nonce might, for
+P9L14	     example, be constructed as the base 64 encoding of
+P9L15	
+P9L16	         time-stamp H(time-stamp ":" ETag ":" private-key)
+P9L17	
+P9L18	     where time-stamp is a server-generated time or other non-repeating
+P9L19	     value, ETag is the value of the HTTP ETag header associated with
+P9L20	     the requested entity, and private-key is data known only to the
+P9L21	     server.  With a nonce of this form a server would recalculate the
+P9L22	     hash portion after receiving the client authentication header and
+P9L23	     reject the request if it did not match the nonce from that header
+P9L24	     or if the time-stamp value is not recent enough. In this way the
+P9L25	     server can limit the time of the nonce's validity. The inclusion of
+P9L26	     the ETag prevents a replay request for an updated version of the
+P9L27	     resource.  (Note: including the IP address of the client in the
+P9L28	     nonce would appear to offer the server the ability to limit the
+P9L29	     reuse of the nonce to the same client that originally got it.
+P9L30	     However, that would break proxy farms, where requests from a single
+P9L31	     user often go through different proxies in the farm. Also, IP
+P9L32	     address spoofing is not that hard.)
+P9L33	
+P9L34	     An implementation might choose not to accept a previously used
+P9L35	     nonce or a previously used digest, in order to protect against a
+P9L36	     replay attack. Or, an implementation might choose to use one-time
+P9L37	     nonces or digests for POST or PUT requests and a time-stamp for GET
+P9L38	     requests.  For more details on the issues involved see section 4.
+P9L39	     of this document.
+P9L40	
+P9L41	     The nonce is opaque to the client.
+P9L42	
+P9L43	   opaque
+P9L44	     A string of data, specified by the server, which should be returned
+P9L45	     by the client unchanged in the Authorization header of subsequent
+P9L46	     requests with URIs in the same protection space. It is recommended
+P9L47	     that this string be base64 or hexadecimal data.
+P9L48	
+P10L1	   stale
+P10L2	     A flag, indicating that the previous request from the client was
+P10L3	     rejected because the nonce value was stale. If stale is TRUE
+P10L4	     (case-insensitive), the client may wish to simply retry the request
+P10L5	     with a new encrypted response, without reprompting the user for a
+P10L6	     new username and password. The server should only set stale to TRUE
+P10L7	     if it receives a request for which the nonce is invalid but with a
+P10L8	     valid digest for that nonce (indicating that the client knows the
+P10L9	     correct username/password). If stale is FALSE, or anything other
+P10L10	     than TRUE, or the stale directive is not present, the username
+P10L11	     and/or password are invalid, and new values must be obtained.
+P10L12	
+P10L13	   algorithm
+P10L14	     A string indicating a pair of algorithms used to produce the digest
+P10L15	     and a checksum. If this is not present it is assumed to be "MD5".
+P10L16	     If the algorithm is not understood, the challenge should be ignored
+P10L17	     (and a different one used, if there is more than one).
+P10L18	
+P10L19	     In this document the string obtained by applying the digest
+P10L20	     algorithm to the data "data" with secret "secret" will be denoted
+P10L21	     by KD(secret, data), and the string obtained by applying the
+P10L22	     checksum algorithm to the data "data" will be denoted H(data). The
+P10L23	     notation unq(X) means the value of the quoted-string X without the
+P10L24	     surrounding quotes.
+P10L25	
+P10L26	     For the "MD5" and "MD5-sess" algorithms
+P10L27	
+P10L28	         H(data) = MD5(data)
+P10L29	
+P10L30	     and
+P10L31	
+P10L32	         KD(secret, data) = H(concat(secret, ":", data))
+P10L33	
+P10L34	     i.e., the digest is the MD5 of the secret concatenated with a colon
+P10L35	     concatenated with the data. The "MD5-sess" algorithm is intended to
+P10L36	     allow efficient 3rd party authentication servers; for the
+P10L37	     difference in usage, see the description in section 3.2.2.2.
+P10L38	
+P10L39	   qop-options
+P10L40	     This directive is optional, but is made so only for backward
+P10L41	     compatibility with RFC 2069 [6]; it SHOULD be used by all
+P10L42	     implementations compliant with this version of the Digest scheme.
+P10L43	     If present, it is a quoted string of one or more tokens indicating
+P10L44	     the "quality of protection" values supported by the server.  The
+P10L45	     value "auth" indicates authentication; the value "auth-int"
+P10L46	     indicates authentication with integrity protection; see the
+P10L47	
+P10L48	
+P11L1	     descriptions below for calculating the response directive value for
+P11L2	     the application of this choice. Unrecognized options MUST be
+P11L3	     ignored.
+P11L4	
+P11L5	   auth-param
+P11L6	     This directive allows for future extensions. Any unrecognized
+P11L7	     directive MUST be ignored.
+P11L8	
+P11L9	3.2.2 The Authorization Request Header
+P11L10	
+P11L11	   The client is expected to retry the request, passing an Authorization
+P11L12	   header line, which is defined according to the framework above,
+P11L13	   utilized as follows.
+P11L14	
+P11L15	       credentials      = "Digest" digest-response
+P11L16	       digest-response  = 1#( username | realm | nonce | digest-uri
+P11L17	                       | response | [ algorithm ] | [cnonce] |
+P11L18	                       [opaque] | [message-qop] |
+P11L19	                           [nonce-count]  | [auth-param] )
+P11L20	
+P11L21	       username         = "username" "=" username-value
+P11L22	       username-value   = quoted-string
+P11L23	       digest-uri       = "uri" "=" digest-uri-value
+P11L24	       digest-uri-value = request-uri   ; As specified by HTTP/1.1
+P11L25	       message-qop      = "qop" "=" qop-value
+P11L26	       cnonce           = "cnonce" "=" cnonce-value
+P11L27	       cnonce-value     = nonce-value
+P11L28	       nonce-count      = "nc" "=" nc-value
+P11L29	       nc-value         = 8LHEX
+P11L30	       response         = "response" "=" request-digest
+P11L31	       request-digest = <"> 32LHEX <">
+P11L32	       LHEX             =  "0" | "1" | "2" | "3" |
+P11L33	                           "4" | "5" | "6" | "7" |
+P11L34	                           "8" | "9" | "a" | "b" |
+P11L35	                           "c" | "d" | "e" | "f"
+P11L36	
+P11L37	   The values of the opaque and algorithm fields must be those supplied
+P11L38	   in the WWW-Authenticate response header for the entity being
+P11L39	   requested.
+P11L40	
+P11L41	   response
+P11L42	     A string of 32 hex digits computed as defined below, which proves
+P11L43	     that the user knows a password
+P11L44	
+P11L45	   username
+P11L46	     The user's name in the specified realm.
+P11L47	
+P11L48	
+P12L1	   digest-uri
+P12L2	     The URI from Request-URI of the Request-Line; duplicated here
+P12L3	     because proxies are allowed to change the Request-Line in transit.
+P12L4	
+P12L5	   qop
+P12L6	     Indicates what "quality of protection" the client has applied to
+P12L7	     the message. If present, its value MUST be one of the alternatives
+P12L8	     the server indicated it supports in the WWW-Authenticate header.
+P12L9	     These values affect the computation of the request-digest. Note
+P12L10	     that this is a single token, not a quoted list of alternatives as
+P12L11	     in WWW- Authenticate.  This directive is optional in order to
+P12L12	     preserve backward compatibility with a minimal implementation of
+P12L13	     RFC 2069 [6], but SHOULD be used if the server indicated that qop
+P12L14	     is supported by providing a qop directive in the WWW-Authenticate
+P12L15	     header field.
+P12L16	
+P12L17	   cnonce
+P12L18	     This MUST be specified if a qop directive is sent (see above), and
+P12L19	     MUST NOT be specified if the server did not send a qop directive in
+P12L20	     the WWW-Authenticate header field.  The cnonce-value is an opaque
+P12L21	     quoted string value provided by the client and used by both client
+P12L22	     and server to avoid chosen plaintext attacks, to provide mutual
+P12L23	     authentication, and to provide some message integrity protection.
+P12L24	     See the descriptions below of the calculation of the response-
+P12L25	     digest and request-digest values.
+P12L26	
+P12L27	   nonce-count
+P12L28	     This MUST be specified if a qop directive is sent (see above), and
+P12L29	     MUST NOT be specified if the server did not send a qop directive in
+P12L30	     the WWW-Authenticate header field.  The nc-value is the hexadecimal
+P12L31	     count of the number of requests (including the current request)
+P12L32	     that the client has sent with the nonce value in this request.  For
+P12L33	     example, in the first request sent in response to a given nonce
+P12L34	     value, the client sends "nc=00000001".  The purpose of this
+P12L35	     directive is to allow the server to detect request replays by
+P12L36	     maintaining its own copy of this count - if the same nc-value is
+P12L37	     seen twice, then the request is a replay.   See the description
+P12L38	     below of the construction of the request-digest value.
+P12L39	
+P12L40	   auth-param
+P12L41	     This directive allows for future extensions. Any unrecognized
+P12L42	     directive MUST be ignored.
+P12L43	
+P12L44	   If a directive or its value is improper, or required directives are
+P12L45	   missing, the proper response is 400 Bad Request. If the request-
+P12L46	   digest is invalid, then a login failure should be logged, since
+P12L47	   repeated login failures from a single client may indicate an attacker
+P12L48	   attempting to guess passwords.
+P13L1	   The definition of request-digest above indicates the encoding for its
+P13L2	   value. The following definitions show how the value is computed.
+P13L3	
+P13L4	3.2.2.1 Request-Digest
+P13L5	
+P13L6	   If the "qop" value is "auth" or "auth-int":
+P13L7	
+P13L8	      request-digest  = <"> < KD ( H(A1),     unq(nonce-value)
+P13L9	                                          ":" nc-value
+P13L10	                                          ":" unq(cnonce-value)
+P13L11	                                          ":" unq(qop-value)
+P13L12	                                          ":" H(A2)
+P13L13	                                  ) <">
+P13L14	
+P13L15	   If the "qop" directive is not present (this construction is for
+P13L16	   compatibility with RFC 2069):
+P13L17	
+P13L18	      request-digest  =
+P13L19	                 <"> < KD ( H(A1), unq(nonce-value) ":" H(A2) ) >
+P13L20	   <">
+P13L21	
+P13L22	   See below for the definitions for A1 and A2.
+P13L23	
+P13L24	3.2.2.2 A1
+P13L25	
+P13L26	   If the "algorithm" directive's value is "MD5" or is unspecified, then
+P13L27	   A1 is:
+P13L28	
+P13L29	      A1       = unq(username-value) ":" unq(realm-value) ":" passwd
+P13L30	
+P13L31	   where
+P13L32	
+P13L33	      passwd   = < user's password >
+P13L34	
+P13L35	   If the "algorithm" directive's value is "MD5-sess", then A1 is
+P13L36	   calculated only once - on the first request by the client following
+P13L37	   receipt of a WWW-Authenticate challenge from the server.  It uses the
+P13L38	   server nonce from that challenge, and the first client nonce value to
+P13L39	   construct A1 as follows:
+P13L40	
+P13L41	      A1       = H( unq(username-value) ":" unq(realm-value)
+P13L42	                     ":" passwd )
+P13L43	                     ":" unq(nonce-value) ":" unq(cnonce-value)
+P13L44	
+P13L45	   This creates a 'session key' for the authentication of subsequent
+P13L46	   requests and responses which is different for each "authentication
+P13L47	   session", thus limiting the amount of material hashed with any one
+P13L48	   key.  (Note: see further discussion of the authentication session in
+P14L1	   section 3.3.) Because the server need only use the hash of the user
+P14L2	   credentials in order to create the A1 value, this construction could
+P14L3	   be used in conjunction with a third party authentication service so
+P14L4	   that the web server would not need the actual password value.  The
+P14L5	   specification of such a protocol is beyond the scope of this
+P14L6	   specification.
+P14L7	
+P14L8	3.2.2.3 A2
+P14L9	
+P14L10	   If the "qop" directive's value is "auth" or is unspecified, then A2
+P14L11	   is:
+P14L12	
+P14L13	      A2       = Method ":" digest-uri-value
+P14L14	
+P14L15	   If the "qop" value is "auth-int", then A2 is:
+P14L16	
+P14L17	      A2       = Method ":" digest-uri-value ":" H(entity-body)
+P14L18	
+P14L19	3.2.2.4 Directive values and quoted-string
+P14L20	
+P14L21	   Note that the value of many of the directives, such as "username-
+P14L22	   value", are defined as a "quoted-string". However, the "unq" notation
+P14L23	   indicates that surrounding quotation marks are removed in forming the
+P14L24	   string A1. Thus if the Authorization header includes the fields
+P14L25	
+P14L26	     username="Mufasa", realm=myhost@testrealm.com
+P14L27	
+P14L28	   and the user Mufasa has password "Circle Of Life" then H(A1) would be
+P14L29	   H(Mufasa:myhost@testrealm.com:Circle Of Life) with no quotation marks
+P14L30	   in the digested string.
+P14L31	
+P14L32	   No white space is allowed in any of the strings to which the digest
+P14L33	   function H() is applied unless that white space exists in the quoted
+P14L34	   strings or entity body whose contents make up the string to be
+P14L35	   digested. For example, the string A1 illustrated above must be
+P14L36	
+P14L37	        Mufasa:myhost@testrealm.com:Circle Of Life
+P14L38	
+P14L39	   with no white space on either side of the colons, but with the white
+P14L40	   space between the words used in the password value.  Likewise, the
+P14L41	   other strings digested by H() must not have white space on either
+P14L42	   side of the colons which delimit their fields unless that white space
+P14L43	   was in the quoted strings or entity body being digested.
+P14L44	
+P14L45	   Also note that if integrity protection is applied (qop=auth-int), the
+P14L46	   H(entity-body) is the hash of the entity body, not the message body -
+P14L47	   it is computed before any transfer encoding is applied by the sender
+P14L48	
+P15L1	   and after it has been removed by the recipient. Note that this
+P15L2	   includes multipart boundaries and embedded headers in each part of
+P15L3	   any multipart content-type.
+P15L4	
+P15L5	3.2.2.5 Various considerations
+P15L6	
+P15L7	   The "Method" value is the HTTP request method as specified in section
+P15L8	   5.1.1 of [2]. The "request-uri" value is the Request-URI from the
+P15L9	   request line as specified in section 5.1.2 of [2]. This may be "*",
+P15L10	   an "absoluteURL" or an "abs_path" as specified in section 5.1.2 of
+P15L11	   [2], but it MUST agree with the Request-URI. In particular, it MUST
+P15L12	   be an "absoluteURL" if the Request-URI is an "absoluteURL". The
+P15L13	   "cnonce-value" is an optional  client-chosen value whose purpose is
+P15L14	   to foil chosen plaintext attacks.
+P15L15	
+P15L16	   The authenticating server must assure that the resource designated by
+P15L17	   the "uri" directive is the same as the resource specified in the
+P15L18	   Request-Line; if they are not, the server SHOULD return a 400 Bad
+P15L19	   Request error. (Since this may be a symptom of an attack, server
+P15L20	   implementers may want to consider logging such errors.) The purpose
+P15L21	   of duplicating information from the request URL in this field is to
+P15L22	   deal with the possibility that an intermediate proxy may alter the
+P15L23	   client's Request-Line. This altered (but presumably semantically
+P15L24	   equivalent) request would not result in the same digest as that
+P15L25	   calculated by the client.
+P15L26	
+P15L27	   Implementers should be aware of how authenticated transactions
+P15L28	   interact with shared caches. The HTTP/1.1 protocol specifies that
+P15L29	   when a shared cache (see section 13.7 of [2]) has received a request
+P15L30	   containing an Authorization header and a response from relaying that
+P15L31	   request, it MUST NOT return that response as a reply to any other
+P15L32	   request, unless one of two Cache-Control (see section 14.9 of [2])
+P15L33	   directives was present in the response. If the original response
+P15L34	   included the "must-revalidate" Cache-Control directive, the cache MAY
+P15L35	   use the entity of that response in replying to a subsequent request,
+P15L36	   but MUST first revalidate it with the origin server, using the
+P15L37	   request headers from the new request to allow the origin server to
+P15L38	   authenticate the new request. Alternatively, if the original response
+P15L39	   included the "public" Cache-Control directive, the response entity
+P15L40	   MAY be returned in reply to any subsequent request.
+P15L41	
+P15L42	3.2.3 The Authentication-Info Header
+P15L43	
+P15L44	   The Authentication-Info header is used by the server to communicate
+P15L45	   some information regarding the successful authentication in the
+P15L46	   response.
+P15L47	
+P15L48	
+P16L1	        AuthenticationInfo = "Authentication-Info" ":" auth-info
+P16L2	        auth-info          = 1#(nextnonce | [ message-qop ]
+P16L3	                               | [ response-auth ] | [ cnonce ]
+P16L4	                               | [nonce-count] )
+P16L5	        nextnonce          = "nextnonce" "=" nonce-value
+P16L6	        response-auth      = "rspauth" "=" response-digest
+P16L7	        response-digest    = <"> *LHEX <">
+P16L8	
+P16L9	   The value of the nextnonce directive is the nonce the server wishes
+P16L10	   the client to use for a future authentication response.  The server
+P16L11	   may send the Authentication-Info header with a nextnonce field as a
+P16L12	   means of implementing one-time or otherwise changing  nonces. If the
+P16L13	   nextnonce field is present the client SHOULD use it when constructing
+P16L14	   the Authorization header for its next request. Failure of the client
+P16L15	   to do so may result in a request to re-authenticate from the server
+P16L16	   with the "stale=TRUE".
+P16L17	
+P16L18	     Server implementations should carefully consider the performance
+P16L19	     implications of the use of this mechanism; pipelined requests will
+P16L20	     not be possible if every response includes a nextnonce directive
+P16L21	     that must be used on the next request received by the server.
+P16L22	     Consideration should be given to the performance vs. security
+P16L23	     tradeoffs of allowing an old nonce value to be used for a limited
+P16L24	     time to permit request pipelining.  Use of the nonce-count can
+P16L25	     retain most of the security advantages of a new server nonce
+P16L26	     without the deleterious affects on pipelining.
+P16L27	
+P16L28	   message-qop
+P16L29	     Indicates the "quality of protection" options applied to the
+P16L30	     response by the server.  The value "auth" indicates authentication;
+P16L31	     the value "auth-int" indicates authentication with integrity
+P16L32	     protection. The server SHOULD use the same value for the message-
+P16L33	     qop directive in the response as was sent by the client in the
+P16L34	     corresponding request.
+P16L35	
+P16L36	   The optional response digest in the "response-auth" directive
+P16L37	   supports mutual authentication -- the server proves that it knows the
+P16L38	   user's secret, and with qop=auth-int also provides limited integrity
+P16L39	   protection of the response. The "response-digest" value is calculated
+P16L40	   as for the "request-digest" in the Authorization header, except that
+P16L41	   if "qop=auth" or is not specified in the Authorization header for the
+P16L42	   request, A2 is
+P16L43	
+P16L44	      A2       = ":" digest-uri-value
+P16L45	
+P16L46	   and if "qop=auth-int", then A2 is
+P16L47	
+P16L48	      A2       = ":" digest-uri-value ":" H(entity-body)
+P17L1	   where "digest-uri-value" is the value of the "uri" directive on the
+P17L2	   Authorization header in the request. The "cnonce-value" and "nc-
+P17L3	   value" MUST be the ones for the client request to which this message
+P17L4	   is the response. The "response-auth", "cnonce", and "nonce-count"
+P17L5	   directives MUST BE present if "qop=auth" or "qop=auth-int" is
+P17L6	   specified.
+P17L7	
+P17L8	   The Authentication-Info header is allowed in the trailer of an HTTP
+P17L9	   message transferred via chunked transfer-coding.
+P17L10	
+P17L11	3.3 Digest Operation
+P17L12	
+P17L13	   Upon receiving the Authorization header, the server may check its
+P17L14	   validity by looking up the password that corresponds to the submitted
+P17L15	   username. Then, the server must perform the same digest operation
+P17L16	   (e.g., MD5) performed by the client, and compare the result to the
+P17L17	   given request-digest value.
+P17L18	
+P17L19	   Note that the HTTP server does not actually need to know the user's
+P17L20	   cleartext password. As long as H(A1) is available to the server, the
+P17L21	   validity of an Authorization header may be verified.
+P17L22	
+P17L23	   The client response to a WWW-Authenticate challenge for a protection
+P17L24	   space starts an authentication session with that protection space.
+P17L25	   The authentication session lasts until the client receives another
+P17L26	   WWW-Authenticate challenge from any server in the protection space. A
+P17L27	   client should remember the username, password, nonce, nonce count and
+P17L28	   opaque values associated with an authentication session to use to
+P17L29	   construct the Authorization header in future requests within that
+P17L30	   protection space. The Authorization header may be included
+P17L31	   preemptively; doing so improves server efficiency and avoids extra
+P17L32	   round trips for authentication challenges. The server may choose to
+P17L33	   accept the old Authorization header information, even though the
+P17L34	   nonce value included might not be fresh. Alternatively, the server
+P17L35	   may return a 401 response with a new nonce value, causing the client
+P17L36	   to retry the request; by specifying stale=TRUE with this response,
+P17L37	   the server tells the client to retry with the new nonce, but without
+P17L38	   prompting for a new username and password.
+P17L39	
+P17L40	   Because the client is required to return the value of the opaque
+P17L41	   directive given to it by the server for the duration of a session,
+P17L42	   the opaque data may be used to transport authentication session state
+P17L43	   information. (Note that any such use can also be accomplished more
+P17L44	   easily and safely by including the state in the nonce.) For example,
+P17L45	   a server could be responsible for authenticating content that
+P17L46	   actually sits on another server. It would achieve this by having the
+P17L47	   first 401 response include a domain directive whose value includes a
+P17L48	   URI on the second server, and an opaque directive whose value
+P18L1	   contains the state information. The client will retry the request, at
+P18L2	   which time the server might respond with a 301/302 redirection,
+P18L3	   pointing to the URI on the second server. The client will follow the
+P18L4	   redirection, and pass an Authorization header , including the
+P18L5	   <opaque> data.
+P18L6	
+P18L7	   As with the basic scheme, proxies must be completely transparent in
+P18L8	   the Digest access authentication scheme. That is, they must forward
+P18L9	   the WWW-Authenticate, Authentication-Info and Authorization headers
+P18L10	   untouched. If a proxy wants to authenticate a client before a request
+P18L11	   is forwarded to the server, it can be done using the Proxy-
+P18L12	   Authenticate and Proxy-Authorization headers described in section 3.6
+P18L13	   below.
+P18L14	
+P18L15	3.4 Security Protocol Negotiation
+P18L16	
+P18L17	   It is useful for a server to be able to know which security schemes a
+P18L18	   client is capable of handling.
+P18L19	
+P18L20	   It is possible that a server may want to require Digest as its
+P18L21	   authentication method, even if the server does not know that the
+P18L22	   client supports it. A client is encouraged to fail gracefully if the
+P18L23	   server specifies only authentication schemes it cannot handle.
+P18L24	
+P18L25	3.5 Example
+P18L26	
+P18L27	   The following example assumes that an access-protected document is
+P18L28	   being requested from the server via a GET request. The URI of the
+P18L29	   document is "http://www.nowhere.org/dir/index.html". Both client and
+P18L30	   server know that the username for this document is "Mufasa", and the
+P18L31	   password is "Circle Of Life" (with one space between each of the
+P18L32	   three words).
+P18L33	
+P18L34	   The first time the client requests the document, no Authorization
+P18L35	   header is sent, so the server responds with:
+P18L36	
+P18L37	         HTTP/1.1 401 Unauthorized
+P18L38	         WWW-Authenticate: Digest
+P18L39	                 realm="testrealm@host.com",
+P18L40	                 qop="auth,auth-int",
+P18L41	                 nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",
+P18L42	                 opaque="5ccc069c403ebaf9f0171e9517f40e41"
+P18L43	
+P18L44	   The client may prompt the user for the username and password, after
+P18L45	   which it will respond with a new request, including the following
+P18L46	   Authorization header:
+P18L47	
+P18L48	
+P19L1	         Authorization: Digest username="Mufasa",
+P19L2	                 realm="testrealm@host.com",
+P19L3	                 nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",
+P19L4	                 uri="/dir/index.html",
+P19L5	                 qop=auth,
+P19L6	                 nc=00000001,
+P19L7	                 cnonce="0a4f113b",
+P19L8	                 response="6629fae49393a05397450978507c4ef1",
+P19L9	                 opaque="5ccc069c403ebaf9f0171e9517f40e41"
+P19L10	
+P19L11	3.6 Proxy-Authentication and Proxy-Authorization
+P19L12	
+P19L13	   The digest authentication scheme may also be used for authenticating
+P19L14	   users to proxies, proxies to proxies, or proxies to origin servers by
+P19L15	   use of the Proxy-Authenticate and Proxy-Authorization headers. These
+P19L16	   headers are instances of the Proxy-Authenticate and Proxy-
+P19L17	   Authorization headers specified in sections 10.33 and 10.34 of the
+P19L18	   HTTP/1.1 specification [2] and their behavior is subject to
+P19L19	   restrictions described there. The transactions for proxy
+P19L20	   authentication are very similar to those already described. Upon
+P19L21	   receiving a request which requires authentication, the proxy/server
+P19L22	   must issue the "407 Proxy Authentication Required" response with a
+P19L23	   "Proxy-Authenticate" header.  The digest-challenge used in the
+P19L24	   Proxy-Authenticate header is the same as that for the WWW-
+P19L25	   Authenticate header as defined above in section 3.2.1.
+P19L26	
+P19L27	   The client/proxy must then re-issue the request with a Proxy-
+P19L28	   Authorization header, with directives as specified for the
+P19L29	   Authorization header in section 3.2.2 above.
+P19L30	
+P19L31	   On subsequent responses, the server sends Proxy-Authentication-Info
+P19L32	   with directives the same as those for the Authentication-Info header
+P19L33	   field.
+P19L34	
+P19L35	   Note that in principle a client could be asked to authenticate itself
+P19L36	   to both a proxy and an end-server, but never in the same response.
+P19L37	
+P19L38	4 Security Considerations
+P19L39	
+P19L40	4.1 Authentication of Clients using Basic Authentication
+P19L41	
+P19L42	   The Basic authentication scheme is not a secure method of user
+P19L43	   authentication, nor does it in any way protect the entity, which is
+P19L44	   transmitted in cleartext across the physical network used as the
+P19L45	   carrier. HTTP does not prevent additional authentication schemes and
+P19L46	   encryption mechanisms from being employed to increase security or the
+P19L47	   addition of enhancements (such as schemes to use one-time passwords)
+P19L48	   to Basic authentication.
+P20L1	   The most serious flaw in Basic authentication is that it results in
+P20L2	   the essentially cleartext transmission of the user's password over
+P20L3	   the physical network. It is this problem which Digest Authentication
+P20L4	   attempts to address.
+P20L5	
+P20L6	   Because Basic authentication involves the cleartext transmission of
+P20L7	   passwords it SHOULD NOT be used (without enhancements) to protect
+P20L8	   sensitive or valuable information.
+P20L9	
+P20L10	   A common use of Basic authentication is for identification purposes
+P20L11	   -- requiring the user to provide a user name and password as a means
+P20L12	   of identification, for example, for purposes of gathering accurate
+P20L13	   usage statistics on a server. When used in this way it is tempting to
+P20L14	   think that there is no danger in its use if illicit access to the
+P20L15	   protected documents is not a major concern. This is only correct if
+P20L16	   the server issues both user name and password to the users and in
+P20L17	   particular does not allow the user to choose his or her own password.
+P20L18	   The danger arises because naive users frequently reuse a single
+P20L19	   password to avoid the task of maintaining multiple passwords.
+P20L20	
+P20L21	   If a server permits users to select their own passwords, then the
+P20L22	   threat is not only unauthorized access to documents on the server but
+P20L23	   also unauthorized access to any other resources on other systems that
+P20L24	   the user protects with the same password. Furthermore, in the
+P20L25	   server's password database, many of the passwords may also be users'
+P20L26	   passwords for other sites. The owner or administrator of such a
+P20L27	   system could therefore expose all users of the system to the risk of
+P20L28	   unauthorized access to all those sites if this information is not
+P20L29	   maintained in a secure fashion.
+P20L30	
+P20L31	   Basic Authentication is also vulnerable to spoofing by counterfeit
+P20L32	   servers. If a user can be led to believe that he is connecting to a
+P20L33	   host containing information protected by Basic authentication when,
+P20L34	   in fact, he is connecting to a hostile server or gateway, then the
+P20L35	   attacker can request a password, store it for later use, and feign an
+P20L36	   error. This type of attack is not possible with Digest
+P20L37	   Authentication. Server implementers SHOULD guard against the
+P20L38	   possibility of this sort of counterfeiting by gateways or CGI
+P20L39	   scripts. In particular it is very dangerous for a server to simply
+P20L40	   turn over a connection to a gateway.  That gateway can then use the
+P20L41	   persistent connection mechanism to engage in multiple transactions
+P20L42	   with the client while impersonating the original server in a way that
+P20L43	   is not detectable by the client.
+P20L44	
+P20L45	4.2 Authentication of Clients using Digest Authentication
+P20L46	
+P20L47	   Digest Authentication does not provide a strong authentication
+P20L48	   mechanism, when compared to public key based mechanisms, for example.
+P21L1	   However, it is significantly stronger than (e.g.) CRAM-MD5, which has
+P21L2	   been proposed for use with LDAP [10], POP and IMAP (see RFC 2195
+P21L3	   [9]).  It is intended to replace the much weaker and even more
+P21L4	   dangerous Basic mechanism.
+P21L5	
+P21L6	   Digest Authentication offers no confidentiality protection beyond
+P21L7	   protecting the actual password. All of the rest of the request and
+P21L8	   response are available to an eavesdropper.
+P21L9	
+P21L10	   Digest Authentication offers only limited integrity protection for
+P21L11	   the messages in either direction. If  qop=auth-int mechanism is used,
+P21L12	   those parts of the message used in the calculation of the WWW-
+P21L13	   Authenticate and Authorization header field response directive values
+P21L14	   (see section 3.2 above) are  protected.  Most header fields and their
+P21L15	   values could be modified as a part of a man-in-the-middle attack.
+P21L16	
+P21L17	   Many needs for secure HTTP transactions cannot be met by Digest
+P21L18	   Authentication. For those needs TLS or SHTTP are more appropriate
+P21L19	   protocols. In particular Digest authentication cannot be used for any
+P21L20	   transaction requiring confidentiality protection.  Nevertheless many
+P21L21	   functions remain for which Digest authentication is both useful and
+P21L22	   appropriate.  Any service in present use that uses Basic should be
+P21L23	   switched to Digest as soon as practical.
+P21L24	
+P21L25	4.3 Limited Use Nonce Values
+P21L26	
+P21L27	   The Digest scheme uses a server-specified nonce to seed the
+P21L28	   generation of the request-digest value (as specified in section
+P21L29	   3.2.2.1 above).  As shown in the example nonce in section 3.2.1, the
+P21L30	   server is free to construct the nonce such that it may only be used
+P21L31	   from a particular client, for a particular resource, for a limited
+P21L32	   period of time or number of uses, or any other restrictions.  Doing
+P21L33	   so strengthens the protection provided against, for example, replay
+P21L34	   attacks (see 4.5).  However, it should be noted that the method
+P21L35	   chosen for generating and checking the nonce also has performance and
+P21L36	   resource implications.  For example, a server may choose to allow
+P21L37	   each nonce value to be used only once by maintaining a record of
+P21L38	   whether or not each recently issued nonce has been returned and
+P21L39	   sending a next-nonce directive in the Authentication-Info header
+P21L40	   field of every response. This protects against even an immediate
+P21L41	   replay attack, but has a high cost checking nonce values, and perhaps
+P21L42	   more important will cause authentication failures for any pipelined
+P21L43	   requests (presumably returning a stale nonce indication).  Similarly,
+P21L44	   incorporating a request-specific element such as the Etag value for a
+P21L45	   resource limits the use of the nonce to that version of the resource
+P21L46	   and also defeats pipelining. Thus it may be useful to do so for
+P21L47	   methods with side effects but have unacceptable performance for those
+P21L48	   that do not.
+P22L1	4.4 Comparison of Digest with Basic Authentication
+P22L2	
+P22L3	   Both Digest and Basic Authentication are very much on the weak end of
+P22L4	   the security strength spectrum. But a comparison between the two
+P22L5	   points out the utility, even necessity, of replacing Basic by Digest.
+P22L6	
+P22L7	   The greatest threat to the type of transactions for which these
+P22L8	   protocols are used is network snooping. This kind of transaction
+P22L9	   might involve, for example, online access to a database whose use is
+P22L10	   restricted to paying subscribers. With Basic authentication an
+P22L11	   eavesdropper can obtain the password of the user. This not only
+P22L12	   permits him to access anything in the database, but, often worse,
+P22L13	   will permit access to anything else the user protects with the same
+P22L14	   password.
+P22L15	
+P22L16	   By contrast, with Digest Authentication the eavesdropper only gets
+P22L17	   access to the transaction in question and not to the user's password.
+P22L18	   The information gained by the eavesdropper would permit a replay
+P22L19	   attack, but only with a request for the same document, and even that
+P22L20	   may be limited by the server's choice of nonce.
+P22L21	
+P22L22	4.5 Replay Attacks
+P22L23	
+P22L24	   A replay attack against Digest authentication would usually be
+P22L25	   pointless for a simple GET request since an eavesdropper would
+P22L26	   already have seen the only document he could obtain with a replay.
+P22L27	   This is because the URI of the requested document is digested in the
+P22L28	   client request and the server will only deliver that document. By
+P22L29	   contrast under Basic Authentication once the eavesdropper has the
+P22L30	   user's password, any document protected by that password is open to
+P22L31	   him.
+P22L32	
+P22L33	   Thus, for some purposes, it is necessary to protect against replay
+P22L34	   attacks. A good Digest implementation can do this in various ways.
+P22L35	   The server created "nonce" value is implementation dependent, but if
+P22L36	   it contains a digest of the client IP, a time-stamp, the resource
+P22L37	   ETag, and a private server key (as recommended above) then a replay
+P22L38	   attack is not simple. An attacker must convince the server that the
+P22L39	   request is coming from a false IP address and must cause the server
+P22L40	   to deliver the document to an IP address different from the address
+P22L41	   to which it believes it is sending the document. An attack can only
+P22L42	   succeed in the period before the time-stamp expires. Digesting the
+P22L43	   client IP and time-stamp in the nonce permits an implementation which
+P22L44	   does not maintain state between transactions.
+P22L45	
+P22L46	   For applications where no possibility of replay attack can be
+P22L47	   tolerated the server can use one-time nonce values which will not be
+P22L48	   honored for a second use. This requires the overhead of the server
+P23L1	   remembering which nonce values have been used until the nonce time-
+P23L2	   stamp (and hence the digest built with it) has expired, but it
+P23L3	   effectively protects against replay attacks.
+P23L4	
+P23L5	   An implementation must give special attention to the possibility of
+P23L6	   replay attacks with POST and PUT requests. Unless the server employs
+P23L7	   one-time or otherwise limited-use nonces and/or insists on the use of
+P23L8	   the integrity protection of qop=auth-int, an attacker could replay
+P23L9	   valid credentials from a successful request with counterfeit form
+P23L10	   data or other message body. Even with the use of integrity protection
+P23L11	   most metadata in header fields is not protected. Proper nonce
+P23L12	   generation and checking provides some protection against replay of
+P23L13	   previously used valid credentials, but see 4.8.
+P23L14	
+P23L15	4.6 Weakness Created by Multiple Authentication Schemes
+P23L16	
+P23L17	   An HTTP/1.1 server may return multiple challenges with a 401
+P23L18	   (Authenticate) response, and each challenge may use a different
+P23L19	   auth-scheme. A user agent MUST choose to use the strongest auth-
+P23L20	   scheme it understands and request credentials from the user based
+P23L21	   upon that challenge.
+P23L22	
+P23L23	      Note that many browsers will only recognize Basic and will require
+P23L24	      that it be the first auth-scheme presented. Servers should only
+P23L25	      include Basic if it is minimally acceptable.
+P23L26	
+P23L27	   When the server offers choices of authentication schemes using the
+P23L28	   WWW-Authenticate header, the strength of the resulting authentication
+P23L29	   is only as good as that of the of the weakest of the authentication
+P23L30	   schemes. See section 4.8 below for discussion of particular attack
+P23L31	   scenarios that exploit multiple authentication schemes.
+P23L32	
+P23L33	4.7 Online dictionary attacks
+P23L34	
+P23L35	   If the attacker can eavesdrop, then it can test any overheard
+P23L36	   nonce/response pairs against a list of common words. Such a list is
+P23L37	   usually much smaller than the total number of possible passwords. The
+P23L38	   cost of computing the response for each password on the list is paid
+P23L39	   once for each challenge.
+P23L40	
+P23L41	   The server can mitigate this attack by not allowing users to select
+P23L42	   passwords that are in a dictionary.
+P23L43	
+P23L44	
+P23L45	
+P23L46	
+P23L47	
+P23L48	
+P24L1	4.8 Man in the Middle
+P24L2	
+P24L3	   Both Basic and Digest authentication are vulnerable to "man in the
+P24L4	   middle" (MITM) attacks, for example, from a hostile or compromised
+P24L5	   proxy. Clearly, this would present all the problems of eavesdropping.
+P24L6	   But it also offers some additional opportunities to the attacker.
+P24L7	
+P24L8	   A possible man-in-the-middle attack would be to add a weak
+P24L9	   authentication scheme to the set of choices, hoping that the client
+P24L10	   will use one that exposes the user's credentials (e.g. password). For
+P24L11	   this reason, the client should always use the strongest scheme that
+P24L12	   it understands from the choices offered.
+P24L13	
+P24L14	   An even better MITM attack would be to remove all offered choices,
+P24L15	   replacing them with a challenge that requests only Basic
+P24L16	   authentication, then uses the cleartext credentials from the Basic
+P24L17	   authentication to authenticate to the origin server using the
+P24L18	   stronger scheme it requested. A particularly insidious way to mount
+P24L19	   such a MITM attack would be to offer a "free" proxy caching service
+P24L20	   to gullible users.
+P24L21	
+P24L22	   User agents should consider measures such as presenting a visual
+P24L23	   indication at the time of the credentials request of what
+P24L24	   authentication scheme is to be used, or remembering the strongest
+P24L25	   authentication scheme ever requested by a server and produce a
+P24L26	   warning message before using a weaker one. It might also be a good
+P24L27	   idea for the user agent to be configured to demand Digest
+P24L28	   authentication in general, or from specific sites.
+P24L29	
+P24L30	   Or, a hostile proxy might spoof the client into making a request the
+P24L31	   attacker wanted rather than one the client wanted. Of course, this is
+P24L32	   still much harder than a comparable attack against Basic
+P24L33	   Authentication.
+P24L34	
+P24L35	4.9 Chosen plaintext attacks
+P24L36	
+P24L37	   With Digest authentication, a MITM or a malicious server can
+P24L38	   arbitrarily choose the nonce that the client will use to compute the
+P24L39	   response. This is called a "chosen plaintext" attack. The ability to
+P24L40	   choose the nonce is known to make cryptanalysis much easier [8].
+P24L41	
+P24L42	   However, no way to analyze the MD5 one-way function used by Digest
+P24L43	   using chosen plaintext is currently known.
+P24L44	
+P24L45	   The countermeasure against this attack is for clients to be
+P24L46	   configured to require the use of the optional "cnonce" directive;
+P24L47	   this allows the client to vary the input to the hash in a way not
+P24L48	   chosen by the attacker.
+P25L1	4.10 Precomputed dictionary attacks
+P25L2	
+P25L3	   With Digest authentication, if the attacker can execute a chosen
+P25L4	   plaintext attack, the attacker can precompute the response for many
+P25L5	   common words to a nonce of its choice, and store a dictionary of
+P25L6	   (response, password) pairs. Such precomputation can often be done in
+P25L7	   parallel on many machines. It can then use the chosen plaintext
+P25L8	   attack to acquire a response corresponding to that challenge, and
+P25L9	   just look up the password in the dictionary. Even if most passwords
+P25L10	   are not in the dictionary, some might be. Since the attacker gets to
+P25L11	   pick the challenge, the cost of computing the response for each
+P25L12	   password on the list can be amortized over finding many passwords. A
+P25L13	   dictionary with 100 million password/response pairs would take about
+P25L14	   3.2 gigabytes of disk storage.
+P25L15	
+P25L16	   The countermeasure against this attack is to for clients to be
+P25L17	   configured to require the use of the optional "cnonce" directive.
+P25L18	
+P25L19	4.11 Batch brute force attacks
+P25L20	
+P25L21	   With Digest authentication, a MITM can execute a chosen plaintext
+P25L22	   attack, and can gather responses from many users to the same nonce.
+P25L23	   It can then find all the passwords within any subset of password
+P25L24	   space that would generate one of the nonce/response pairs in a single
+P25L25	   pass over that space. It also reduces the time to find the first
+P25L26	   password by a factor equal to the number of nonce/response pairs
+P25L27	   gathered. This search of the password space can often be done in
+P25L28	   parallel on many machines, and even a single machine can search large
+P25L29	   subsets of the password space very quickly -- reports exist of
+P25L30	   searching all passwords with six or fewer letters in a few hours.
+P25L31	
+P25L32	   The countermeasure against this attack is to for clients to be
+P25L33	   configured to require the use of the optional "cnonce" directive.
+P25L34	
+P25L35	4.12 Spoofing by Counterfeit Servers
+P25L36	
+P25L37	   Basic Authentication is vulnerable to spoofing by counterfeit
+P25L38	   servers.  If a user can be led to believe that she is connecting to a
+P25L39	   host containing information protected by a password she knows, when
+P25L40	   in fact she is connecting to a hostile server, then the hostile
+P25L41	   server can request a password, store it away for later use, and feign
+P25L42	   an error.  This type of attack is more difficult with Digest
+P25L43	   Authentication -- but the client must know to demand that Digest
+P25L44	   authentication be used, perhaps using some of the techniques
+P25L45	   described above to counter "man-in-the-middle" attacks.  Again, the
+P25L46	   user can be helped in detecting this attack by a visual indication of
+P25L47	   the authentication mechanism in use with appropriate guidance in
+P25L48	   interpreting the implications of each scheme.
+P26L1	4.13 Storing passwords
+P26L2	
+P26L3	   Digest authentication requires that the authenticating agent (usually
+P26L4	   the server) store some data derived from the user's name and password
+P26L5	   in a "password file" associated with a given realm. Normally this
+P26L6	   might contain pairs consisting of username and H(A1), where H(A1) is
+P26L7	   the digested value of the username, realm, and password as described
+P26L8	   above.
+P26L9	
+P26L10	   The security implications of this are that if this password file is
+P26L11	   compromised, then an attacker gains immediate access to documents on
+P26L12	   the server using this realm. Unlike, say a standard UNIX password
+P26L13	   file, this information need not be decrypted in order to access
+P26L14	   documents in the server realm associated with this file. On the other
+P26L15	   hand, decryption, or more likely a brute force attack, would be
+P26L16	   necessary to obtain the user's password. This is the reason that the
+P26L17	   realm is part of the digested data stored in the password file. It
+P26L18	   means that if one Digest authentication password file is compromised,
+P26L19	   it does not automatically compromise others with the same username
+P26L20	   and password (though it does expose them to brute force attack).
+P26L21	
+P26L22	   There are two important security consequences of this. First the
+P26L23	   password file must be protected as if it contained unencrypted
+P26L24	   passwords, because for the purpose of accessing documents in its
+P26L25	   realm, it effectively does.
+P26L26	
+P26L27	   A second consequence of this is that the realm string should be
+P26L28	   unique among all realms which any single user is likely to use. In
+P26L29	   particular a realm string should include the name of the host doing
+P26L30	   the authentication. The inability of the client to authenticate the
+P26L31	   server is a weakness of Digest Authentication.
+P26L32	
+P26L33	4.14 Summary
+P26L34	
+P26L35	   By modern cryptographic standards Digest Authentication is weak. But
+P26L36	   for a large range of purposes it is valuable as a replacement for
+P26L37	   Basic Authentication. It remedies some, but not all, weaknesses of
+P26L38	   Basic Authentication. Its strength may vary depending on the
+P26L39	   implementation.  In particular the structure of the nonce (which is
+P26L40	   dependent on the server implementation) may affect the ease of
+P26L41	   mounting a replay attack.  A range of server options is appropriate
+P26L42	   since, for example, some implementations may be willing to accept the
+P26L43	   server overhead of one-time nonces or digests to eliminate the
+P26L44	   possibility of replay. Others may satisfied with a nonce like the one
+P26L45	   recommended above restricted to a single IP address and a single ETag
+P26L46	   or with a limited lifetime.
+P26L47	
+P26L48	
+P27L1	   The bottom line is that *any* compliant implementation will be
+P27L2	   relatively weak by cryptographic standards, but *any* compliant
+P27L3	   implementation will be far superior to Basic Authentication.
+P27L4	
+P27L5	5 Sample implementation
+P27L6	
+P27L7	   The following code implements the calculations of H(A1), H(A2),
+P27L8	   request-digest and response-digest, and a test program which computes
+P27L9	   the values used in the example of section 3.5. It uses the MD5
+P27L10	   implementation from RFC 1321.
+P27L11	
+P27L12	   File "digcalc.h":
+P27L13	
+P27L14	#define HASHLEN 16
+P27L15	typedef char HASH[HASHLEN];
+P27L16	#define HASHHEXLEN 32
+P27L17	typedef char HASHHEX[HASHHEXLEN+1];
+P27L18	#define IN
+P27L19	#define OUT
+P27L20	
+P27L21	/* calculate H(A1) as per HTTP Digest spec */
+P27L22	void DigestCalcHA1(
+P27L23	    IN char * pszAlg,
+P27L24	    IN char * pszUserName,
+P27L25	    IN char * pszRealm,
+P27L26	    IN char * pszPassword,
+P27L27	    IN char * pszNonce,
+P27L28	    IN char * pszCNonce,
+P27L29	    OUT HASHHEX SessionKey
+P27L30	    );
+P27L31	
+P27L32	/* calculate request-digest/response-digest as per HTTP Digest spec */
+P27L33	void DigestCalcResponse(
+P27L34	    IN HASHHEX HA1,           /* H(A1) */
+P27L35	    IN char * pszNonce,       /* nonce from server */
+P27L36	    IN char * pszNonceCount,  /* 8 hex digits */
+P27L37	    IN char * pszCNonce,      /* client nonce */
+P27L38	    IN char * pszQop,         /* qop-value: "", "auth", "auth-int" */
+P27L39	    IN char * pszMethod,      /* method from the request */
+P27L40	    IN char * pszDigestUri,   /* requested URL */
+P27L41	    IN HASHHEX HEntity,       /* H(entity body) if qop="auth-int" */
+P27L42	    OUT HASHHEX Response      /* request-digest or response-digest */
+P27L43	    );
+P27L44	
+P27L45	File "digcalc.c":
+P27L46	
+P27L47	#include <global.h>
+P27L48	#include <md5.h>
+P28L1	#include <string.h>
+P28L2	#include "digcalc.h"
+P28L3	
+P28L4	void CvtHex(
+P28L5	    IN HASH Bin,
+P28L6	    OUT HASHHEX Hex
+P28L7	    )
+P28L8	{
+P28L9	    unsigned short i;
+P28L10	    unsigned char j;
+P28L11	
+P28L12	    for (i = 0; i < HASHLEN; i++) {
+P28L13	        j = (Bin[i] >> 4) & 0xf;
+P28L14	        if (j <= 9)
+P28L15	            Hex[i*2] = (j + '0');
+P28L16	         else
+P28L17	            Hex[i*2] = (j + 'a' - 10);
+P28L18	        j = Bin[i] & 0xf;
+P28L19	        if (j <= 9)
+P28L20	            Hex[i*2+1] = (j + '0');
+P28L21	         else
+P28L22	            Hex[i*2+1] = (j + 'a' - 10);
+P28L23	    };
+P28L24	    Hex[HASHHEXLEN] = '\0';
+P28L25	};
+P28L26	
+P28L27	/* calculate H(A1) as per spec */
+P28L28	void DigestCalcHA1(
+P28L29	    IN char * pszAlg,
+P28L30	    IN char * pszUserName,
+P28L31	    IN char * pszRealm,
+P28L32	    IN char * pszPassword,
+P28L33	    IN char * pszNonce,
+P28L34	    IN char * pszCNonce,
+P28L35	    OUT HASHHEX SessionKey
+P28L36	    )
+P28L37	{
+P28L38	      MD5_CTX Md5Ctx;
+P28L39	      HASH HA1;
+P28L40	
+P28L41	      MD5Init(&Md5Ctx);
+P28L42	      MD5Update(&Md5Ctx, pszUserName, strlen(pszUserName));
+P28L43	      MD5Update(&Md5Ctx, ":", 1);
+P28L44	      MD5Update(&Md5Ctx, pszRealm, strlen(pszRealm));
+P28L45	      MD5Update(&Md5Ctx, ":", 1);
+P28L46	      MD5Update(&Md5Ctx, pszPassword, strlen(pszPassword));
+P28L47	      MD5Final(HA1, &Md5Ctx);
+P28L48	      if (stricmp(pszAlg, "md5-sess") == 0) {
+P29L1	            MD5Init(&Md5Ctx);
+P29L2	            MD5Update(&Md5Ctx, HA1, HASHLEN);
+P29L3	            MD5Update(&Md5Ctx, ":", 1);
+P29L4	            MD5Update(&Md5Ctx, pszNonce, strlen(pszNonce));
+P29L5	            MD5Update(&Md5Ctx, ":", 1);
+P29L6	            MD5Update(&Md5Ctx, pszCNonce, strlen(pszCNonce));
+P29L7	            MD5Final(HA1, &Md5Ctx);
+P29L8	      };
+P29L9	      CvtHex(HA1, SessionKey);
+P29L10	};
+P29L11	
+P29L12	/* calculate request-digest/response-digest as per HTTP Digest spec */
+P29L13	void DigestCalcResponse(
+P29L14	    IN HASHHEX HA1,           /* H(A1) */
+P29L15	    IN char * pszNonce,       /* nonce from server */
+P29L16	    IN char * pszNonceCount,  /* 8 hex digits */
+P29L17	    IN char * pszCNonce,      /* client nonce */
+P29L18	    IN char * pszQop,         /* qop-value: "", "auth", "auth-int" */
+P29L19	    IN char * pszMethod,      /* method from the request */
+P29L20	    IN char * pszDigestUri,   /* requested URL */
+P29L21	    IN HASHHEX HEntity,       /* H(entity body) if qop="auth-int" */
+P29L22	    OUT HASHHEX Response      /* request-digest or response-digest */
+P29L23	    )
+P29L24	{
+P29L25	      MD5_CTX Md5Ctx;
+P29L26	      HASH HA2;
+P29L27	      HASH RespHash;
+P29L28	       HASHHEX HA2Hex;
+P29L29	
+P29L30	      // calculate H(A2)
+P29L31	      MD5Init(&Md5Ctx);
+P29L32	      MD5Update(&Md5Ctx, pszMethod, strlen(pszMethod));
+P29L33	      MD5Update(&Md5Ctx, ":", 1);
+P29L34	      MD5Update(&Md5Ctx, pszDigestUri, strlen(pszDigestUri));
+P29L35	      if (stricmp(pszQop, "auth-int") == 0) {
+P29L36	            MD5Update(&Md5Ctx, ":", 1);
+P29L37	            MD5Update(&Md5Ctx, HEntity, HASHHEXLEN);
+P29L38	      };
+P29L39	      MD5Final(HA2, &Md5Ctx);
+P29L40	       CvtHex(HA2, HA2Hex);
+P29L41	
+P29L42	      // calculate response
+P29L43	      MD5Init(&Md5Ctx);
+P29L44	      MD5Update(&Md5Ctx, HA1, HASHHEXLEN);
+P29L45	      MD5Update(&Md5Ctx, ":", 1);
+P29L46	      MD5Update(&Md5Ctx, pszNonce, strlen(pszNonce));
+P29L47	      MD5Update(&Md5Ctx, ":", 1);
+P29L48	      if (*pszQop) {
+P30L1	          MD5Update(&Md5Ctx, pszNonceCount, strlen(pszNonceCount));
+P30L2	          MD5Update(&Md5Ctx, ":", 1);
+P30L3	          MD5Update(&Md5Ctx, pszCNonce, strlen(pszCNonce));
+P30L4	          MD5Update(&Md5Ctx, ":", 1);
+P30L5	          MD5Update(&Md5Ctx, pszQop, strlen(pszQop));
+P30L6	          MD5Update(&Md5Ctx, ":", 1);
+P30L7	      };
+P30L8	      MD5Update(&Md5Ctx, HA2Hex, HASHHEXLEN);
+P30L9	      MD5Final(RespHash, &Md5Ctx);
+P30L10	      CvtHex(RespHash, Response);
+P30L11	};
+P30L12	
+P30L13	File "digtest.c":
+P30L14	
+P30L15	
+P30L16	#include <stdio.h>
+P30L17	#include "digcalc.h"
+P30L18	
+P30L19	void main(int argc, char ** argv) {
+P30L20	
+P30L21	      char * pszNonce = "dcd98b7102dd2f0e8b11d0f600bfb0c093";
+P30L22	      char * pszCNonce = "0a4f113b";
+P30L23	      char * pszUser = "Mufasa";
+P30L24	      char * pszRealm = "testrealm@host.com";
+P30L25	      char * pszPass = "Circle Of Life";
+P30L26	      char * pszAlg = "md5";
+P30L27	      char szNonceCount[9] = "00000001";
+P30L28	      char * pszMethod = "GET";
+P30L29	      char * pszQop = "auth";
+P30L30	      char * pszURI = "/dir/index.html";
+P30L31	      HASHHEX HA1;
+P30L32	      HASHHEX HA2 = "";
+P30L33	      HASHHEX Response;
+P30L34	
+P30L35	      DigestCalcHA1(pszAlg, pszUser, pszRealm, pszPass, pszNonce,
+P30L36	pszCNonce, HA1);
+P30L37	      DigestCalcResponse(HA1, pszNonce, szNonceCount, pszCNonce, pszQop,
+P30L38	       pszMethod, pszURI, HA2, Response);
+P30L39	      printf("Response = %s\n", Response);
+P30L40	};
+P30L41	
+P30L42	
+P30L43	
+P30L44	
+P30L45	
+P30L46	
+P30L47	
+P30L48	
+P31L1	6 Acknowledgments
+P31L2	
+P31L3	   Eric W. Sink, of AbiSource, Inc., was one of the original authors
+P31L4	   before the specification underwent substantial revision.
+P31L5	
+P31L6	   In addition to the authors, valuable discussion instrumental in
+P31L7	   creating this document has come from Peter J. Churchyard, Ned Freed,
+P31L8	   and David M.  Kristol.
+P31L9	
+P31L10	   Jim Gettys and Larry Masinter edited this document for update.
+P31L11	
+P31L12	7 References
+P31L13	
+P31L14	   [1]  Berners-Lee, T.,  Fielding, R. and H. Frystyk, "Hypertext
+P31L15	        Transfer Protocol -- HTTP/1.0", RFC 1945, May 1996.
+P31L16	
+P31L17	   [2]  Fielding, R.,  Gettys, J., Mogul, J., Frysyk, H., Masinter, L.,
+P31L18	        Leach, P. and T. Berners-Lee, "Hypertext Transfer Protocol --
+P31L19	        HTTP/1.1", RFC 2616, June 1999.
+P31L20	
+P31L21	   [3]  Rivest, R., "The MD5 Message-Digest Algorithm", RFC 1321, April
+P31L22	        1992.
+P31L23	
+P31L24	   [4]  Freed, N. and N. Borenstein. "Multipurpose Internet Mail
+P31L25	        Extensions (MIME) Part One: Format of Internet Message Bodies",
+P31L26	        RFC 2045, November 1996.
+P31L27	
+P31L28	   [5]  Dierks, T. and C. Allen "The TLS Protocol, Version 1.0", RFC
+P31L29	        2246, January 1999.
+P31L30	
+P31L31	   [6]  Franks, J., Hallam-Baker, P., Hostetler, J., Leach, P.,
+P31L32	        Luotonen, A., Sink, E. and L. Stewart, "An Extension to HTTP :
+P31L33	        Digest Access Authentication", RFC 2069, January 1997.
+P31L34	
+P31L35	   [7]  Berners Lee, T, Fielding, R. and L. Masinter, "Uniform Resource
+P31L36	        Identifiers (URI): Generic Syntax", RFC 2396, August 1998.
+P31L37	
+P31L38	   [8]  Kaliski, B.,Robshaw, M., "Message Authentication with MD5",
+P31L39	        CryptoBytes, Sping 1995, RSA Inc,
+P31L40	        (http://www.rsa.com/rsalabs/pubs/cryptobytes/spring95/md5.htm)
+P31L41	
+P31L42	   [9]  Klensin, J., Catoe, R. and P. Krumviede, "IMAP/POP AUTHorize
+P31L43	        Extension for Simple Challenge/Response", RFC 2195, September
+P31L44	        1997.
+P31L45	
+P31L46	   [10] Morgan, B., Alvestrand, H., Hodges, J., Wahl, M.,
+P31L47	        "Authentication Methods for LDAP", Work in Progress.
+P31L48	
+P32L1	8 Authors' Addresses
+P32L2	
+P32L3	   John Franks
+P32L4	   Professor of Mathematics
+P32L5	   Department of Mathematics
+P32L6	   Northwestern University
+P32L7	   Evanston, IL 60208-2730, USA
+P32L8	
+P32L9	   EMail: john@math.nwu.edu
+P32L10	
+P32L11	
+P32L12	   Phillip M. Hallam-Baker
+P32L13	   Principal Consultant
+P32L14	   Verisign Inc.
+P32L15	   301 Edgewater Place
+P32L16	   Suite 210
+P32L17	   Wakefield MA 01880, USA
+P32L18	
+P32L19	   EMail: pbaker@verisign.com
+P32L20	
+P32L21	
+P32L22	   Jeffery L. Hostetler
+P32L23	   Software Craftsman
+P32L24	   AbiSource, Inc.
+P32L25	   6 Dunlap Court
+P32L26	   Savoy, IL 61874
+P32L27	
+P32L28	   EMail: jeff@AbiSource.com
+P32L29	
+P32L30	
+P32L31	   Scott D. Lawrence
+P32L32	   Agranat Systems, Inc.
+P32L33	   5 Clocktower Place, Suite 400
+P32L34	   Maynard, MA 01754, USA
+P32L35	
+P32L36	   EMail: lawrence@agranat.com
+P32L37	
+P32L38	
+P32L39	   Paul J. Leach
+P32L40	   Microsoft Corporation
+P32L41	   1 Microsoft Way
+P32L42	   Redmond, WA 98052, USA
+P32L43	
+P32L44	   EMail: paulle@microsoft.com
+P32L45	
+P32L46	
+P32L47	
+P32L48	
+P33L1	   Ari Luotonen
+P33L2	   Member of Technical Staff
+P33L3	   Netscape Communications Corporation
+P33L4	   501 East Middlefield Road
+P33L5	   Mountain View, CA 94043, USA
+P33L6	
+P33L7	
+P33L8	   Lawrence C. Stewart
+P33L9	   Open Market, Inc.
+P33L10	   215 First Street
+P33L11	   Cambridge, MA  02142, USA
+P33L12	
+P33L13	   EMail: stewart@OpenMarket.com
+P33L14	
+P33L15	
+P33L16	
+P33L17	
+P33L18	
+P33L19	
+P33L20	
+P33L21	
+P33L22	
+P33L23	
+P33L24	
+P33L25	
+P33L26	
+P33L27	
+P33L28	
+P33L29	
+P33L30	
+P33L31	
+P33L32	
+P33L33	
+P33L34	
+P33L35	
+P33L36	
+P33L37	
+P33L38	
+P33L39	
+P33L40	
+P33L41	
+P33L42	
+P33L43	
+P33L44	
+P33L45	
+P33L46	
+P33L47	
+P33L48	
+P34L1	9.  Full Copyright Statement
+P34L2	
+P34L3	   Copyright (C) The Internet Society (1999).  All Rights Reserved.
+P34L4	
+P34L5	   This document and translations of it may be copied and furnished to
+P34L6	   others, and derivative works that comment on or otherwise explain it
+P34L7	   or assist in its implementation may be prepared, copied, published
+P34L8	   and distributed, in whole or in part, without restriction of any
+P34L9	   kind, provided that the above copyright notice and this paragraph are
+P34L10	   included on all such copies and derivative works.  However, this
+P34L11	   document itself may not be modified in any way, such as by removing
+P34L12	   the copyright notice or references to the Internet Society or other
+P34L13	   Internet organizations, except as needed for the purpose of
+P34L14	   developing Internet standards in which case the procedures for
+P34L15	   copyrights defined in the Internet Standards process must be
+P34L16	   followed, or as required to translate it into languages other than
+P34L17	   English.
+P34L18	
+P34L19	   The limited permissions granted above are perpetual and will not be
+P34L20	   revoked by the Internet Society or its successors or assigns.
+P34L21	
+P34L22	   This document and the information contained herein is provided on an
+P34L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P34L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P34L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P34L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P34L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P34L28	
+P34L29	Acknowledgement
+P34L30	
+P34L31	   Funding for the RFC Editor function is currently provided by the
+P34L32	   Internet Society.
+P34L33	
+P34L34	
+P34L35	
+P34L36	
+P34L37	
+P34L38	
+P34L39	
+P34L40	
+P34L41	
+P34L42	
+P34L43	
+P34L44	
+P34L45	
+P34L46	
+P34L47	
+P34L48	

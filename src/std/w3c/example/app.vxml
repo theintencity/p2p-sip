@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vxml xmlns="http://www.w3.org/2001/vxml" 
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+   xsi:schemaLocation="http://www.w3.org/2001/vxml 
+   http://www.w3.org/TR/voicexml20/vxml.xsd"
+   version="2.0">
+  <form id="billing_adjustment">
+    <var name="account_number"/>
+    <var name="home_phone"/>
+    <subdialog name="accountinfo" src="acct_info.vxml#basic">
+      <filled>
+        <!-- Note the variable defined by "accountinfo" is
+          returned as an ECMAScript object and it contains two
+          properties defined by the variables specified in the
+          "return" element of the subdialog. -->
+
+        <assign name="account_number" expr="accountinfo.acctnum"/>
+        <assign name="home_phone" expr="accountinfo.acctphone"/>
+      </filled>
+    </subdialog>
+
+    <field name="adjustment_amount">
+     <grammar type="application/srgs+xml" src="/grammars/currency.grxml"/>
+      <prompt>
+        What is the value of your account adjustment?
+      </prompt>
+      <filled>
+        <submit  next="/cgi-bin/updateaccount"/>
+      </filled>
+    </field>
+  </form>
+</vxml>

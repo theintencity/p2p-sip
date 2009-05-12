@@ -1,0 +1,1203 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                       J. Rosenberg
+P1L5	Request for Comments: 3264                                   dynamicsoft
+P1L6	Obsoletes: 2543                                           H. Schulzrinne
+P1L7	Category: Standards Track                                    Columbia U.
+P1L8	                                                               June 2002
+P1L9	
+P1L10	
+P1L11	   An Offer/Answer Model with the Session Description Protocol (SDP)
+P1L12	
+P1L13	Status of this Memo
+P1L14	
+P1L15	   This document specifies an Internet standards track protocol for the
+P1L16	   Internet community, and requests discussion and suggestions for
+P1L17	   improvements.  Please refer to the current edition of the "Internet
+P1L18	   Official Protocol Standards" (STD 1) for the standardization state
+P1L19	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L20	
+P1L21	Copyright Notice
+P1L22	
+P1L23	   Copyright (C) The Internet Society (2002).  All Rights Reserved.
+P1L24	
+P1L25	Abstract
+P1L26	
+P1L27	   This document defines a mechanism by which two entities can make use
+P1L28	   of the Session Description Protocol (SDP) to arrive at a common view
+P1L29	   of a multimedia session between them.  In the model, one participant
+P1L30	   offers the other a description of the desired session from their
+P1L31	   perspective, and the other participant answers with the desired
+P1L32	   session from their perspective.  This offer/answer model is most
+P1L33	   useful in unicast sessions where information from both participants
+P1L34	   is needed for the complete view of the session.  The offer/answer
+P1L35	   model is used by protocols like the Session Initiation Protocol
+P1L36	   (SIP).
+P1L37	
+P1L38	Table of Contents
+P1L39	
+P1L40	   1          Introduction ........................................    2
+P1L41	   2          Terminology .........................................    3
+P1L42	   3          Definitions .........................................    3
+P1L43	   4          Protocol Operation ..................................    4
+P1L44	   5          Generating the Initial Offer ........................    5
+P1L45	   5.1        Unicast Streams .....................................    5
+P1L46	   5.2        Multicast Streams ...................................    8
+P1L47	   6          Generating the Answer ...............................    9
+P1L48	   6.1        Unicast Streams .....................................    9
+P1L49	   6.2        Multicast Streams ...................................   12
+P1L50	   7          Offerer Processing of the Answer ....................   12
+P1L51	   8          Modifying the Session ...............................   13
+P2L1	   8.1        Adding a Media Stream ...............................   13
+P2L2	   8.2        Removing a Media Stream .............................   14
+P2L3	   8.3        Modifying a Media Stream ............................   14
+P2L4	   8.3.1      Modifying Address, Port or Transport ................   14
+P2L5	   8.3.2      Changing the Set of Media Formats ...................   15
+P2L6	   8.3.3      Changing Media Types ................................   17
+P2L7	   8.3.4      Changing Attributes .................................   17
+P2L8	   8.4        Putting a Unicast Media Stream on Hold ..............   17
+P2L9	   9          Indicating Capabilities .............................   18
+P2L10	   10         Example Offer/Answer Exchanges ......................   19
+P2L11	   10.1       Basic Exchange ......................................   19
+P2L12	   10.2       One of N Codec Selection ............................   21
+P2L13	   11         Security Considerations .............................   23
+P2L14	   12         IANA Considerations .................................   23
+P2L15	   13         Acknowledgements ....................................   23
+P2L16	   14         Normative References ................................   23
+P2L17	   15         Informative References ..............................   24
+P2L18	   16         Authors' Addresses ..................................   24
+P2L19	   17         Full Copyright Statement.............................   25
+P2L20	
+P2L21	1 Introduction
+P2L22	
+P2L23	   The Session Description Protocol (SDP) [1] was originally conceived
+P2L24	   as a way to describe multicast sessions carried on the Mbone.  The
+P2L25	   Session Announcement Protocol (SAP) [6] was devised as a multicast
+P2L26	   mechanism to carry SDP messages.  Although the SDP specification
+P2L27	   allows for unicast operation, it is not complete.  Unlike multicast,
+P2L28	   where there is a global view of the session that is used by all
+P2L29	   participants, unicast sessions involve two participants, and a
+P2L30	   complete view of the session requires information from both
+P2L31	   participants, and agreement on parameters between them.
+P2L32	
+P2L33	   As an example, a multicast session requires conveying a single
+P2L34	   multicast address for a particular media stream.  However, for a
+P2L35	   unicast session, two addresses are needed - one for each participant.
+P2L36	   As another example, a multicast session requires an indication of
+P2L37	   which codecs will be used in the session.  However, for unicast, the
+P2L38	   set of codecs needs to be determined by finding an overlap in the set
+P2L39	   supported by each participant.
+P2L40	
+P2L41	   As a result, even though SDP has the expressiveness to describe
+P2L42	   unicast sessions, it is missing the semantics and operational details
+P2L43	   of how it is actually done.  In this document, we remedy that by
+P2L44	   defining a simple offer/answer model based on SDP.  In this model,
+P2L45	   one participant in the session generates an SDP message that
+P2L46	   constitutes the offer - the set of media streams and codecs the
+P2L47	   offerer wishes to use, along with the IP addresses and ports the
+P2L48	   offerer would like to use to receive the media.  The offer is
+P3L1	   conveyed to the other participant, called the answerer.  The answerer
+P3L2	   generates an answer, which is an SDP message that responds to the
+P3L3	   offer provided by the offerer.  The answer has a matching media
+P3L4	   stream for each stream in the offer, indicating whether the stream is
+P3L5	   accepted or not, along with the codecs that will be used and the IP
+P3L6	   addresses and ports that the answerer wants to use to receive media.
+P3L7	
+P3L8	   It is also possible for a multicast session to work similar to a
+P3L9	   unicast one; its parameters are negotiated between a pair of users as
+P3L10	   in the unicast case, but both sides send packets to the same
+P3L11	   multicast address, rather than unicast ones.  This document also
+P3L12	   discusses the application of the offer/answer model to multicast
+P3L13	   streams.
+P3L14	
+P3L15	   We also define guidelines for how the offer/answer model is used to
+P3L16	   update a session after an initial offer/answer exchange.
+P3L17	
+P3L18	   The means by which the offers and answers are conveyed are outside
+P3L19	   the scope of this document.  The offer/answer model defined here is
+P3L20	   the mandatory baseline mechanism used by the Session Initiation
+P3L21	   Protocol (SIP) [7].
+P3L22	
+P3L23	2 Terminology
+P3L24	
+P3L25	   In this document, the key words "MUST", "MUST NOT", "REQUIRED",
+P3L26	   "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
+P3L27	   and "OPTIONAL" are to be interpreted as described in RFC 2119 [2] and
+P3L28	   indicate requirement levels for compliant implementations.
+P3L29	
+P3L30	3 Definitions
+P3L31	
+P3L32	   The following terms are used throughout this document:
+P3L33	
+P3L34	      Agent: An agent is the protocol implementation involved in the
+P3L35	         offer/answer exchange.  There are two agents involved in an
+P3L36	         offer/answer exchange.
+P3L37	
+P3L38	      Answer: An SDP message sent by an answerer in response to an offer
+P3L39	         received from an offerer.
+P3L40	
+P3L41	      Answerer: An agent which receives a session description from
+P3L42	         another agent describing aspects of desired media
+P3L43	         communication, and then responds to that with its own session
+P3L44	         description.
+P3L45	
+P3L46	
+P3L47	
+P3L48	
+P4L1	      Media Stream: From RTSP [8], a media stream is a single media
+P4L2	         instance, e.g., an audio stream or a video stream as well as a
+P4L3	         single whiteboard or shared application group.  In SDP, a media
+P4L4	         stream is described by an "m=" line and its associated
+P4L5	         attributes.
+P4L6	
+P4L7	      Offer: An SDP message sent by an offerer.
+P4L8	
+P4L9	      Offerer: An agent which generates a session description in order
+P4L10	         to create or modify a session.
+P4L11	
+P4L12	4 Protocol Operation
+P4L13	
+P4L14	   The offer/answer exchange assumes the existence of a higher layer
+P4L15	   protocol (such as SIP) which is capable of exchanging SDP for the
+P4L16	   purposes of session establishment between agents.
+P4L17	
+P4L18	   Protocol operation begins when one agent sends an initial offer to
+P4L19	   another agent.  An offer is initial if it is outside of any context
+P4L20	   that may have already been established through the higher layer
+P4L21	   protocol.  It is assumed that the higher layer protocol provides
+P4L22	   maintenance of some kind of context which allows the various SDP
+P4L23	   exchanges to be associated together.
+P4L24	
+P4L25	   The agent receiving the offer MAY generate an answer, or it MAY
+P4L26	   reject the offer.  The means for rejecting an offer are dependent on
+P4L27	   the higher layer protocol.  The offer/answer exchange is atomic; if
+P4L28	   the answer is rejected, the session reverts to the state prior to the
+P4L29	   offer (which may be absence of a session).
+P4L30	
+P4L31	   At any time, either agent MAY generate a new offer that updates the
+P4L32	   session.  However, it MUST NOT generate a new offer if it has
+P4L33	   received an offer which it has not yet answered or rejected.
+P4L34	   Furthermore, it MUST NOT generate a new offer if it has generated a
+P4L35	   prior offer for which it has not yet received an answer or a
+P4L36	   rejection.  If an agent receives an offer after having sent one, but
+P4L37	   before receiving an answer to it, this is considered a "glare"
+P4L38	   condition.
+P4L39	
+P4L40	      The term glare was originally used in circuit switched
+P4L41	      telecommunications networks to describe the condition where two
+P4L42	      switches both attempt to seize the same available circuit on the
+P4L43	      same trunk at the same time.  Here, it means both agents have
+P4L44	      attempted to send an updated offer at the same time.
+P4L45	
+P4L46	
+P4L47	
+P4L48	
+P5L1	   The higher layer protocol needs to provide a means for resolving such
+P5L2	   conditions.  The higher layer protocol will need to provide a means
+P5L3	   for ordering of messages in each direction.  SIP meets these
+P5L4	   requirements [7].
+P5L5	
+P5L6	5 Generating the Initial Offer
+P5L7	
+P5L8	   The offer (and answer) MUST be a valid SDP message, as defined by RFC
+P5L9	   2327 [1], with one exception.  RFC 2327 mandates that either an e or
+P5L10	   a p line is present in the SDP message.  This specification relaxes
+P5L11	   that constraint; an SDP formulated for an offer/answer application
+P5L12	   MAY omit both the e and p lines.  The numeric value of the session id
+P5L13	   and version in the o line MUST be representable with a 64 bit signed
+P5L14	   integer.  The initial value of the version MUST be less than
+P5L15	   (2**62)-1, to avoid rollovers.  Although the SDP specification allows
+P5L16	   for multiple session descriptions to be concatenated together into a
+P5L17	   large SDP message, an SDP message used in the offer/answer model MUST
+P5L18	   contain exactly one session description.
+P5L19	
+P5L20	   The SDP "s=" line conveys the subject of the session, which is
+P5L21	   reasonably defined for multicast, but ill defined for unicast.  For
+P5L22	   unicast sessions, it is RECOMMENDED that it consist of a single space
+P5L23	   character (0x20) or a dash (-).
+P5L24	
+P5L25	      Unfortunately, SDP does not allow the "s=" line to be empty.
+P5L26	
+P5L27	   The SDP "t=" line conveys the time of the session.  Generally,
+P5L28	   streams for unicast sessions are created and destroyed through
+P5L29	   external signaling means, such as SIP.  In that case, the "t=" line
+P5L30	   SHOULD have a value of "0 0".
+P5L31	
+P5L32	   The offer will contain zero or more media streams (each media stream
+P5L33	   is described by an "m=" line and its associated attributes).  Zero
+P5L34	   media streams implies that the offerer wishes to communicate, but
+P5L35	   that the streams for the session will be added at a later time
+P5L36	   through a modified offer.  The streams MAY be for a mix of unicast
+P5L37	   and multicast; the latter obviously implies a multicast address in
+P5L38	   the relevant "c=" line(s).
+P5L39	
+P5L40	   Construction of each offered stream depends on whether the stream is
+P5L41	   multicast or unicast.
+P5L42	
+P5L43	5.1 Unicast Streams
+P5L44	
+P5L45	   If the offerer wishes to only send media on a stream to its peer, it
+P5L46	   MUST mark the stream as sendonly with the "a=sendonly" attribute.  We
+P5L47	   refer to a stream as being marked with a certain direction if a
+P5L48	   direction attribute was present as either a media stream attribute or
+P6L1	   a session attribute.  If the offerer wishes to only receive media
+P6L2	   from its peer, it MUST mark the stream as recvonly.  If the offerer
+P6L3	   wishes to communicate, but wishes to neither send nor receive media
+P6L4	   at this time, it MUST mark the stream with an "a=inactive" attribute.
+P6L5	   The inactive direction attribute is specified in RFC 3108 [3].  Note
+P6L6	   that in the case of the Real Time Transport Protocol (RTP) [4], RTCP
+P6L7	   is still sent and received for sendonly, recvonly, and inactive
+P6L8	   streams.  That is, the directionality of the media stream has no
+P6L9	   impact on the RTCP usage.  If the offerer wishes to both send and
+P6L10	   receive media with its peer, it MAY include an "a=sendrecv"
+P6L11	   attribute, or it MAY omit it, since sendrecv is the default.
+P6L12	
+P6L13	   For recvonly and sendrecv streams, the port number and address in the
+P6L14	   offer indicate where the offerer would like to receive the media
+P6L15	   stream.  For sendonly RTP streams, the address and port number
+P6L16	   indirectly indicate where the offerer wants to receive RTCP reports.
+P6L17	   Unless there is an explicit indication otherwise, reports are sent to
+P6L18	   the port number one higher than the number indicated.  The IP address
+P6L19	   and port present in the offer indicate nothing about the source IP
+P6L20	   address and source port of RTP and RTCP packets that will be sent by
+P6L21	   the offerer.  A port number of zero in the offer indicates that the
+P6L22	   stream is offered but MUST NOT be used.  This has no useful semantics
+P6L23	   in an initial offer, but is allowed for reasons of completeness,
+P6L24	   since the answer can contain a zero port indicating a rejected stream
+P6L25	   (Section 6).  Furthermore, existing streams can be terminated by
+P6L26	   setting the port to zero (Section 8).  In general, a port number of
+P6L27	   zero indicates that the media stream is not wanted.
+P6L28	
+P6L29	   The list of media formats for each media stream conveys two pieces of
+P6L30	   information, namely the set of formats (codecs and any parameters
+P6L31	   associated with the codec, in the case of RTP) that the offerer is
+P6L32	   capable of sending and/or receiving (depending on the direction
+P6L33	   attributes), and, in the case of RTP, the RTP payload type numbers
+P6L34	   used to identify those formats.  If multiple formats are listed, it
+P6L35	   means that the offerer is capable of making use of any of those
+P6L36	   formats during the session.  In other words, the answerer MAY change
+P6L37	   formats in the middle of the session, making use of any of the
+P6L38	   formats listed, without sending a new offer.  For a sendonly stream,
+P6L39	   the offer SHOULD indicate those formats the offerer is willing to
+P6L40	   send for this stream.  For a recvonly stream, the offer SHOULD
+P6L41	   indicate those formats the offerer is willing to receive for this
+P6L42	   stream.  For a sendrecv stream, the offer SHOULD indicate those
+P6L43	   codecs that the offerer is willing to send and receive with.
+P6L44	
+P6L45	   For recvonly RTP streams, the payload type numbers indicate the value
+P6L46	   of the payload type field in RTP packets the offerer is expecting to
+P6L47	   receive for that codec.  For sendonly RTP streams, the payload type
+P6L48	   numbers indicate the value of the payload type field in RTP packets
+P7L1	   the offerer is planning to send for that codec.  For sendrecv RTP
+P7L2	   streams, the payload type numbers indicate the value of the payload
+P7L3	   type field the offerer expects to receive, and would prefer to send.
+P7L4	   However, for sendonly and sendrecv streams, the answer might indicate
+P7L5	   different payload type numbers for the same codecs, in which case,
+P7L6	   the offerer MUST send with the payload type numbers from the answer.
+P7L7	
+P7L8	      Different payload type numbers may be needed in each direction
+P7L9	      because of interoperability concerns with H.323.
+P7L10	
+P7L11	   As per RFC 2327, fmtp parameters MAY be present to provide additional
+P7L12	   parameters of the media format.
+P7L13	
+P7L14	   In the case of RTP streams, all media descriptions SHOULD contain
+P7L15	   "a=rtpmap" mappings from RTP payload types to encodings.  If there is
+P7L16	   no "a=rtpmap", the default payload type mapping, as defined by the
+P7L17	   current profile in use (for example, RFC 1890 [5]) is to be used.
+P7L18	
+P7L19	      This allows easier migration away from static payload types.
+P7L20	
+P7L21	   In all cases, the formats in the "m=" line MUST be listed in order of
+P7L22	   preference, with the first format listed being preferred.  In this
+P7L23	   case, preferred means that the recipient of the offer SHOULD use the
+P7L24	   format with the highest preference that is acceptable to it.
+P7L25	
+P7L26	   If the ptime attribute is present for a stream, it indicates the
+P7L27	   desired packetization interval that the offerer would like to
+P7L28	   receive.  The ptime attribute MUST be greater than zero.
+P7L29	
+P7L30	   If the bandwidth attribute is present for a stream, it indicates the
+P7L31	   desired bandwidth that the offerer would like to receive.  A value of
+P7L32	   zero is allowed, but discouraged.  It indicates that no media should
+P7L33	   be sent.  In the case of RTP, it would also disable all RTCP.
+P7L34	
+P7L35	   If multiple media streams of different types are present, it means
+P7L36	   that the offerer wishes to use those streams at the same time.  A
+P7L37	   typical case is an audio and a video stream as part of a
+P7L38	   videoconference.
+P7L39	
+P7L40	   If multiple media streams of the same type are present in an offer,
+P7L41	   it means that the offerer wishes to send (and/or receive) multiple
+P7L42	   streams of that type at the same time.  When sending multiple streams
+P7L43	   of the same type, it is a matter of local policy as to how each media
+P7L44	   source of that type (for example, a video camera and VCR in the case
+P7L45	   of video) is mapped to each stream.  When a user has a single source
+P7L46	   for a particular media type, only one policy makes sense: the source
+P7L47	   is sent to each stream of the same type.  Each stream MAY use
+P7L48	   different encodings.  When receiving multiple streams of the same
+P8L1	   type, it is a matter of local policy as to how each stream is mapped
+P8L2	   to the various media sinks for that particular type (for example,
+P8L3	   speakers or a recording device in the case of audio).  There are a
+P8L4	   few constraints on the policies, however.  First, when receiving
+P8L5	   multiple streams of the same type, each stream MUST be mapped to at
+P8L6	   least one sink for the purpose of presentation to the user.  In other
+P8L7	   words, the intent of receiving multiple streams of the same type is
+P8L8	   that they should all be presented in parallel, rather than choosing
+P8L9	   just one.  Another constraint is that when multiple streams are
+P8L10	   received and sent to the same sink, they MUST be combined in some
+P8L11	   media specific way.  For example, in the case of two audio streams,
+P8L12	   the received media from each might be mapped to the speakers.  In
+P8L13	   that case, the combining operation would be to mix them.  In the case
+P8L14	   of multiple instant messaging streams, where the sink is the screen,
+P8L15	   the combining operation would be to present all of them to the user
+P8L16	   interface.  The third constraint is that if multiple sources are
+P8L17	   mapped to the same stream, those sources MUST be combined in some
+P8L18	   media specific way before they are sent on the stream.  Although
+P8L19	   policies beyond these constraints are flexible, an agent won't
+P8L20	   generally want a policy that will copy media from its sinks to its
+P8L21	   sources unless it is a conference server (i.e., don't copy received
+P8L22	   media on one stream to another stream).
+P8L23	
+P8L24	   A typical usage example for multiple media streams of the same type
+P8L25	   is a pre-paid calling card application, where the user can press and
+P8L26	   hold the pound ("#") key at any time during a call to hangup and make
+P8L27	   a new call on the same card.  This requires media from the user to
+P8L28	   two destinations - the remote gateway, and the DTMF processing
+P8L29	   application which looks for the pound.  This could be accomplished
+P8L30	   with two media streams, one sendrecv to the gateway, and the other
+P8L31	   sendonly (from the perspective of the user) to the DTMF application.
+P8L32	
+P8L33	   Once the offerer has sent the offer, it MUST be prepared to receive
+P8L34	   media for any recvonly streams described by that offer.  It MUST be
+P8L35	   prepared to send and receive media for any sendrecv streams in the
+P8L36	   offer, and send media for any sendonly streams in the offer (of
+P8L37	   course, it cannot actually send until the peer provides an answer
+P8L38	   with the needed address and port information).  In the case of RTP,
+P8L39	   even though it may receive media before the answer arrives, it will
+P8L40	   not be able to send RTCP receiver reports until the answer arrives.
+P8L41	
+P8L42	5.2 Multicast Streams
+P8L43	
+P8L44	   If a session description contains a multicast media stream which is
+P8L45	   listed as receive (send) only, it means that the participants,
+P8L46	   including the offerer and answerer, can only receive (send) on that
+P8L47	   stream.  This differs from the unicast view, where the directionality
+P8L48	   refers to the flow of media between offerer and answerer.
+P9L1	   Beyond that clarification, the semantics of an offered multicast
+P9L2	   stream are exactly as described in RFC 2327 [1].
+P9L3	
+P9L4	6 Generating the Answer
+P9L5	
+P9L6	   The answer to an offered session description is based on the offered
+P9L7	   session description.  If the answer is different from the offer in
+P9L8	   any way (different IP addresses, ports, etc.), the origin line MUST
+P9L9	   be different in the answer, since the answer is generated by a
+P9L10	   different entity.  In that case, the version number in the "o=" line
+P9L11	   of the answer is unrelated to the version number in the o line of the
+P9L12	   offer.
+P9L13	
+P9L14	   For each "m=" line in the offer, there MUST be a corresponding "m="
+P9L15	   line in the answer.  The answer MUST contain exactly the same number
+P9L16	   of "m=" lines as the offer.  This allows for streams to be matched up
+P9L17	   based on their order.  This implies that if the offer contained zero
+P9L18	   "m=" lines, the answer MUST contain zero "m=" lines.
+P9L19	
+P9L20	   The "t=" line in the answer MUST equal that of the offer.  The time
+P9L21	   of the session cannot be negotiated.
+P9L22	
+P9L23	   An offered stream MAY be rejected in the answer, for any reason.  If
+P9L24	   a stream is rejected, the offerer and answerer MUST NOT generate
+P9L25	   media (or RTCP packets) for that stream.  To reject an offered
+P9L26	   stream, the port number in the corresponding stream in the answer
+P9L27	   MUST be set to zero.  Any media formats listed are ignored.  At least
+P9L28	   one MUST be present, as specified by SDP.
+P9L29	
+P9L30	   Constructing an answer for each offered stream differs for unicast
+P9L31	   and multicast.
+P9L32	
+P9L33	6.1 Unicast Streams
+P9L34	
+P9L35	   If a stream is offered with a unicast address, the answer for that
+P9L36	   stream MUST contain a unicast address.  The media type of the stream
+P9L37	   in the answer MUST match that of the offer.
+P9L38	
+P9L39	   If a stream is offered as sendonly, the corresponding stream MUST be
+P9L40	   marked as recvonly or inactive in the answer.  If a media stream is
+P9L41	   listed as recvonly in the offer, the answer MUST be marked as
+P9L42	   sendonly or inactive in the answer.  If an offered media stream is
+P9L43	   listed as sendrecv (or if there is no direction attribute at the
+P9L44	   media or session level, in which case the stream is sendrecv by
+P9L45	   default), the corresponding stream in the answer MAY be marked as
+P9L46	   sendonly, recvonly, sendrecv, or inactive.  If an offered media
+P9L47	   stream is listed as inactive, it MUST be marked as inactive in the
+P9L48	   answer.
+P10L1	   For streams marked as recvonly in the answer, the "m=" line MUST
+P10L2	   contain at least one media format the answerer is willing to receive
+P10L3	   with from amongst those listed in the offer.  The stream MAY indicate
+P10L4	   additional media formats, not listed in the corresponding stream in
+P10L5	   the offer, that the answerer is willing to receive.  For streams
+P10L6	   marked as sendonly in the answer, the "m=" line MUST contain at least
+P10L7	   one media format the answerer is willing to send from amongst those
+P10L8	   listed in the offer.  For streams marked as sendrecv in the answer,
+P10L9	   the "m=" line MUST contain at least one codec the answerer is willing
+P10L10	   to both send and receive, from amongst those listed in the offer.
+P10L11	   The stream MAY indicate additional media formats, not listed in the
+P10L12	   corresponding stream in the offer, that the answerer is willing to
+P10L13	   send or receive (of course, it will not be able to send them at this
+P10L14	   time, since it was not listed in the offer).  For streams marked as
+P10L15	   inactive in the answer, the list of media formats is constructed
+P10L16	   based on the offer.  If the offer was sendonly, the list is
+P10L17	   constructed as if the answer were recvonly.  Similarly, if the offer
+P10L18	   was recvonly, the list is constructed as if the answer were sendonly,
+P10L19	   and if the offer was sendrecv, the list is constructed as if the
+P10L20	   answer were sendrecv.  If the offer was inactive, the list is
+P10L21	   constructed as if the offer were actually sendrecv and the answer
+P10L22	   were sendrecv.
+P10L23	
+P10L24	   The connection address and port in the answer indicate the address
+P10L25	   where the answerer wishes to receive media (in the case of RTP, RTCP
+P10L26	   will be received on the port which is one higher unless there is an
+P10L27	   explicit indication otherwise).  This address and port MUST be
+P10L28	   present even for sendonly streams; in the case of RTP, the port one
+P10L29	   higher is still used to receive RTCP.
+P10L30	
+P10L31	   In the case of RTP, if a particular codec was referenced with a
+P10L32	   specific payload type number in the offer, that same payload type
+P10L33	   number SHOULD be used for that codec in the answer.  Even if the same
+P10L34	   payload type number is used, the answer MUST contain rtpmap
+P10L35	   attributes to define the payload type mappings for dynamic payload
+P10L36	   types, and SHOULD contain mappings for static payload types.  The
+P10L37	   media formats in the "m=" line MUST be listed in order of preference,
+P10L38	   with the first format listed being preferred.  In this case,
+P10L39	   preferred means that the offerer SHOULD use the format with the
+P10L40	   highest preference from the answer.
+P10L41	
+P10L42	   Although the answerer MAY list the formats in their desired order of
+P10L43	   preference, it is RECOMMENDED that unless there is a specific reason,
+P10L44	   the answerer list formats in the same relative order they were
+P10L45	   present in the offer.  In other words, if a stream in the offer lists
+P10L46	   audio codecs 8, 22 and 48, in that order, and the answerer only
+P10L47	   supports codecs 8 and 48, it is RECOMMENDED that, if the answerer has
+P10L48	
+P11L1	   no reason to change it, the ordering of codecs in the answer be 8,
+P11L2	   48, and not 48, 8.  This helps assure that the same codec is used in
+P11L3	   both directions.
+P11L4	
+P11L5	   The interpretation of fmtp parameters in an offer depends on the
+P11L6	   parameters.  In many cases, those parameters describe specific
+P11L7	   configurations of the media format, and should therefore be processed
+P11L8	   as the media format value itself would be.  This means that the same
+P11L9	   fmtp parameters with the same values MUST be present in the answer if
+P11L10	   the media format they describe is present in the answer.  Other fmtp
+P11L11	   parameters are more like parameters, for which it is perfectly
+P11L12	   acceptable for each agent to use different values.  In that case, the
+P11L13	   answer MAY contain fmtp parameters, and those MAY have the same
+P11L14	   values as those in the offer, or they MAY be different.  SDP
+P11L15	   extensions that define new parameters SHOULD specify the proper
+P11L16	   interpretation in offer/answer.
+P11L17	
+P11L18	   The answerer MAY include a non-zero ptime attribute for any media
+P11L19	   stream; this indicates the packetization interval that the answerer
+P11L20	   would like to receive.  There is no requirement that the
+P11L21	   packetization interval be the same in each direction for a particular
+P11L22	   stream.
+P11L23	
+P11L24	   The answerer MAY include a bandwidth attribute for any media stream;
+P11L25	   this indicates the bandwidth that the answerer would like the offerer
+P11L26	   to use when sending media.  The value of zero is allowed, interpreted
+P11L27	   as described in Section 5.
+P11L28	
+P11L29	   If the answerer has no media formats in common for a particular
+P11L30	   offered stream, the answerer MUST reject that media stream by setting
+P11L31	   the port to zero.
+P11L32	
+P11L33	   If there are no media formats in common for all streams, the entire
+P11L34	   offered session is rejected.
+P11L35	
+P11L36	   Once the answerer has sent the answer, it MUST be prepared to receive
+P11L37	   media for any recvonly streams described by that answer.  It MUST be
+P11L38	   prepared to send and receive media for any sendrecv streams in the
+P11L39	   answer, and it MAY send media immediately.  The answerer MUST be
+P11L40	   prepared to receive media for recvonly or sendrecv streams using any
+P11L41	   media formats listed for those streams in the answer, and it MAY send
+P11L42	   media immediately.  When sending media, it SHOULD use a packetization
+P11L43	   interval equal to the value of the ptime attribute in the offer, if
+P11L44	   any was present.  It SHOULD send media using a bandwidth no higher
+P11L45	   than the value of the bandwidth attribute in the offer, if any was
+P11L46	   present.  The answerer MUST send using a media format in the offer
+P11L47	   that is also listed in the answer, and SHOULD send using the most
+P11L48	   preferred media format in the offer that is also listed in the
+P12L1	   answer.  In the case of RTP, it MUST use the payload type numbers
+P12L2	   from the offer, even if they differ from those in the answer.
+P12L3	
+P12L4	6.2 Multicast Streams
+P12L5	
+P12L6	   Unlike unicast, where there is a two-sided view of the stream, there
+P12L7	   is only a single view of the stream for multicast.  As such,
+P12L8	   generating an answer to a multicast offer generally involves
+P12L9	   modifying a limited set of aspects of the stream.
+P12L10	
+P12L11	   If a multicast stream is accepted, the address and port information
+P12L12	   in the answer MUST match that of the offer.  Similarly, the
+P12L13	   directionality information in the answer (sendonly, recvonly, or
+P12L14	   sendrecv) MUST equal that of the offer.  This is because all
+P12L15	   participants in a multicast session need to have equivalent views of
+P12L16	   the parameters of the session, an underlying assumption of the
+P12L17	   multicast bias of RFC 2327.
+P12L18	
+P12L19	   The set of media formats in the answer MUST be equal to or be a
+P12L20	   subset of those in the offer.  Removing a format is a way for the
+P12L21	   answerer to indicate that the format is not supported.
+P12L22	
+P12L23	   The ptime and bandwidth attributes in the answer MUST equal the ones
+P12L24	   in the offer, if present.  If not present, a non-zero ptime MAY be
+P12L25	   added to the answer.
+P12L26	
+P12L27	7 Offerer Processing of the Answer
+P12L28	
+P12L29	   When the offerer receives the answer, it MAY send media on the
+P12L30	   accepted stream(s) (assuming it is listed as sendrecv or recvonly in
+P12L31	   the answer).  It MUST send using a media format listed in the answer,
+P12L32	   and it SHOULD use the first media format listed in the answer when it
+P12L33	   does send.
+P12L34	
+P12L35	      The reason this is a SHOULD, and not a MUST (its also a SHOULD,
+P12L36	      and not a MUST, for the answerer), is because there will
+P12L37	      oftentimes be a need to change codecs on the fly.  For example,
+P12L38	      during silence periods, an agent might like to switch to a comfort
+P12L39	      noise codec.  Or, if the user presses a number on the keypad, the
+P12L40	      agent might like to send that using RFC 2833 [9].  Congestion
+P12L41	      control might necessitate changing to a lower rate codec based on
+P12L42	      feedback.
+P12L43	
+P12L44	   The offerer SHOULD send media according to the value of any ptime and
+P12L45	   bandwidth attribute in the answer.
+P12L46	
+P12L47	   The offerer MAY immediately cease listening for media formats that
+P12L48	   were listed in the initial offer, but not present in the answer.
+P13L1	8 Modifying the Session
+P13L2	
+P13L3	   At any point during the session, either participant MAY issue a new
+P13L4	   offer to modify characteristics of the session.  It is fundamental to
+P13L5	   the operation of the offer/answer model that the exact same
+P13L6	   offer/answer procedure defined above is used for modifying parameters
+P13L7	   of an existing session.
+P13L8	
+P13L9	   The offer MAY be identical to the last SDP provided to the other
+P13L10	   party (which may have been provided in an offer or an answer), or it
+P13L11	   MAY be different.  We refer to the last SDP provided as the "previous
+P13L12	   SDP".  If the offer is the same, the answer MAY be the same as the
+P13L13	   previous SDP from the answerer, or it MAY be different.  If the
+P13L14	   offered SDP is different from the previous SDP, some constraints are
+P13L15	   placed on its construction, discussed below.
+P13L16	
+P13L17	   Nearly all aspects of the session can be modified.  New streams can
+P13L18	   be added, existing streams can be deleted, and parameters of existing
+P13L19	   streams can change.  When issuing an offer that modifies the session,
+P13L20	   the "o=" line of the new SDP MUST be identical to that in the
+P13L21	   previous SDP, except that the version in the origin field MUST
+P13L22	   increment by one from the previous SDP.  If the version in the origin
+P13L23	   line does not increment, the SDP MUST be identical to the SDP with
+P13L24	   that version number.  The answerer MUST be prepared to receive an
+P13L25	   offer that contains SDP with a version that has not changed; this is
+P13L26	   effectively a no-op.  However, the answerer MUST generate a valid
+P13L27	   answer (which MAY be the same as the previous SDP from the answerer,
+P13L28	   or MAY be different), according to the procedures defined in Section
+P13L29	   6.
+P13L30	
+P13L31	   If an SDP is offered, which is different from the previous SDP, the
+P13L32	   new SDP MUST have a matching media stream for each media stream in
+P13L33	   the previous SDP.  In other words, if the previous SDP had N "m="
+P13L34	   lines, the new SDP MUST have at least N "m=" lines.  The i-th media
+P13L35	   stream in the previous SDP, counting from the top, matches the i-th
+P13L36	   media stream in the new SDP, counting from the top.  This matching is
+P13L37	   necessary in order for the answerer to determine which stream in the
+P13L38	   new SDP corresponds to a stream in the previous SDP.  Because of
+P13L39	   these requirements, the number of "m=" lines in a stream never
+P13L40	   decreases, but either stays the same or increases.  Deleted media
+P13L41	   streams from a previous SDP MUST NOT be removed in a new SDP;
+P13L42	   however, attributes for these streams need not be present.
+P13L43	
+P13L44	8.1 Adding a Media Stream
+P13L45	
+P13L46	   New media streams are created by new additional media descriptions
+P13L47	   below the existing ones, or by reusing the "slot" used by an old
+P13L48	   media stream which had been disabled by setting its port to zero.
+P14L1	   Reusing its slot means that the new media description replaces the
+P14L2	   old one, but retains its positioning relative to other media
+P14L3	   descriptions in  the SDP.  New media descriptions MUST appear below
+P14L4	   any existing media sections.  The rules for formatting these media
+P14L5	   descriptions are identical to those described in Section 5.
+P14L6	
+P14L7	   When the answerer receives an SDP with more media descriptions than
+P14L8	   the previous SDP from the offerer, or it receives an SDP with a media
+P14L9	   stream in a slot where the port was previously zero, the answerer
+P14L10	   knows that new media streams are being added.  These can be rejected
+P14L11	   or accepted by placing an appropriately structured media description
+P14L12	   in the answer.  The procedures for constructing the new media
+P14L13	   description in the answer are described in Section 6.
+P14L14	
+P14L15	8.2 Removing a Media Stream
+P14L16	
+P14L17	   Existing media streams are removed by creating a new SDP with the
+P14L18	   port number for that stream set to zero.  The stream description MAY
+P14L19	   omit all attributes present previously, and MAY list just a single
+P14L20	   media format.
+P14L21	
+P14L22	   A stream that is offered with a port of zero MUST be marked with port
+P14L23	   zero in the answer.  Like the offer, the answer MAY omit all
+P14L24	   attributes present previously, and MAY list just a single media
+P14L25	   format from amongst those in the offer.
+P14L26	
+P14L27	   Removal of a media stream implies that media is no longer sent for
+P14L28	   that stream, and any media that is received is discarded.  In the
+P14L29	   case of RTP, RTCP transmission also ceases, as does processing of any
+P14L30	   received RTCP packets.  Any resources associated with it can be
+P14L31	   released.  The user interface might indicate that the stream has
+P14L32	   terminated, by closing the associated window on a PC, for example.
+P14L33	
+P14L34	8.3 Modifying a Media Stream
+P14L35	
+P14L36	   Nearly all characteristics of a media stream can be modified.
+P14L37	
+P14L38	8.3.1 Modifying Address, Port or Transport
+P14L39	
+P14L40	   The port number for a stream MAY be changed.  To do this, the offerer
+P14L41	   creates a new media description, with the port number in the m line
+P14L42	   different from the corresponding stream in the previous SDP.  If only
+P14L43	   the port number is to be changed, the rest of the media stream
+P14L44	   description SHOULD remain unchanged.  The offerer MUST be prepared to
+P14L45	   receive media on both the old and new ports as soon as the offer is
+P14L46	   sent.  The offerer SHOULD NOT cease listening for media on the old
+P14L47	   port until the answer is received and media arrives on the new port.
+P14L48	   Doing so could result in loss of media during the transition.
+P15L1	   Received, in this case, means that the media is passed to a media
+P15L2	   sink.  This means that if there is a playout buffer, the agent would
+P15L3	   continue to listen on the old port until the media on the new port
+P15L4	   reached the top of the playout buffer.  At that time, it MAY cease
+P15L5	   listening for media on the old port.
+P15L6	
+P15L7	   The corresponding media stream in the answer MAY be the same as the
+P15L8	   stream in the previous SDP from the answerer, or it MAY be different.
+P15L9	   If the updated stream is accepted by the answerer, the answerer
+P15L10	   SHOULD begin sending traffic for that stream to the new port
+P15L11	   immediately.  If the answerer changes the port from the previous SDP,
+P15L12	   it MUST be prepared to receive media on both the old and new ports as
+P15L13	   soon as the answer is sent.  The answerer MUST NOT cease listening
+P15L14	   for media on the old port until media arrives on the new port.  At
+P15L15	   that time, it MAY cease listening for media on the old port.  The
+P15L16	   same is true for an offerer that sends an updated offer with a new
+P15L17	   port; it MUST NOT cease listening for media on the old port until
+P15L18	   media arrives on the new port.
+P15L19	
+P15L20	   Of course, if the offered stream is rejected, the offerer can cease
+P15L21	   being prepared to receive using the new port as soon as the rejection
+P15L22	   is received.
+P15L23	
+P15L24	   To change the IP address where media is sent to, the same procedure
+P15L25	   is followed for changing the port number.  The only difference is
+P15L26	   that the connection line is updated, not the port number.
+P15L27	
+P15L28	   The transport for a stream MAY be changed.  The process for doing
+P15L29	   this is identical to changing the port, except the transport is
+P15L30	   updated, not the port.
+P15L31	
+P15L32	8.3.2 Changing the Set of Media Formats
+P15L33	
+P15L34	   The list of media formats used in the session MAY be changed.  To do
+P15L35	   this, the offerer creates a new media description, with the list of
+P15L36	   media formats in the "m=" line different from the corresponding media
+P15L37	   stream in the previous SDP.  This list MAY include new formats, and
+P15L38	   MAY remove formats present from the previous SDP.  However, in the
+P15L39	   case of RTP, the mapping from a particular dynamic payload type
+P15L40	   number to a particular codec within that media stream MUST NOT change
+P15L41	   for the duration of a session.  For example, if A generates an offer
+P15L42	   with G.711 assigned to dynamic payload type number 46, payload type
+P15L43	   number 46 MUST refer to G.711 from that point forward in any offers
+P15L44	   or answers for that media stream within the session.  However, it is
+P15L45	   acceptable for multiple payload type numbers to be mapped to the same
+P15L46	   codec, so that an updated offer could also use payload type number 72
+P15L47	   for G.711.
+P15L48	
+P16L1	      The mappings need to remain fixed for the duration of the session
+P16L2	      because of the loose synchronization between signaling exchanges
+P16L3	      of SDP and the media stream.
+P16L4	
+P16L5	   The corresponding media stream in the answer is formulated as
+P16L6	   described in Section 6, and may result in a change in media formats
+P16L7	   as well.  Similarly, as described in Section 6, as soon as it sends
+P16L8	   its answer, the answerer MUST begin sending media using any formats
+P16L9	   in the offer that were also present in the answer, and SHOULD use the
+P16L10	   most preferred format in the offer that was also listed in the answer
+P16L11	   (assuming the stream allows for sending), and MUST NOT send using any
+P16L12	   formats that are not in the offer, even if they were present in a
+P16L13	   previous SDP from the peer.  Similarly, when the offerer receives the
+P16L14	   answer, it MUST begin sending media using any formats in the answer,
+P16L15	   and SHOULD use the most preferred one (assuming the stream allows for
+P16L16	   sending), and MUST NOT send using any formats that are not in the
+P16L17	   answer, even if they were present in a previous SDP from the peer.
+P16L18	
+P16L19	   When an agent ceases using a media format (by not listing that format
+P16L20	   in an offer or answer, even though it was in a previous SDP) the
+P16L21	   agent will still need to be prepared to receive media with that
+P16L22	   format for a brief time.  How does it know when it can be prepared to
+P16L23	   stop receiving with that format? If it needs to know, there are three
+P16L24	   techniques that can be applied.  First, the agent can change ports in
+P16L25	   addition to changing formats.  When media arrives on the new port, it
+P16L26	   knows that the peer has ceased sending with the old format, and it
+P16L27	   can cease being prepared to receive with it.  This approach has the
+P16L28	   benefit of being media format independent.  However, changes in ports
+P16L29	   may require changes in resource reservation or rekeying of security
+P16L30	   protocols.  The second approach is to use a totally new set of
+P16L31	   dynamic payload types for all codecs when one is discarded.  When
+P16L32	   media is received with one of the new payload types, the agent knows
+P16L33	   that the peer has ceased sending with the old format.  This approach
+P16L34	   doesn't affect reservations or security contexts, but it is RTP
+P16L35	   specific and wasteful of a very small payload type space.  A third
+P16L36	   approach is to use a timer.  When the SDP from the peer is received,
+P16L37	   the timer is set.  When it fires, the agent can cease being prepared
+P16L38	   to receive with the old format.  A value of one minute would
+P16L39	   typically be more than sufficient.  In some cases, an agent may not
+P16L40	   care, and thus continually be prepared to receive with the old
+P16L41	   formats.  Nothing need be done in this case.
+P16L42	
+P16L43	   Of course, if the offered stream is rejected, the offer can cease
+P16L44	   being prepared to receive using any new formats as soon as the
+P16L45	   rejection is received.
+P16L46	
+P16L47	
+P16L48	
+P17L1	8.3.3 Changing Media Types
+P17L2	
+P17L3	   The media type (audio, video, etc.) for a stream MAY be changed.  It
+P17L4	   is RECOMMENDED that the media type be changed (as opposed to adding a
+P17L5	   new stream), when the same logical data is being conveyed, but just
+P17L6	   in a different media format.  This is particularly useful for
+P17L7	   changing between voiceband fax and fax in a single stream, which are
+P17L8	   both separate media types.  To do this, the offerer creates a new
+P17L9	   media description, with a new media type, in place of the description
+P17L10	   in the previous SDP which is to be changed.
+P17L11	
+P17L12	   The corresponding media stream in the answer is formulated as
+P17L13	   described in Section 6.  Assuming the stream is acceptable, the
+P17L14	   answerer SHOULD begin sending with the new media type and formats as
+P17L15	   soon as it receives the offer. The offerer MUST be prepared to
+P17L16	   receive media with both the old and new types until the answer is
+P17L17	   received, and media with the new type is received and reaches the top
+P17L18	   of the playout buffer.
+P17L19	
+P17L20	8.3.4 Changing Attributes
+P17L21	
+P17L22	   Any other attributes in a media description MAY be updated in an
+P17L23	   offer or answer.  Generally, an agent MUST send media (if the
+P17L24	   directionality of the stream allows) using the new parameters once
+P17L25	   the SDP with the change is received.
+P17L26	
+P17L27	8.4 Putting a Unicast Media Stream on Hold
+P17L28	
+P17L29	   If a party in a call wants to put the other party "on hold", i.e.,
+P17L30	   request that it temporarily stops sending one or more unicast media
+P17L31	   streams, a party offers the other an updated SDP.
+P17L32	
+P17L33	   If the stream to be placed on hold was previously a sendrecv media
+P17L34	   stream, it is placed on hold by marking it as sendonly.  If the
+P17L35	   stream to be placed on hold was previously a recvonly media stream,
+P17L36	   it is placed on hold by marking it inactive.
+P17L37	
+P17L38	   This means that a stream is placed "on hold" separately in each
+P17L39	   direction.  Each stream is placed "on hold" independently.  The
+P17L40	   recipient of an offer for a stream on-hold SHOULD NOT automatically
+P17L41	   return an answer with the corresponding stream on hold.  An SDP with
+P17L42	   all streams "on hold" is referred to as held SDP.
+P17L43	
+P17L44	      Certain third party call control scenarios do not work when an
+P17L45	      answerer responds to held SDP with held SDP.
+P17L46	
+P17L47	
+P17L48	
+P18L1	   Typically, when a user "presses" hold, the agent will generate an
+P18L2	   offer with all streams in the SDP indicating a direction of sendonly,
+P18L3	   and it will also locally mute, so that no media is sent to the far
+P18L4	   end, and no media is played out.
+P18L5	
+P18L6	   RFC 2543 [10] specified that placing a user on hold was accomplished
+P18L7	   by setting the connection address to 0.0.0.0.  Its usage for putting
+P18L8	   a call on hold is no longer recommended, since it doesn't allow for
+P18L9	   RTCP to be used with held streams, doesn't work with IPv6, and breaks
+P18L10	   with connection oriented media.  However, it can be useful in an
+P18L11	   initial offer when the offerer knows it wants to use a particular set
+P18L12	   of media streams and formats, but doesn't know the addresses and
+P18L13	   ports at the time of the offer.  Of course, when used, the port
+P18L14	   number MUST NOT be zero, which would specify that the stream has been
+P18L15	   disabled.  An agent MUST be capable of receiving SDP with a
+P18L16	   connection address of 0.0.0.0, in which case it means that neither
+P18L17	   RTP nor RTCP should be sent to the peer.
+P18L18	
+P18L19	9 Indicating Capabilities
+P18L20	
+P18L21	   Before an agent sends an offer, it is helpful to know if the media
+P18L22	   formats in that offer would be acceptable to the answerer.  Certain
+P18L23	   protocols, like SIP, provide a means to query for such capabilities.
+P18L24	   SDP can be used in responses to such queries to indicate
+P18L25	   capabilities.  This section describes how such an SDP message is
+P18L26	   formatted.  Since SDP has no way to indicate that the message is for
+P18L27	   the purpose of capability indication, this is determined from the
+P18L28	   context of the higher layer protocol.  The ability of baseline SDP to
+P18L29	   indicate capabilities is very limited.  It cannot express allowed
+P18L30	   parameter ranges or values, and can not be done in parallel with an
+P18L31	   offer/answer itself.  Extensions might address such limitations in
+P18L32	   the future.
+P18L33	
+P18L34	   An SDP constructed to indicate media capabilities is structured as
+P18L35	   follows.  It MUST be a valid SDP, except that it MAY omit both "e="
+P18L36	   and "p=" lines.  The "t=" line MUST be equal to "0 0".  For each
+P18L37	   media type supported by the agent, there MUST be a corresponding
+P18L38	   media description of that type.  The session ID in the origin field
+P18L39	   MUST be unique for each SDP constructed to indicate media
+P18L40	   capabilities.  The port MUST be set to zero, but the connection
+P18L41	   address is arbitrary.  The usage of port zero makes sure that an SDP
+P18L42	   formatted for capabilities does not cause media streams to be
+P18L43	   established if it is interpreted as an offer or answer.
+P18L44	
+P18L45	   The transport component of the "m=" line indicates the transport for
+P18L46	   that media type.  For each media format of that type supported by the
+P18L47	   agent, there SHOULD be a media format listed in the "m=" line.  In
+P18L48	   the case of RTP, if dynamic payload types are used, an rtpmap
+P19L1	   attribute MUST be present to bind the type to a specific format.
+P19L2	   There is no way to indicate constraints, such as how many
+P19L3	   simultaneous streams can be supported for a particular codec, and so
+P19L4	   on.
+P19L5	
+P19L6	   v=0
+P19L7	   o=carol 28908764872 28908764872 IN IP4 100.3.6.6
+P19L8	   s=-
+P19L9	   t=0 0
+P19L10	   c=IN IP4 192.0.2.4
+P19L11	   m=audio 0 RTP/AVP 0 1 3
+P19L12	   a=rtpmap:0 PCMU/8000
+P19L13	   a=rtpmap:1 1016/8000
+P19L14	   a=rtpmap:3 GSM/8000
+P19L15	   m=video 0 RTP/AVP 31 34
+P19L16	   a=rtpmap:31 H261/90000
+P19L17	   a=rtpmap:34 H263/90000
+P19L18	
+P19L19	   Figure 1: SDP Indicating Capabilities
+P19L20	
+P19L21	   The SDP of Figure 1 indicates that the agent can support three audio
+P19L22	   codecs (PCMU, 1016, and GSM) and two video codecs (H.261 and H.263).
+P19L23	
+P19L24	10 Example Offer/Answer Exchanges
+P19L25	
+P19L26	   This section provides example offer/answer exchanges.
+P19L27	
+P19L28	10.1 Basic Exchange
+P19L29	
+P19L30	   Assume that the caller, Alice, has included the following description
+P19L31	   in her offer.  It includes a bidirectional audio stream and two
+P19L32	   bidirectional video streams, using H.261 (payload type 31) and MPEG
+P19L33	   (payload type 32).  The offered SDP is:
+P19L34	
+P19L35	   v=0
+P19L36	   o=alice 2890844526 2890844526 IN IP4 host.anywhere.com
+P19L37	   s=
+P19L38	   c=IN IP4 host.anywhere.com
+P19L39	   t=0 0
+P19L40	   m=audio 49170 RTP/AVP 0
+P19L41	   a=rtpmap:0 PCMU/8000
+P19L42	   m=video 51372 RTP/AVP 31
+P19L43	   a=rtpmap:31 H261/90000
+P19L44	   m=video 53000 RTP/AVP 32
+P19L45	   a=rtpmap:32 MPV/90000
+P19L46	
+P19L47	
+P19L48	
+P20L1	   The callee, Bob, does not want to receive or send the first video
+P20L2	   stream, so he returns the SDP below as the answer:
+P20L3	
+P20L4	   v=0
+P20L5	   o=bob 2890844730 2890844730 IN IP4 host.example.com
+P20L6	   s=
+P20L7	   c=IN IP4 host.example.com
+P20L8	   t=0 0
+P20L9	   m=audio 49920 RTP/AVP 0
+P20L10	   a=rtpmap:0 PCMU/8000
+P20L11	   m=video 0 RTP/AVP 31
+P20L12	   m=video 53000 RTP/AVP 32
+P20L13	   a=rtpmap:32 MPV/90000
+P20L14	
+P20L15	   At some point later, Bob decides to change the port where he will
+P20L16	   receive the audio stream (from 49920 to 65422), and at the same time,
+P20L17	   add an additional audio stream as receive only, using the RTP payload
+P20L18	   format for events [9].  Bob offers the following SDP in the offer:
+P20L19	
+P20L20	   v=0
+P20L21	   o=bob 2890844730 2890844731 IN IP4 host.example.com
+P20L22	   s=
+P20L23	   c=IN IP4 host.example.com
+P20L24	   t=0 0
+P20L25	   m=audio 65422 RTP/AVP 0
+P20L26	   a=rtpmap:0 PCMU/8000
+P20L27	   m=video 0 RTP/AVP 31
+P20L28	   m=video 53000 RTP/AVP 32
+P20L29	   a=rtpmap:32 MPV/90000
+P20L30	   m=audio 51434 RTP/AVP 110
+P20L31	   a=rtpmap:110 telephone-events/8000
+P20L32	   a=recvonly
+P20L33	
+P20L34	
+P20L35	
+P20L36	
+P20L37	
+P20L38	
+P20L39	
+P20L40	
+P20L41	
+P20L42	
+P20L43	
+P20L44	
+P20L45	
+P20L46	
+P20L47	
+P20L48	
+P21L1	   Alice accepts the additional media stream, and so generates the
+P21L2	   following answer:
+P21L3	
+P21L4	   v=0
+P21L5	   o=alice 2890844526 2890844527 IN IP4 host.anywhere.com
+P21L6	   s=
+P21L7	   c=IN IP4 host.anywhere.com
+P21L8	   t=0 0
+P21L9	   m=audio 49170 RTP/AVP 0
+P21L10	   a=rtpmap:0 PCMU/8000
+P21L11	   m=video 0 RTP/AVP 31
+P21L12	   a=rtpmap:31 H261/90000
+P21L13	   m=video 53000 RTP/AVP 32
+P21L14	   a=rtpmap:32 MPV/90000
+P21L15	   m=audio 53122 RTP/AVP 110
+P21L16	   a=rtpmap:110 telephone-events/8000
+P21L17	   a=sendonly
+P21L18	
+P21L19	10.2 One of N Codec Selection
+P21L20	
+P21L21	   A common occurrence in embedded phones is that the Digital Signal
+P21L22	   Processor (DSP) used for compression can support multiple codecs at a
+P21L23	   time, but once that codec is selected, it cannot be readily changed
+P21L24	   on the fly.  This example shows how a session can be set up using an
+P21L25	   initial offer/answer exchange, followed immediately by a second one
+P21L26	   to lock down the set of codecs.
+P21L27	
+P21L28	   The initial offer from Alice to Bob indicates a single audio stream
+P21L29	   with the three audio codecs that are available in the DSP.  The
+P21L30	   stream is marked as inactive, since media cannot be received until a
+P21L31	   codec is locked down:
+P21L32	
+P21L33	   v=0
+P21L34	   o=alice 2890844526 2890844526 IN IP4 host.anywhere.com
+P21L35	   s=
+P21L36	   c=IN IP4 host.anywhere.com
+P21L37	   t=0 0
+P21L38	   m=audio 62986 RTP/AVP 0 4 18
+P21L39	   a=rtpmap:0 PCMU/8000
+P21L40	   a=rtpmap:4 G723/8000
+P21L41	   a=rtpmap:18 G729/8000
+P21L42	   a=inactive
+P21L43	
+P21L44	
+P21L45	
+P21L46	
+P21L47	
+P21L48	
+P22L1	   Bob can support dynamic switching between PCMU and G.723.  So, he
+P22L2	   sends the following answer:
+P22L3	
+P22L4	   v=0
+P22L5	   o=bob 2890844730 2890844731 IN IP4 host.example.com
+P22L6	   s=
+P22L7	   c=IN IP4 host.example.com
+P22L8	   t=0 0
+P22L9	   m=audio 54344 RTP/AVP 0 4
+P22L10	   a=rtpmap:0 PCMU/8000
+P22L11	   a=rtpmap:4 G723/8000
+P22L12	   a=inactive
+P22L13	
+P22L14	   Alice can then select any one of these two codecs.  So, she sends an
+P22L15	   updated offer with a sendrecv stream:
+P22L16	
+P22L17	   v=0
+P22L18	   o=alice 2890844526 2890844527 IN IP4 host.anywhere.com
+P22L19	   s=
+P22L20	   c=IN IP4 host.anywhere.com
+P22L21	   t=0 0
+P22L22	   m=audio 62986 RTP/AVP 4
+P22L23	   a=rtpmap:4 G723/8000
+P22L24	   a=sendrecv
+P22L25	
+P22L26	   Bob accepts the single codec:
+P22L27	
+P22L28	   v=0
+P22L29	   o=bob 2890844730 2890844732 IN IP4 host.example.com
+P22L30	   s=
+P22L31	   c=IN IP4 host.example.com
+P22L32	   t=0 0
+P22L33	   m=audio 54344 RTP/AVP 4
+P22L34	   a=rtpmap:4 G723/8000
+P22L35	   a=sendrecv
+P22L36	
+P22L37	   If the answerer (Bob), was only capable of supporting one-of-N
+P22L38	   codecs, Bob would select one of the codecs from the offer, and place
+P22L39	   that in his answer. In this case, Alice would do a re-INVITE to
+P22L40	   activate that stream with that codec.
+P22L41	
+P22L42	   As an alternative to using "a=inactive" in the first exchange, Alice
+P22L43	   can list all codecs, and as soon as she receives media from Bob,
+P22L44	   generate an updated offer locking down the codec to the one just
+P22L45	   received. Of course, if Bob only supports one-of-N codecs, there
+P22L46	   would only be one codec in his answer, and in this case, there is no
+P22L47	   need for a re-INVITE to lock down to a single codec.
+P22L48	
+P23L1	11 Security Considerations
+P23L2	
+P23L3	   There are numerous attacks possible if an attacker can modify offers
+P23L4	   or answers in transit.  Generally, these include diversion of media
+P23L5	   streams (enabling eavesdropping), disabling of calls, and injection
+P23L6	   of unwanted media streams.  If a passive listener can construct fake
+P23L7	   offers, and inject those into an exchange, similar attacks are
+P23L8	   possible.  Even if an attacker can simply observe offers and answers,
+P23L9	   they can inject media streams into an existing conversation.
+P23L10	
+P23L11	   Offer/answer relies on transport within an application signaling
+P23L12	   protocol, such as SIP.  It also relies on that protocol for security
+P23L13	   capabilities.  Because of the attacks described above, that protocol
+P23L14	   MUST provide a means for end-to-end authentication and integrity
+P23L15	   protection of offers and answers.  It SHOULD offer encryption of
+P23L16	   bodies to prevent eavesdropping.  However, media injection attacks
+P23L17	   can alternatively be resolved through authenticated media exchange,
+P23L18	   and therefore the encryption requirement is a SHOULD instead of a
+P23L19	   MUST.
+P23L20	
+P23L21	   Replay attacks are also problematic.  An attacker can replay an old
+P23L22	   offer, perhaps one that had put media on hold, and thus disable media
+P23L23	   streams in a conversation.  Therefore, the application protocol MUST
+P23L24	   provide a secure way to sequence offers and answers, and to detect
+P23L25	   and reject old offers or answers.
+P23L26	
+P23L27	   SIP [7] meets all of these requirements.
+P23L28	
+P23L29	12 IANA Considerations
+P23L30	
+P23L31	   There are no IANA considerations with this specification.
+P23L32	
+P23L33	13 Acknowledgements
+P23L34	
+P23L35	   The authors would like to thank Allison Mankin, Rohan Mahy, Joerg
+P23L36	   Ott, and Flemming Andreasen for their detailed comments.
+P23L37	
+P23L38	14 Normative References
+P23L39	
+P23L40	   [1]   Handley, M. and V. Jacobson, "SDP: Session Description
+P23L41	         Protocol", RFC 2327, April 1998.
+P23L42	
+P23L43	   [2]   Bradner, S., "Key Words for Use in RFCs to Indicate Requirement
+P23L44	         Levels", BCP 14, RFC 2119, March 1997.
+P23L45	
+P23L46	   [3]   Kumar, R. and M. Mostafa, "Conventions For the Use of The
+P23L47	         Session Description Protocol (SDP) for ATM Bearer Connections",
+P23L48	         RFC 3108, May 2001.
+P24L1	   [4]   Schulzrinne, H., Casner, S, Frederick, R. and V. Jacobson,
+P24L2	         "RTP: A Transport Protocol for Real-Time Applications", RFC
+P24L3	         1889, January 1996.
+P24L4	
+P24L5	   [5]   Schulzrinne, H., "RTP Profile for Audio and Video Conferences
+P24L6	         with Minimal Control", RFC 1890, January 1996.
+P24L7	
+P24L8	15 Informative References
+P24L9	
+P24L10	   [6]   Handley, M., Perkins, C. and E. Whelan, "Session Announcement
+P24L11	         Protocol", RFC 2974, October 2000.
+P24L12	
+P24L13	   [7]   Rosenberg, J., Schulzrinne, H., Camarillo, G., Johnston, A.,
+P24L14	         Peterson, J., Sparks, R., Handley, M. and E. Schooler, "SIP:
+P24L15	         Session Initiation Protocol", RFC 3261, June 2002.
+P24L16	
+P24L17	   [8]   Schulzrinne, H., Rao, A. and R. Lanphier, "Real Time Streaming
+P24L18	         Protocol (RTSP)", RFC 2326, April 1998.
+P24L19	
+P24L20	   [9]   Schulzrinne, H. and S. Petrack, "RTP Payload for DTMF Digits,
+P24L21	         Telephony Tones and Telephony Signals", RFC 2833, May 2000.
+P24L22	
+P24L23	   [10]  Handley, M., Schulzrinne, H., Schooler, E. and J. Rosenberg,
+P24L24	         "SIP: Session Initiation Protocol", RFC 2543, March 1999.
+P24L25	
+P24L26	16 Authors' Addresses
+P24L27	
+P24L28	   Jonathan Rosenberg
+P24L29	   dynamicsoft
+P24L30	   72 Eagle Rock Avenue
+P24L31	   First Floor
+P24L32	   East Hanover, NJ 07936
+P24L33	
+P24L34	   EMail: jdrosen@dynamicsoft.com
+P24L35	
+P24L36	
+P24L37	   Henning Schulzrinne
+P24L38	   Dept. of Computer Science
+P24L39	   Columbia University
+P24L40	   1214 Amsterdam Avenue
+P24L41	   New York, NY 10027
+P24L42	   USA
+P24L43	
+P24L44	   EMail: schulzrinne@cs.columbia.edu
+P24L45	
+P24L46	
+P24L47	
+P24L48	
+P25L1	17.  Full Copyright Statement
+P25L2	
+P25L3	   Copyright (C) The Internet Society (2002).  All Rights Reserved.
+P25L4	
+P25L5	   This document and translations of it may be copied and furnished to
+P25L6	   others, and derivative works that comment on or otherwise explain it
+P25L7	   or assist in its implementation may be prepared, copied, published
+P25L8	   and distributed, in whole or in part, without restriction of any
+P25L9	   kind, provided that the above copyright notice and this paragraph are
+P25L10	   included on all such copies and derivative works.  However, this
+P25L11	   document itself may not be modified in any way, such as by removing
+P25L12	   the copyright notice or references to the Internet Society or other
+P25L13	   Internet organizations, except as needed for the purpose of
+P25L14	   developing Internet standards in which case the procedures for
+P25L15	   copyrights defined in the Internet Standards process must be
+P25L16	   followed, or as required to translate it into languages other than
+P25L17	   English.
+P25L18	
+P25L19	   The limited permissions granted above are perpetual and will not be
+P25L20	   revoked by the Internet Society or its successors or assigns.
+P25L21	
+P25L22	   This document and the information contained herein is provided on an
+P25L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P25L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P25L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P25L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P25L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P25L28	
+P25L29	Acknowledgement
+P25L30	
+P25L31	   Funding for the RFC Editor function is currently provided by the
+P25L32	   Internet Society.
+P25L33	
+P25L34	
+P25L35	
+P25L36	
+P25L37	
+P25L38	
+P25L39	
+P25L40	
+P25L41	
+P25L42	
+P25L43	
+P25L44	
+P25L45	
+P25L46	
+P25L47	
+P25L48	

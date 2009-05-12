@@ -1,0 +1,349 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC2617 (HTTP auth)</b></DIV><PRE>
+
+<span class="p_triple">'''
+The HTTP basic and digest access authentication as per <a href="http://www.rfc-editor.org/rfc/rfc2617.txt">RFC 2617</a>.
+'''</span>
+
+<span class="p_word">from</span> random <span class="p_word">import</span> randint
+<span class="p_word">from</span> hashlib <span class="p_word">import</span> md5
+<span class="p_word">from</span> base64 <span class="p_word">import</span> b64encode
+<span class="p_word">import</span> time
+
+
+</PRE><DIV class="commentbox">From RFC2617 p.3<pre>   HTTP provides a simple challenge-response authentication mechanism
+   that MAY be used by a server to challenge a client request and by a
+   client to provide authentication information. It uses an extensible,
+   case-insensitive token to identify the authentication scheme,
+   followed by a comma-separated list of attribute-value pairs which
+   carry the parameters necessary for achieving authentication via that
+   scheme.
+
+      auth-scheme    = token
+      auth-param     = token "=" ( token | quoted-string )</pre></DIV><PRE>
+_quote   = <span class="p_word">lambda</span> s: <span class="p_string">'"'</span> + s + <span class="p_string">'"'</span> <span class="p_word">if</span> <span class="p_word">not</span> s <span class="p_word">or</span> s[<span class="p_number">0</span>] != <span class="p_string">'"'</span> != s[-<span class="p_number">1</span>] <span class="p_word">else</span> s
+_unquote = <span class="p_word">lambda</span> s: s[<span class="p_number">1</span>:-<span class="p_number">1</span>] <span class="p_word">if</span> s <span class="p_word">and</span> s[<span class="p_number">0</span>] == <span class="p_string">'"'</span> == s[-<span class="p_number">1</span>] <span class="p_word">else</span> s
+
+<span class="p_word">def</span> createAuthenticate(authMethod=<span class="p_string">'Digest'</span>, **kwargs):
+    <span class="p_triple">'''Build the WWW-Authenticate header's value.
+    &gt;&gt;&gt; print createAuthenticate('Basic', realm='iptel.org')
+    Basic realm="iptel.org"
+    &gt;&gt;&gt; print createAuthenticate('Digest', realm='iptel.org', domain='sip:iptel.org', nonce='somenonce')
+    Digest realm="iptel.org", domain="sip:iptel.org", qop="auth", nonce="somenonce", opaque="", stale=FALSE, algorithm=MD5
+    '''</span>
+    <span class="p_word">if</span> authMethod.lower() == <span class="p_string">'basic'</span>:
+        <span class="p_word">return</span> <span class="p_string">'Basic realm=%s'</span>%(_quote(kwargs.get(<span class="p_string">'realm'</span>, <span class="p_string">''</span>)))
+    <span class="p_word">elif</span> authMethod.lower() == <span class="p_string">'digest'</span>:
+        predef = (<span class="p_string">'realm'</span>, <span class="p_string">'domain'</span>, <span class="p_string">'qop'</span>, <span class="p_string">'nonce'</span>, <span class="p_string">'opaque'</span>, <span class="p_string">'stale'</span>, <span class="p_string">'algorithm'</span>)
+        unquoted = (<span class="p_string">'stale'</span>, <span class="p_string">'algorithm'</span>)
+        now = time.time(); nonce = kwargs.get(<span class="p_string">'nonce'</span>, b64encode(<span class="p_string">'%d %s'</span>%(now, md5(<span class="p_string">'%d:%d'</span>%(now, id(createAuthenticate))))))
+        default = dict(realm=<span class="p_string">''</span>, domain=<span class="p_string">''</span>, opaque=<span class="p_string">''</span>, stale=<span class="p_string">'FALSE'</span>, algorithm=<span class="p_string">'MD5'</span>, qop=<span class="p_string">'auth'</span>, nonce=nonce)
+        kv = map(<span class="p_word">lambda</span> x: (x, kwargs.get(x, default[x])), predef) + filter(<span class="p_word">lambda</span> x: x[<span class="p_number">0</span>] <span class="p_word">not</span> <span class="p_word">in</span> predef, kwargs.items()) <span class="p_commentline"># put predef attributes in order before non predef attributes</span>
+        <span class="p_word">return</span> <span class="p_string">'Digest '</span> + <span class="p_string">', '</span>.join(map(<span class="p_word">lambda</span> y: <span class="p_string">'%s=%s'</span>%(y[<span class="p_number">0</span>], _quote(y[<span class="p_number">1</span>]) <span class="p_word">if</span> y[<span class="p_number">0</span>] <span class="p_word">not</span> <span class="p_word">in</span> unquoted <span class="p_word">else</span> y[<span class="p_number">1</span>]), kv))
+    <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'invalid authMethod%s'</span>%(authMethod)
+    
+
+</PRE><DIV class="commentbox">From RFC2617 p.3<pre>   The 401 (Unauthorized) response message is used by an origin server
+   to challenge the authorization of a user agent. This response MUST
+   include a WWW-Authenticate header field containing at least one
+   challenge applicable to the requested resource. The 407 (Proxy
+   Authentication Required) response message is used by a proxy to
+   challenge the authorization of a client and MUST include a Proxy-
+   Authenticate header field containing at least one challenge
+   applicable to the proxy for the requested resource.
+
+      challenge   = auth-scheme 1*SP 1#auth-param</pre></DIV><PRE>
+</PRE><DIV class="commentbox">From RFC2617 p.4<pre>   A user agent that wishes to authenticate itself with an origin
+   server--usually, but not necessarily, after receiving a 401
+   (Unauthorized)--MAY do so by including an Authorization header field
+   with the request. A client that wishes to authenticate itself with a
+   proxy--usually, but not necessarily, after receiving a 407 (Proxy
+   Authentication Required)--MAY do so by including a Proxy-
+   Authorization header field with the request.  Both the Authorization
+   field value and the Proxy-Authorization field value consist of
+   credentials containing the authentication information of the client
+   for the realm of the resource being requested. The user agent MUST
+   choose to use one of the challenges with the strongest auth-scheme it
+   understands and request credentials from the user based upon that
+   challenge.
+
+   credentials = auth-scheme #auth-param
+</pre></DIV><PRE>
+<span class="p_word">def</span> createAuthorization(challenge, username, password, uri=<span class="p_word">None</span>, method=<span class="p_word">None</span>, entityBody=<span class="p_word">None</span>, context=<span class="p_word">None</span>):
+    <span class="p_triple">'''Build the Authorization header for this challenge. The challenge represents the
+    WWW-Authenticate header's value and the function returns the Authorization
+    header's value. The context (dict) is used to save cnonce and nonceCount
+    if available. The uri represents the request URI str, and method the request
+    method. The result contains the properties in alphabetical order of property name.
+    
+    &gt;&gt;&gt; context = {'cnonce':'0a4f113b', 'nc': 0}
+    &gt;&gt;&gt; print createAuthorization('Digest realm="testrealm@host.com", qop="auth", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093", opaque="5ccc069c403ebaf9f0171e9517f40e41"', 'Mufasa', 'Circle Of Life', '/dir/index.html', 'GET', None, context)
+    Digest cnonce="0a4f113b",nc=00000001,nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",opaque="5ccc069c403ebaf9f0171e9517f40e41",qop=auth,realm="testrealm@host.com",response="6629fae49393a05397450978507c4ef1",uri="/dir/index.html",username="Mufasa"
+    &gt;&gt;&gt; print createAuthorization('Basic realm="WallyWorld"', 'Aladdin', 'open sesame')
+    Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
+    '''</span>
+    authMethod, sep, rest = challenge.strip().partition(<span class="p_string">' '</span>)
+    ch, cr = dict(), dict() <span class="p_commentline"># challenge and credentials</span>
+    cr[<span class="p_string">'password'</span>]   = password
+    cr[<span class="p_string">'username'</span>]   = username
+    
+
+</PRE><DIV class="commentbox">From RFC2617 p.5<pre>   The "basic" authentication scheme is based on the model that the
+   client must authenticate itself with a user-ID and a password for
+   each realm.  The realm value should be considered an opaque string
+   which can only be compared for equality with other realms on that
+   server. The server will service the request only if it can validate
+   the user-ID and password for the protection space of the Request-URI.
+   There are no optional authentication parameters.
+
+   For Basic, the framework above is utilized as follows:
+
+      challenge   = "Basic" realm
+      credentials = "Basic" basic-credentials
+
+   Upon receipt of an unauthorized request for a URI within the
+   protection space, the origin server MAY respond with a challenge like
+   the following:
+
+      WWW-Authenticate: Basic realm="WallyWorld"
+
+   where "WallyWorld" is the string assigned by the server to identify
+   the protection space of the Request-URI. A proxy may respond with the
+   same challenge using the Proxy-Authenticate header field.</pre></DIV><PRE>
+    <span class="p_word">if</span> authMethod.lower() == <span class="p_string">'basic'</span>:
+        <span class="p_word">return</span> authMethod + <span class="p_string">' '</span> + basic(cr)
+
+</PRE><DIV class="commentbox">From RFC2617 p.6<pre>   Like Basic Access Authentication, the Digest scheme is based on a
+   simple challenge-response paradigm. The Digest scheme challenges
+   using a nonce value. A valid response contains a checksum (by
+   default, the MD5 checksum) of the username, the password, the given
+   nonce value, the HTTP method, and the requested URI. In this way, the
+   password is never sent in the clear. Just as with the Basic scheme,
+   the username and password must be prearranged in some fashion not
+   addressed by this document.</pre></DIV><PRE>
+    <span class="p_word">elif</span> authMethod.lower() == <span class="p_string">'digest'</span>:
+        <span class="p_word">for</span> n,v <span class="p_word">in</span> map(<span class="p_word">lambda</span> x: x.strip().split(<span class="p_string">'='</span>), rest.split(<span class="p_string">','</span>) <span class="p_word">if</span> rest <span class="p_word">else</span> []):
+            ch[n.lower().strip()] = _unquote(v.strip())
+        <span class="p_commentline"># TODO: doesn't work if embedded ',' in value, e.g., qop="auth,auth-int"</span>
+
+</PRE><DIV class="commentbox">From RFC2617 p.8<pre>   If a server receives a request for an access-protected object, and an
+   acceptable Authorization header is not sent, the server responds with
+   a "401 Unauthorized" status code, and a WWW-Authenticate header as
+   per the framework defined above, which for the digest scheme is
+   utilized as follows:
+
+      challenge        =  "Digest" digest-challenge
+
+      digest-challenge  = 1#( realm | [ domain ] | nonce |
+                          [ opaque ] |[ stale ] | [ algorithm ] |
+                          [ qop-options ] | [auth-param] )
+
+
+      domain            = "domain" "=" &amp;lt;"&amp;gt; URI ( 1*SP URI ) &amp;lt;"&amp;gt;
+      URI               = absoluteURI | abs_path
+      nonce             = "nonce" "=" nonce-value
+      nonce-value       = quoted-string
+      opaque            = "opaque" "=" quoted-string
+      stale             = "stale" "=" ( "true" | "false" )
+      algorithm         = "algorithm" "=" ( "MD5" | "MD5-sess" |
+                           token )
+      qop-options       = "qop" "=" &amp;lt;"&amp;gt; 1#qop-value &amp;lt;"&amp;gt;
+      qop-value         = "auth" | "auth-int" | token</pre></DIV><PRE>
+        <span class="p_word">for</span> y <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: x <span class="p_word">in</span> ch, [<span class="p_string">'username'</span>, <span class="p_string">'realm'</span>, <span class="p_string">'nonce'</span>, <span class="p_string">'opaque'</span>, <span class="p_string">'algorithm'</span>]):
+            cr[y] = ch[y]
+        cr[<span class="p_string">'uri'</span>]        = uri
+        cr[<span class="p_string">'httpMethod'</span>] = method
+        <span class="p_word">if</span> <span class="p_string">'qop'</span> <span class="p_word">in</span> ch:
+            <span class="p_word">if</span> context <span class="p_word">and</span> <span class="p_string">'cnonce'</span> <span class="p_word">in</span> context:
+                cnonce, nc = context[<span class="p_string">'cnonce'</span>], context[<span class="p_string">'nc'</span>] + <span class="p_number">1</span>
+            <span class="p_word">else</span>:
+                cnonce, nc = H(str(randint(<span class="p_number">0</span>, <span class="p_number">2</span>**<span class="p_number">31</span>))), <span class="p_number">1</span>
+            <span class="p_word">if</span> context:
+                context[<span class="p_string">'cnonce'</span>], context[<span class="p_string">'nc'</span>] = cnonce, nc
+            cr[<span class="p_string">'qop'</span>], cr[<span class="p_string">'cnonce'</span>], cr[<span class="p_string">'nc'</span>] = <span class="p_string">'auth'</span>, cnonce, <span class="p_string">'%08x'</span>% nc
+    
+
+</PRE><DIV class="commentbox">From RFC2617 p.11<pre>   The client is expected to retry the request, passing an Authorization
+   header line, which is defined according to the framework above,
+   utilized as follows.
+
+       credentials      = "Digest" digest-response
+       digest-response  = 1#( username | realm | nonce | digest-uri
+                       | response | [ algorithm ] | [cnonce] |
+                       [opaque] | [message-qop] |
+                           [nonce-count]  | [auth-param] )
+
+       username         = "username" "=" username-value
+       username-value   = quoted-string
+       digest-uri       = "uri" "=" digest-uri-value
+       digest-uri-value = request-uri   ; As specified by HTTP/1.1
+       message-qop      = "qop" "=" qop-value
+       cnonce           = "cnonce" "=" cnonce-value
+       cnonce-value     = nonce-value
+       nonce-count      = "nc" "=" nc-value
+       nc-value         = 8LHEX
+       response         = "response" "=" request-digest</pre></DIV><PRE>
+        cr[<span class="p_string">'response'</span>] = digest(cr)
+        items = sorted(filter(<span class="p_word">lambda</span> x: x <span class="p_word">not</span> <span class="p_word">in</span> [<span class="p_string">'name'</span>, <span class="p_string">'authMethod'</span>, <span class="p_string">'value'</span>, <span class="p_string">'httpMethod'</span>, <span class="p_string">'entityBody'</span>, <span class="p_string">'password'</span>], cr))
+        <span class="p_word">return</span> authMethod + <span class="p_string">' '</span> + <span class="p_string">','</span>.join(map(<span class="p_word">lambda</span> y: <span class="p_string">'%s=%s'</span>%(y, (cr[y] <span class="p_word">if</span> y == <span class="p_string">'qop'</span> <span class="p_word">or</span> y == <span class="p_string">'nc'</span> <span class="p_word">else</span> _quote(cr[y]))), items))
+    <span class="p_word">else</span>:
+        <span class="p_word">raise</span> ValueError, <span class="p_string">'Invalid auth method -- '</span> + authMethod
+
+
+
+</PRE><DIV class="commentbox">From RFC2617 p.10<pre>     In this document the string obtained by applying the digest
+     algorithm to the data "data" with secret "secret" will be denoted
+     by KD(secret, data), and the string obtained by applying the
+     checksum algorithm to the data "data" will be denoted H(data). The
+     notation unq(X) means the value of the quoted-string X without the
+     surrounding quotes.
+
+     For the "MD5" and "MD5-sess" algorithms
+
+         H(data) = MD5(data)
+
+     and
+
+         KD(secret, data) = H(concat(secret, ":", data))
+</pre></DIV><PRE>
+H = <span class="p_word">lambda</span> d: md5(d).hexdigest()
+KD = <span class="p_word">lambda</span> s, d: H(s + <span class="p_string">':'</span> + d)
+
+
+</PRE><DIV class="commentbox">From RFC2617 p.18<pre>   The first time the client requests the document, no Authorization
+   header is sent, so the server responds with:
+
+         HTTP/1.1 401 Unauthorized
+         WWW-Authenticate: Digest
+                 realm="testrealm@host.com",
+                 qop="auth,auth-int",
+                 nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",
+                 opaque="5ccc069c403ebaf9f0171e9517f40e41"
+
+   The client may prompt the user for the username and password, after
+   which it will respond with a new request, including the following
+   Authorization header:
+
+
+         Authorization: Digest username="Mufasa",
+                 realm="testrealm@host.com",
+                 nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093",
+                 uri="/dir/index.html",
+                 qop=auth,
+                 nc=00000001,
+                 cnonce="0a4f113b",
+                 response="6629fae49393a05397450978507c4ef1",
+                 opaque="5ccc069c403ebaf9f0171e9517f40e41"</pre></DIV><PRE>
+<span class="p_word">def</span> digest(cr):
+    <span class="p_triple">'''Create a digest response for the credentials.
+    
+    &gt;&gt;&gt; input = {'httpMethod':'GET', 'username':'Mufasa', 'password': 'Circle Of Life', 'realm':'testrealm@host.com', 'algorithm':'md5', 'nonce':'dcd98b7102dd2f0e8b11d0f600bfb0c093', 'uri':'/dir/index.html', 'qop':'auth', 'nc': '00000001', 'cnonce':'0a4f113b', 'opaque':'5ccc069c403ebaf9f0171e9517f40e41'}
+    &gt;&gt;&gt; print digest(input)
+    "6629fae49393a05397450978507c4ef1"
+    '''</span>
+    algorithm, username, realm, password, nonce, cnonce, nc, qop, httpMethod, uri, entityBody \
+      = map(<span class="p_word">lambda</span> x: cr[x] <span class="p_word">if</span> x <span class="p_word">in</span> cr <span class="p_word">else</span> <span class="p_word">None</span>, [<span class="p_string">'algorithm'</span>, <span class="p_string">'username'</span>, <span class="p_string">'realm'</span>, <span class="p_string">'password'</span>, <span class="p_string">'nonce'</span>, <span class="p_string">'cnonce'</span>, <span class="p_string">'nc'</span>, <span class="p_string">'qop'</span>, <span class="p_string">'httpMethod'</span>, <span class="p_string">'uri'</span>, <span class="p_string">'entityBody'</span>])
+      
+
+</PRE><DIV class="commentbox">From RFC2617 p.13<pre>   If the "algorithm" directive's value is "MD5" or is unspecified, then
+   A1 is:
+
+      A1       = unq(username-value) ":" unq(realm-value) ":" passwd
+
+   where
+
+      passwd   = &amp;lt; user's password &amp;gt;
+
+   If the "algorithm" directive's value is "MD5-sess", then A1 is
+   calculated only once - on the first request by the client following
+   receipt of a WWW-Authenticate challenge from the server.  It uses the
+   server nonce from that challenge, and the first client nonce value to
+   construct A1 as follows:
+
+      A1       = H( unq(username-value) ":" unq(realm-value)
+                     ":" passwd )
+                     ":" unq(nonce-value) ":" unq(cnonce-value)
+
+   This creates a 'session key' for the authentication of subsequent</pre></DIV><PRE>
+    <span class="p_word">if</span> algorithm <span class="p_word">and</span> algorithm.lower() == <span class="p_string">'md5-sess'</span>:
+        A1 = H(username + <span class="p_string">':'</span> + realm + <span class="p_string">':'</span> + password) + <span class="p_string">':'</span> + nonce + <span class="p_string">':'</span> + cnonce
+    <span class="p_word">else</span>:
+        A1 = username + <span class="p_string">':'</span> + realm + <span class="p_string">':'</span> + password
+
+</PRE><DIV class="commentbox">From RFC2617 p.14<pre>   If the "qop" directive's value is "auth" or is unspecified, then A2
+   is:
+
+      A2       = Method ":" digest-uri-value
+
+   If the "qop" value is "auth-int", then A2 is:
+
+      A2       = Method ":" digest-uri-value ":" H(entity-body)</pre></DIV><PRE>
+    <span class="p_word">if</span> <span class="p_word">not</span> qop <span class="p_word">or</span> qop == <span class="p_string">'auth'</span>:
+        A2 = httpMethod + <span class="p_string">':'</span> + str(uri)
+    <span class="p_word">else</span>:
+        A2 = httpMethod + <span class="p_string">':'</span> + str(uri) + <span class="p_string">':'</span> + H(str(entityBody))
+
+
+</PRE><DIV class="commentbox">From RFC2617 p.13<pre>   If the "qop" value is "auth" or "auth-int":
+
+      request-digest  = &amp;lt;"&amp;gt; &amp;lt; KD ( H(A1),     unq(nonce-value)
+                                          ":" nc-value
+                                          ":" unq(cnonce-value)
+                                          ":" unq(qop-value)
+                                          ":" H(A2)
+                                  ) &amp;lt;"&amp;gt;
+
+   If the "qop" directive is not present (this construction is for
+   compatibility with RFC 2069):
+
+      request-digest  =
+                 &amp;lt;"&amp;gt; &amp;lt; KD ( H(A1), unq(nonce-value) ":" H(A2) ) &amp;gt;
+   &amp;lt;"&amp;gt;</pre></DIV><PRE>
+    <span class="p_word">if</span> qop <span class="p_word">and</span> (qop == <span class="p_string">'auth'</span> <span class="p_word">or</span> qop == <span class="p_string">'auth-int'</span>):
+        a = nonce + <span class="p_string">':'</span> + str(nc) + <span class="p_string">':'</span> + cnonce + <span class="p_string">':'</span> + qop + <span class="p_string">':'</span> + A2
+        <span class="p_word">return</span> _quote(KD(H(A1), nonce + <span class="p_string">':'</span> + str(nc) + <span class="p_string">':'</span> + cnonce + <span class="p_string">':'</span> + qop + <span class="p_string">':'</span> + H(A2)))
+    <span class="p_word">else</span>:
+        <span class="p_word">return</span> _quote(KD(H(A1), nonce + <span class="p_string">':'</span> + H(A2)))
+
+
+
+</PRE><DIV class="commentbox">From RFC2617 p.6<pre>   If the user agent wishes to send the userid "Aladdin" and password
+   "open sesame", it would use the following header field:
+
+      Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==</pre></DIV><PRE>
+<span class="p_word">def</span> basic(cr):
+    <span class="p_triple">'''Create a basic response for the credentials.
+    
+    &gt;&gt;&gt; print basic({'username':'Aladdin', 'password':'open sesame'})
+    QWxhZGRpbjpvcGVuIHNlc2FtZQ==
+    '''</span>
+
+</PRE><DIV class="commentbox">From RFC2617 p.5<pre>   To receive authorization, the client sends the userid and password,
+   separated by a single colon (":") character, within a base64 [7]
+   encoded string in the credentials.
+
+      basic-credentials = base64-user-pass
+      base64-user-pass  = &amp;lt;base64 [4] encoding of user-pass,
+                       except not limited to 76 char/line&amp;gt;
+      user-pass   = userid ":" password
+      userid      = *&amp;lt;TEXT excluding ":"&amp;gt;
+      password    = *TEXT
+
+   Userids might be case sensitive.</pre></DIV><PRE>
+    <span class="p_word">return</span> b64encode(cr[<span class="p_string">'username'</span>] + <span class="p_string">':'</span> + cr[<span class="p_string">'password'</span>])
+
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()
+
+  </PRE></BODY>
+</HTML>

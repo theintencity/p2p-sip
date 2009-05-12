@@ -1,0 +1,819 @@
+P1L1	
+P1L2	
+P1L3	
+P1L4	Network Working Group                                       J. Rosenberg
+P1L5	Request for Comments: 3263                                   dynamicsoft
+P1L6	Obsoletes: 2543                                           H. Schulzrinne
+P1L7	Category: Standards Track                                    Columbia U.
+P1L8	                                                               June 2002
+P1L9	
+P1L10	
+P1L11	        Session Initiation Protocol (SIP): Locating SIP Servers
+P1L12	
+P1L13	Status of this Memo
+P1L14	
+P1L15	   This document specifies an Internet standards track protocol for the
+P1L16	   Internet community, and requests discussion and suggestions for
+P1L17	   improvements.  Please refer to the current edition of the "Internet
+P1L18	   Official Protocol Standards" (STD 1) for the standardization state
+P1L19	   and status of this protocol.  Distribution of this memo is unlimited.
+P1L20	
+P1L21	Copyright Notice
+P1L22	
+P1L23	   Copyright (C) The Internet Society (2002).  All Rights Reserved.
+P1L24	
+P1L25	Abstract
+P1L26	
+P1L27	   The Session Initiation Protocol (SIP) uses DNS procedures to allow a
+P1L28	   client to resolve a SIP Uniform Resource Identifier (URI) into the IP
+P1L29	   address, port, and transport protocol of the next hop to contact.  It
+P1L30	   also uses DNS to allow a server to send a response to a backup client
+P1L31	   if the primary client has failed.  This document describes those DNS
+P1L32	   procedures in detail.
+P1L33	
+P1L34	Table of Contents
+P1L35	
+P1L36	   1          Introduction ........................................    2
+P1L37	   2          Problems DNS is Needed to Solve .....................    2
+P1L38	   3          Terminology .........................................    5
+P1L39	   4          Client Usage ........................................    5
+P1L40	   4.1        Selecting a Transport Protocol ......................    6
+P1L41	   4.2        Determining Port and IP Address .....................    8
+P1L42	   4.3        Details of RFC 2782 Process .........................    9
+P1L43	   4.4        Consideration for Stateless Proxies .................   10
+P1L44	   5          Server Usage ........................................   11
+P1L45	   6          Constructing SIP URIs ...............................   12
+P1L46	   7          Security Considerations .............................   12
+P1L47	   8          The Transport Determination Application .............   13
+P1L48	   9          IANA Considerations .................................   14
+P1L49	   10         Acknowledgements ....................................   14
+P1L50	   11         Normative References ................................   15
+P1L51	   12         Informative References ..............................   15
+P2L1	   13         Authors' Addresses ..................................   16
+P2L2	   14         Full Copyright Statement ............................   17
+P2L3	
+P2L4	1 Introduction
+P2L5	
+P2L6	   The Session Initiation Protocol (SIP) (RFC 3261 [1]) is a client-
+P2L7	   server protocol used for the initiation and management of
+P2L8	   communications sessions between users.  SIP end systems are called
+P2L9	   user agents, and intermediate elements are known as proxy servers.  A
+P2L10	   typical SIP configuration, referred to as the SIP "trapezoid", is
+P2L11	   shown in Figure 1.  In this diagram, a caller in domain A (UA1)
+P2L12	   wishes to call Joe in domain B (joe@B).  To do so, it communicates
+P2L13	   with proxy 1 in its domain (domain A).  Proxy 1 forwards the request
+P2L14	   to the proxy for the domain of the called party (domain B), which is
+P2L15	   proxy 2.  Proxy 2 forwards the call to the called party, UA 2.
+P2L16	
+P2L17	   As part of this call flow, proxy 1 needs to determine a SIP server
+P2L18	   for domain B.  To do this, proxy 1 makes use of DNS procedures, using
+P2L19	   both SRV [2] and NAPTR [3] records.  This document describes the
+P2L20	   specific problems that SIP uses DNS to help solve, and provides a
+P2L21	   solution.
+P2L22	
+P2L23	2 Problems DNS is Needed to Solve
+P2L24	
+P2L25	   DNS is needed to help solve two aspects of the general call flow
+P2L26	   described in the Introduction.  The first is for proxy 1 to discover
+P2L27	   the SIP server in domain B, in order to forward the call for joe@B.
+P2L28	   The second is for proxy 2 to identify a backup for proxy 1 in the
+P2L29	   event it fails after forwarding the request.
+P2L30	
+P2L31	   For the first aspect, proxy 1 specifically needs to determine the IP
+P2L32	   address, port, and transport protocol for the server in domain B.
+P2L33	   The choice of transport protocol is particularly noteworthy.  Unlike
+P2L34	   many other protocols, SIP can run over a variety of transport
+P2L35	   protocols, including TCP, UDP, and SCTP.  SIP can also use TLS.
+P2L36	   Currently, use of TLS is defined for TCP only.  Thus, clients need to
+P2L37	   be able to automatically determine which transport protocols are
+P2L38	   available.  The proxy sending the request has a particular set of
+P2L39	   transport protocols it supports and a preference for using those
+P2L40	   transport protocols.  Proxy 2 has its own set of transport protocols
+P2L41	   it supports, and relative preferences for those transport protocols.
+P2L42	   All proxies must implement both UDP and TCP, along with TLS over TCP,
+P2L43	   so that there is always an intersection of capabilities.  Some form
+P2L44	   of DNS procedures are needed for proxy 1 to discover the available
+P2L45	   transport protocols for SIP services at domain B, and the relative
+P2L46	   preferences of those transport protocols.  Proxy 1 intersects its
+P2L47	   list of supported transport protocols with those of proxy 2 and then
+P2L48	   chooses the protocol preferred by proxy 2.
+P3L1	    ............................          ..............................
+P3L2	    .                          .          .                            .
+P3L3	    .                +-------+ .          . +-------+                  .
+P3L4	    .                |       | .          . |       |                  .
+P3L5	    .                | Proxy |------------- | Proxy |                  .
+P3L6	    .                |   1   | .          . |  2    |                  .
+P3L7	    .                |       | .          . |       |                  .
+P3L8	    .              / +-------+ .          . +-------+ \                .
+P3L9	    .             /            .          .            \               .
+P3L10	    .            /             .          .             \              .
+P3L11	    .           /              .          .              \             .
+P3L12	    .          /               .          .               \            .
+P3L13	    .         /                .          .                \           .
+P3L14	    .        /                 .          .                 \          .
+P3L15	    .       /                  .          .                  \         .
+P3L16	    .   +-------+              .          .                +-------+   .
+P3L17	    .   |       |              .          .                |       |   .
+P3L18	    .   |       |              .          .                |       |   .
+P3L19	    .   | UA 1  |              .          .                | UA 2  |   .
+P3L20	    .   |       |              .          .                |       |   .
+P3L21	    .   +-------+              .          .                +-------+   .
+P3L22	    .              Domain A    .          .   Domain B                 .
+P3L23	    ............................          ..............................
+P3L24	
+P3L25	                        Figure 1: The SIP trapezoid
+P3L26	
+P3L27	   It is important to note that DNS lookups can be used multiple times
+P3L28	   throughout the processing of a call.  In general, an element that
+P3L29	   wishes to send a request (called a client) may need to perform DNS
+P3L30	   processing to determine the IP address, port, and transport protocol
+P3L31	   of a next hop element, called a server (it can be a proxy or a user
+P3L32	   agent).  Such processing could, in principle, occur at every hop
+P3L33	   between elements.
+P3L34	
+P3L35	   Since SIP is used for the establishment of interactive communications
+P3L36	   services, the time it takes to complete a transaction between a
+P3L37	   caller and called party is important.  Typically, the time from when
+P3L38	   the caller initiates a call until the time the called party is
+P3L39	   alerted should be no more than a few seconds.  Given that there can
+P3L40	   be multiple hops, each of which is doing DNS lookups in addition to
+P3L41	   other potentially time-intensive operations, the amount of time
+P3L42	   available for DNS lookups at each hop is limited.
+P3L43	
+P3L44	   Scalability and high availability are important in SIP. SIP services
+P3L45	   scale up through clustering techniques.  Typically, in a realistic
+P3L46	   version of the network in Figure 1, proxy 2 would be a cluster of
+P3L47	   homogeneously configured proxies.  DNS needs to provide the ability
+P3L48	
+P4L1	   for domain B to configure a set of servers, along with prioritization
+P4L2	   and weights, in order to provide a crude level of capacity-based load
+P4L3	   balancing.
+P4L4	
+P4L5	   SIP assures high availability by having upstream elements detect
+P4L6	   failures.  For example, assume that proxy 2 is implemented as a
+P4L7	   cluster of two proxies, proxy 2.1 and proxy 2.2.  If proxy 1 sends a
+P4L8	   request to proxy 2.1 and the request fails, it retries the request by
+P4L9	   sending it to proxy 2.2.  In many cases, proxy 1 will not know which
+P4L10	   domains it will ultimately communicate with.  That information would
+P4L11	   be known when a user actually makes a call to another user in that
+P4L12	   domain.  Proxy 1 may never communicate with that domain again after
+P4L13	   the call completes.  Proxy 1 may communicate with thousands of
+P4L14	   different domains within a few minutes, and proxy 2 could receive
+P4L15	   requests from thousands of different domains within a few minutes.
+P4L16	   Because of this "many-to-many" relationship, and the possibly long
+P4L17	   intervals between communications between a pair of domains, it is not
+P4L18	   generally possible for an element to maintain dynamic availability
+P4L19	   state for the proxies it will communicate with.  When a proxy gets
+P4L20	   its first call with a particular domain, it will try the servers in
+P4L21	   that domain in some order until it finds one that is available.  The
+P4L22	   identity of the available server would ideally be cached for some
+P4L23	   amount of time in order to reduce call setup delays of subsequent
+P4L24	   calls.  The client cannot query a failed server continuously to
+P4L25	   determine when it becomes available again, since this does not scale.
+P4L26	   Furthermore, the availability state must eventually be flushed in
+P4L27	   order to redistribute load to recovered elements when they come back
+P4L28	   online.
+P4L29	
+P4L30	   It is possible for elements to fail in the middle of a transaction.
+P4L31	   For example, after proxy 2 forwards the request to UA 2, proxy 1
+P4L32	   fails.  UA 2 sends its response to proxy 2, which tries to forward it
+P4L33	   to proxy 1, which is no longer available.  The second aspect of the
+P4L34	   flow in the introduction for which DNS is needed, is for proxy 2 to
+P4L35	   identify a backup for proxy 1 that it can send the response to.  This
+P4L36	   problem is more realistic in SIP than it is in other transactional
+P4L37	   protocols.  The reason is that some SIP responses can take a long
+P4L38	   time to be generated, because a human user frequently needs to be
+P4L39	   consulted in order to generate that response.  As such, it is not
+P4L40	   uncommon for tens of seconds to elapse between a call request and its
+P4L41	   acceptance.
+P4L42	
+P4L43	
+P4L44	
+P4L45	
+P4L46	
+P4L47	
+P4L48	
+P5L1	3 Terminology
+P5L2	
+P5L3	   In this document, the key words "MUST", "MUST NOT", "REQUIRED",
+P5L4	   "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
+P5L5	   and "OPTIONAL" are to be interpreted as described in RFC 2119 [4] and
+P5L6	   indicate requirement levels for compliant SIP implementations.
+P5L7	
+P5L8	4 Client Usage
+P5L9	
+P5L10	   Usage of DNS differs for clients and for servers.  This section
+P5L11	   discusses client usage.  We assume that the client is stateful
+P5L12	   (either a User Agent Client (UAC) or a stateful proxy).  Stateless
+P5L13	   proxies are discussed in Section 4.4.
+P5L14	
+P5L15	   The procedures here are invoked when a client needs to send a request
+P5L16	   to a resource identified by a SIP or SIPS (secure SIP) URI.  This URI
+P5L17	   can identify the desired resource to which the request is targeted
+P5L18	   (in which case, the URI is found in the Request-URI), or it can
+P5L19	   identify an intermediate hop towards that resource (in which case,
+P5L20	   the URI is found in the Route header).  The procedures defined here
+P5L21	   in no way affect this URI (i.e., the URI is not rewritten with the
+P5L22	   result of the DNS lookup), they only result in an IP address, port
+P5L23	   and transport protocol where the request can be sent.  RFC 3261 [1]
+P5L24	   provides guidelines on determining which URI needs to be resolved in
+P5L25	   DNS to determine the host that the request needs to be sent to.  In
+P5L26	   some cases, also documented in [1], the request can be sent to a
+P5L27	   specific intermediate proxy not identified by a SIP URI, but rather,
+P5L28	   by a hostname or numeric IP address.  In that case, a temporary URI,
+P5L29	   used for purposes of this specification, is constructed.  That URI is
+P5L30	   of the form sip:<proxy>, where <proxy> is the FQDN or numeric IP
+P5L31	   address of the next-hop proxy.  As a result, in all cases, the
+P5L32	   problem boils down to resolution of a SIP or SIPS URI in DNS to
+P5L33	   determine the IP address, port, and transport of the host to which
+P5L34	   the request is to be sent.
+P5L35	
+P5L36	   The procedures here MUST be done exactly once per transaction, where
+P5L37	   transaction is as defined in [1].  That is, once a SIP server has
+P5L38	   successfully been contacted (success is defined below), all
+P5L39	   retransmissions of the SIP request and the ACK for non-2xx SIP
+P5L40	   responses to INVITE MUST be sent to the same host.  Furthermore, a
+P5L41	   CANCEL for a particular SIP request MUST be sent to the same SIP
+P5L42	   server that the SIP request was delivered to.
+P5L43	
+P5L44	   Because the ACK request for 2xx responses to INVITE constitutes a
+P5L45	   different transaction, there is no requirement that it be delivered
+P5L46	   to the same server that received the original request (indeed, if
+P5L47	   that server did not record-route, it will not get the ACK).
+P5L48	
+P6L1	   We define TARGET as the value of the maddr parameter of the URI, if
+P6L2	   present, otherwise, the host value of the hostport component of the
+P6L3	   URI.  It identifies the domain to be contacted.  A description of the
+P6L4	   SIP and SIPS URIs and a definition of these parameters can be found
+P6L5	   in [1].
+P6L6	
+P6L7	   We determine the transport protocol, port and IP address of a
+P6L8	   suitable instance of TARGET in Sections 4.1 and 4.2.
+P6L9	
+P6L10	4.1 Selecting a Transport Protocol
+P6L11	
+P6L12	   First, the client selects a transport protocol.
+P6L13	
+P6L14	   If the URI specifies a transport protocol in the transport parameter,
+P6L15	   that transport protocol SHOULD be used.
+P6L16	
+P6L17	   Otherwise, if no transport protocol is specified, but the TARGET is a
+P6L18	   numeric IP address, the client SHOULD use UDP for a SIP URI, and TCP
+P6L19	   for a SIPS URI.  Similarly, if no transport protocol is specified,
+P6L20	   and the TARGET is not numeric, but an explicit port is provided, the
+P6L21	   client SHOULD use UDP for a SIP URI, and TCP for a SIPS URI.  This is
+P6L22	   because UDP is the only mandatory transport in RFC 2543 [6], and thus
+P6L23	   the only one guaranteed to be interoperable for a SIP URI.  It was
+P6L24	   also specified as the default transport in RFC 2543 when no transport
+P6L25	   was present in the SIP URI.  However, another transport, such as TCP,
+P6L26	   MAY be used if the guidelines of SIP mandate it for this particular
+P6L27	   request.  That is the case, for example, for requests that exceed the
+P6L28	   path MTU.
+P6L29	
+P6L30	   Otherwise, if no transport protocol or port is specified, and the
+P6L31	   target is not a numeric IP address, the client SHOULD perform a NAPTR
+P6L32	   query for the domain in the URI.  The services relevant for the task
+P6L33	   of transport protocol selection are those with NAPTR service fields
+P6L34	   with values "SIP+D2X" and "SIPS+D2X", where X is a letter that
+P6L35	   corresponds to a transport protocol supported by the domain.  This
+P6L36	   specification defines D2U for UDP, D2T for TCP, and D2S for SCTP.  We
+P6L37	   also establish an IANA registry for NAPTR service name to transport
+P6L38	   protocol mappings.
+P6L39	
+P6L40	   These NAPTR records provide a mapping from a domain to the SRV record
+P6L41	   for contacting a server with the specific transport protocol in the
+P6L42	   NAPTR services field.  The resource record will contain an empty
+P6L43	   regular expression and a replacement value, which is the SRV record
+P6L44	   for that particular transport protocol.  If the server supports
+P6L45	   multiple transport protocols, there will be multiple NAPTR records,
+P6L46	   each with a different service value.  As per RFC 2915 [3], the client
+P6L47	   discards any records whose services fields are not applicable.  For
+P6L48	   the purposes of this specification, several rules are defined.
+P7L1	   First, a client resolving a SIPS URI MUST discard any services that
+P7L2	   do not contain "SIPS" as the protocol in the service field.  The
+P7L3	   converse is not true, however.  A client resolving a SIP URI SHOULD
+P7L4	   retain records with "SIPS" as the protocol, if the client supports
+P7L5	   TLS.  Second, a client MUST discard any service fields that identify
+P7L6	   a resolution service whose value is not "D2X", for values of X that
+P7L7	   indicate transport protocols supported by the client.  The NAPTR
+P7L8	   processing as described in RFC 2915 will result in the discovery of
+P7L9	   the most preferred transport protocol of the server that is supported
+P7L10	   by the client, as well as an SRV record for the server.  It will also
+P7L11	   allow the client to discover if TLS is available and its preference
+P7L12	   for its usage.
+P7L13	
+P7L14	   As an example, consider a client that wishes to resolve
+P7L15	   sip:user@example.com.  The client performs a NAPTR query for that
+P7L16	   domain, and the following NAPTR records are returned:
+P7L17	
+P7L18	   ;          order pref flags service      regexp  replacement
+P7L19	      IN NAPTR 50   50  "s"  "SIPS+D2T"     ""  _sips._tcp.example.com.
+P7L20	      IN NAPTR 90   50  "s"  "SIP+D2T"      ""  _sip._tcp.example.com
+P7L21	      IN NAPTR 100  50  "s"  "SIP+D2U"      ""  _sip._udp.example.com.
+P7L22	
+P7L23	   This indicates that the server supports TLS over TCP, TCP, and UDP,
+P7L24	   in that order of preference.  Since the client supports TCP and UDP,
+P7L25	   TCP will be used, targeted to a host determined by an SRV lookup of
+P7L26	   _sip._tcp.example.com.  That lookup would return:
+P7L27	
+P7L28	   ;;          Priority Weight Port   Target
+P7L29	       IN SRV  0        1      5060   server1.example.com
+P7L30	       IN SRV  0        2      5060   server2.example.com
+P7L31	
+P7L32	   If a SIP proxy, redirect server, or registrar is to be contacted
+P7L33	   through the lookup of NAPTR records, there MUST be at least three
+P7L34	   records - one with a "SIP+D2T" service field, one with a "SIP+D2U"
+P7L35	   service field, and one with a "SIPS+D2T" service field.  The records
+P7L36	   with SIPS as the protocol in the service field SHOULD be preferred
+P7L37	   (i.e., have a lower value of the order field) above records with SIP
+P7L38	   as the protocol in the service field.  A record with a "SIPS+D2U"
+P7L39	   service field SHOULD NOT be placed into the DNS, since it is not
+P7L40	   possible to use TLS over UDP.
+P7L41	
+P7L42	   It is not necessary for the domain suffixes in the NAPTR replacement
+P7L43	   field to match the domain of the original query (i.e., example.com
+P7L44	   above).  However, for backwards compatibility with RFC 2543, a domain
+P7L45	   MUST maintain SRV records for the domain of the original query, even
+P7L46	   if the NAPTR record is in a different domain.  As an example, even
+P7L47	   though the SRV record for TCP is _sip._tcp.school.edu, there MUST
+P7L48	   also be an SRV record at _sip._tcp.example.com.
+P8L1	      RFC 2543 will look up the SRV records for the domain directly.  If
+P8L2	      these do not exist because the NAPTR replacement points to a
+P8L3	      different domain, the client will fail.
+P8L4	
+P8L5	   For NAPTR records with SIPS protocol fields, (if the server is using
+P8L6	   a site certificate), the domain name in the query and the domain name
+P8L7	   in the replacement field MUST both be valid based on the site
+P8L8	   certificate handed out by the server in the TLS exchange.  Similarly,
+P8L9	   the domain name in the SRV query and the domain name in the target in
+P8L10	   the SRV record MUST both be valid based on the same site certificate.
+P8L11	   Otherwise, an attacker could modify the DNS records to contain
+P8L12	   replacement values in a different domain, and the client could not
+P8L13	   validate that this was the desired behavior or the result of an
+P8L14	   attack.
+P8L15	
+P8L16	   If no NAPTR records are found, the client constructs SRV queries for
+P8L17	   those transport protocols it supports, and does a query for each.
+P8L18	   Queries are done using the service identifier "_sip" for SIP URIs and
+P8L19	   "_sips" for SIPS URIs.  A particular transport is supported if the
+P8L20	   query is successful.  The client MAY use any transport protocol it
+P8L21	   desires which is supported by the server.
+P8L22	
+P8L23	      This is a change from RFC 2543.  It specified that a client would
+P8L24	      lookup SRV records for all transports it supported, and merge the
+P8L25	      priority values across those records.  Then, it would choose the
+P8L26	      most preferred record.
+P8L27	
+P8L28	   If no SRV records are found, the client SHOULD use TCP for a SIPS
+P8L29	   URI, and UDP for a SIP URI.  However, another transport protocol,
+P8L30	   such as TCP, MAY be used if the guidelines of SIP mandate it for this
+P8L31	   particular request.  That is the case, for example, for requests that
+P8L32	   exceed the path MTU.
+P8L33	
+P8L34	4.2 Determining Port and IP Address
+P8L35	
+P8L36	   Once the transport protocol has been determined, the next step is to
+P8L37	   determine the IP address and port.
+P8L38	
+P8L39	   If TARGET is a numeric IP address, the client uses that address.  If
+P8L40	   the URI also contains a port, it uses that port.  If no port is
+P8L41	   specified, it uses the default port for the particular transport
+P8L42	   protocol.
+P8L43	
+P8L44	   If the TARGET was not a numeric IP address, but a port is present in
+P8L45	   the URI, the client performs an A or AAAA record lookup of the domain
+P8L46	   name.  The result will be a list of IP addresses, each of which can
+P8L47	   be contacted at the specific port from the URI and transport protocol
+P8L48	
+P9L1	   determined previously.  The client SHOULD try the first record.  If
+P9L2	   an attempt should fail, based on the definition of failure in Section
+P9L3	   4.3, the next SHOULD be tried, and if that should fail, the next
+P9L4	   SHOULD be tried, and so on.
+P9L5	
+P9L6	      This is a change from RFC 2543.  Previously, if the port was
+P9L7	      explicit, but with a value of 5060, SRV records were used.  Now, A
+P9L8	      or AAAA records will be used.
+P9L9	
+P9L10	   If the TARGET was not a numeric IP address, and no port was present
+P9L11	   in the URI, the client performs an SRV query on the record returned
+P9L12	   from the NAPTR processing of Section 4.1, if such processing was
+P9L13	   performed.  If it was not, because a transport was specified
+P9L14	   explicitly, the client performs an SRV query for that specific
+P9L15	   transport, using the service identifier "_sips" for SIPS URIs.  For a
+P9L16	   SIP URI, if the client wishes to use TLS, it also uses the service
+P9L17	   identifier "_sips" for that specific transport, otherwise, it uses
+P9L18	   "_sip".  If the NAPTR processing was not done because no NAPTR
+P9L19	   records were found, but an SRV query for a supported transport
+P9L20	   protocol was successful, those SRV records are selected. Irregardless
+P9L21	   of how the SRV records were determined, the procedures of RFC 2782,
+P9L22	   as described in the section titled "Usage rules" are followed,
+P9L23	   augmented by the additional procedures of Section 4.3 of this
+P9L24	   document.
+P9L25	
+P9L26	   If no SRV records were found, the client performs an A or AAAA record
+P9L27	   lookup of the domain name.  The result will be a list of IP
+P9L28	   addresses, each of which can be contacted using the transport
+P9L29	   protocol determined previously, at the default port for that
+P9L30	   transport.  Processing then proceeds as described above for an
+P9L31	   explicit port once the A or AAAA records have been looked up.
+P9L32	
+P9L33	4.3 Details of RFC 2782 Process
+P9L34	
+P9L35	   RFC 2782 spells out the details of how a set of SRV records are
+P9L36	   sorted and then tried.  However, it only states that the client
+P9L37	   should "try to connect to the (protocol, address, service)" without
+P9L38	   giving any details on what happens in the event of failure.  Those
+P9L39	   details are described here for SIP.
+P9L40	
+P9L41	   For SIP requests, failure occurs if the transaction layer reports a
+P9L42	   503 error response or a transport failure of some sort (generally,
+P9L43	   due to fatal ICMP errors in UDP or connection failures in TCP).
+P9L44	   Failure also occurs if the transaction layer times out without ever
+P9L45	   having received any response, provisional or final (i.e., timer B or
+P9L46	   timer F in RFC 3261 [1] fires).  If a failure occurs, the client
+P9L47	   SHOULD create a new request, which is identical to the previous, but
+P9L48	
+P10L1	   has a different value of the Via branch ID than the previous (and
+P10L2	   therefore constitutes a new SIP transaction).  That request is sent
+P10L3	   to the next element in the list as specified by RFC 2782.
+P10L4	
+P10L5	4.4 Consideration for Stateless Proxies
+P10L6	
+P10L7	   The process of the previous sections is highly stateful.  When a
+P10L8	   server is contacted successfully, all retransmissions of the request
+P10L9	   for the transaction, as well as ACK for a non-2xx final response, and
+P10L10	   CANCEL requests for that transaction, MUST go to the same server.
+P10L11	
+P10L12	   The identity of the successfully contacted server is a form of
+P10L13	   transaction state.  This presents a challenge for stateless proxies,
+P10L14	   which still need to meet the requirement for sending all requests in
+P10L15	   the transaction to the same server.
+P10L16	
+P10L17	   The problem is similar, but different, to the problem of HTTP
+P10L18	   transactions within a cookie session getting routed to different
+P10L19	   servers based on DNS randomization.  There, such distribution is not
+P10L20	   a problem.  Farms of servers generally have common back-end data
+P10L21	   stores, where the session data is stored.  Whenever a server in the
+P10L22	   farm receives an HTTP request, it takes the session identifier, if
+P10L23	   present, and extracts the needed state to process the request.  A
+P10L24	   request without a session identifier creates a new one.  The problem
+P10L25	   with stateless proxies is at a lower layer; it is retransmitted
+P10L26	   requests within a transaction that are being potentially spread
+P10L27	   across servers.  Since none of these retransmissions carries a
+P10L28	   "session identifier" (a complete dialog identifier in SIP terms), a
+P10L29	   new dialog would be created identically at each server.  This could,
+P10L30	   for example result in multiple phone calls to be made to the same
+P10L31	   phone.  Therefore, it is critical to prevent such a thing from
+P10L32	   happening in the first place.
+P10L33	
+P10L34	   The requirement is not difficult to meet in the simple case where
+P10L35	   there were no failures when attempting to contact a server.  Whenever
+P10L36	   the stateless proxy receives the request, it performs the appropriate
+P10L37	   DNS queries as described above.  However, the procedures of RFC 2782
+P10L38	   are not guaranteed to be deterministic.  This is because records that
+P10L39	   contain the same priority have no specified order.  The stateless
+P10L40	   proxy MUST define a deterministic order to the records in that case,
+P10L41	   using any algorithm at its disposal.  One suggestion is to
+P10L42	   alphabetize them, or, more generally, sort them by ASCII-compatible
+P10L43	   encoding.  To make processing easier for stateless proxies, it is
+P10L44	   RECOMMENDED that domain administrators make the weights of SRV
+P10L45	   records with equal priority different (for example, using weights of
+P10L46	   1000 and 1001 if two servers are equivalent, rather than assigning
+P10L47	   both a weight of 1000), and similarly for NAPTR records.  If the
+P10L48	   first server is contacted successfully, the proxy can remain
+P11L1	   stateless.  However, if the first server is not contacted
+P11L2	   successfully, and a subsequent server is, the proxy cannot remain
+P11L3	   stateless for this transaction.  If it were stateless, a
+P11L4	   retransmission could very well go to a different server if the failed
+P11L5	   one recovers between retransmissions.  As such, whenever a proxy does
+P11L6	   not successfully contact the first server, it SHOULD act as a
+P11L7	   stateful proxy.
+P11L8	
+P11L9	   Unfortunately, it is still possible for a stateless proxy to deliver
+P11L10	   retransmissions to different servers, even if it follows the
+P11L11	   recommendations above.  This can happen if the DNS TTLs expire in the
+P11L12	   middle of a transaction, and the entries had changed.  This is
+P11L13	   unavoidable.  Network implementors should be aware of this
+P11L14	   limitation, and not use stateless proxies that access DNS if this
+P11L15	   error is deemed critical.
+P11L16	
+P11L17	5 Server Usage
+P11L18	
+P11L19	   RFC 3261 [1] defines procedures for sending responses from a server
+P11L20	   back to the client.  Typically, for unicast UDP requests, the
+P11L21	   response is sent back to the source IP address where the request came
+P11L22	   from, using the port contained in the Via header.  For reliable
+P11L23	   transport protocols, the response is sent over the connection the
+P11L24	   request arrived on.  However, it is important to provide failover
+P11L25	   support when the client element fails between sending the request and
+P11L26	   receiving the response.
+P11L27	
+P11L28	   A server, according to RFC 3261 [1], will send a response on the
+P11L29	   connection it arrived on (in the case of reliable transport
+P11L30	   protocols), and for unreliable transport protocols, to the source
+P11L31	   address of the request, and the port in the Via header field.  The
+P11L32	   procedures here are invoked when a server attempts to send to that
+P11L33	   location and that response fails (the specific conditions are
+P11L34	   detailed in RFC 3261). "Fails" is defined as any closure of the
+P11L35	   transport connection the request came in on before the response can
+P11L36	   be sent, or communication of a fatal error from the transport layer.
+P11L37	
+P11L38	   In these cases, the server examines the value of the sent-by
+P11L39	   construction in the topmost Via header.  If it contains a numeric IP
+P11L40	   address, the server attempts to send the response to that address,
+P11L41	   using the transport protocol from the Via header, and the port from
+P11L42	   sent-by, if present, else the default for that transport protocol.
+P11L43	   The transport protocol in the Via header can indicate "TLS", which
+P11L44	   refers to TLS over TCP.  When this value is present, the server MUST
+P11L45	   use TLS over TCP to send the response.
+P11L46	
+P11L47	
+P11L48	
+P12L1	   If, however, the sent-by field contained a domain name and a port
+P12L2	   number, the server queries for A or AAAA records with that name.  It
+P12L3	   tries to send the response to each element on the resulting list of
+P12L4	   IP addresses, using the port from the Via, and the transport protocol
+P12L5	   from the Via (again, a value of TLS refers to TLS over TCP).  As in
+P12L6	   the client processing, the next entry in the list is tried if the one
+P12L7	   before it results in a failure.
+P12L8	
+P12L9	   If, however, the sent-by field contained a domain name and no port,
+P12L10	   the server queries for SRV records at that domain name using the
+P12L11	   service identifier "_sips" if the Via transport is "TLS", "_sip"
+P12L12	   otherwise, and the transport from the topmost Via header ("TLS"
+P12L13	   implies that the transport protocol in the SRV query is TCP).  The
+P12L14	   resulting list is sorted as described in [2], and the response is
+P12L15	   sent to the topmost element on the new list described there.  If that
+P12L16	   results in a failure, the next entry on the list is tried.
+P12L17	
+P12L18	6 Constructing SIP URIs
+P12L19	
+P12L20	   In many cases, an element needs to construct a SIP URI for inclusion
+P12L21	   in a Contact header in a REGISTER, or in a Record-Route header in an
+P12L22	   INVITE.  According to RFC 3261 [1], these URIs have to have the
+P12L23	   property that they resolve to the specific element that inserted
+P12L24	   them.  However, if they are constructed with just an IP address, for
+P12L25	   example:
+P12L26	
+P12L27	   sip:1.2.3.4
+P12L28	
+P12L29	   then should the element fail, there is no way to route the request or
+P12L30	   response through a backup.
+P12L31	
+P12L32	   SRV provides a way to fix this.  Instead of using an IP address, a
+P12L33	   domain name that resolves to an SRV record can be used:
+P12L34	
+P12L35	   sip:server23.provider.com
+P12L36	
+P12L37	   The SRV records for a particular target can be set up so that there
+P12L38	   is a single record with a low value for the priority field
+P12L39	   (indicating the preferred choice), and this record points to the
+P12L40	   specific element that constructed the URI.  However, there are
+P12L41	   additional records with higher values of the priority field that
+P12L42	   point to backup elements that would be used in the event of failure.
+P12L43	   This allows the constraint of RFC 3261 [1] to be met while allowing
+P12L44	   for robust operation.
+P12L45	
+P12L46	
+P12L47	
+P12L48	
+P13L1	7 Security Considerations
+P13L2	
+P13L3	   DNS NAPTR records are used to allow a client to discover that the
+P13L4	   server supports TLS.  An attacker could potentially modify these
+P13L5	   records, resulting in a client using a non-secure transport when TLS
+P13L6	   is in fact available and preferred.
+P13L7	
+P13L8	   This is partially mitigated by the presence of the sips URI scheme,
+P13L9	   which is always sent only over TLS.  An attacker cannot force a bid
+P13L10	   down through deletion or modification of DNS records.  In the worst
+P13L11	   case, they can prevent communication from occurring by deleting all
+P13L12	   records.  A sips URI itself is generally exchanged within a secure
+P13L13	   context, frequently on a business card or secure web page, or within
+P13L14	   a SIP message which has already been secured with TLS.  See RFC 3261
+P13L15	   [1] for details.  The sips URI is therefore preferred when security
+P13L16	   is truly needed, but we allow TLS to be used for requests resolved by
+P13L17	   a SIP URI to allow security that is better than no TLS at all.
+P13L18	
+P13L19	   The bid down attack can also be mitigated through caching.  A client
+P13L20	   which frequently contacts the same domain SHOULD cache whether or not
+P13L21	   its NAPTR records contain SIPS in the services field.  If such
+P13L22	   records were present, but in later queries cease to appear, it is a
+P13L23	   sign of a potential attack.  In this case, the client SHOULD generate
+P13L24	   some kind of alert or alarm, and MAY reject the request.
+P13L25	
+P13L26	   An additional problem is that proxies, which are intermediaries
+P13L27	   between the users of the system, are frequently the clients that
+P13L28	   perform the NAPTR queries.  It is therefore possible for a proxy to
+P13L29	   ignore SIPS entries even though they are present, resulting in
+P13L30	   downgraded security.  There is very little that can be done to
+P13L31	   prevent such attacks.  Clients are simply dependent on proxy servers
+P13L32	   for call completion, and must trust that they implement the protocol
+P13L33	   properly in order for security to be provided.  Falsifying DNS
+P13L34	   records can be done by tampering with wire traffic (in the absence of
+P13L35	   DNSSEC), whereas compromising and commandeering a proxy server
+P13L36	   requires a break-in, and is seen as the considerably less likely
+P13L37	   downgrade threat.
+P13L38	
+P13L39	8 The Transport Determination Application
+P13L40	
+P13L41	   This section more formally defines the NAPTR usage of this
+P13L42	   specification, using the Dynamic Delegation Discovery System (DDDS)
+P13L43	   framework as a guide [7].  DDDS represents the evolution of the NAPTR
+P13L44	   resource record.  DDDS defines applications, which can make use of
+P13L45	   the NAPTR record for specific resolution services.  This application
+P13L46	   is called the Transport Determination Application, and its goal is to
+P13L47	   map an incoming SIP or SIPS URI to a set of SRV records for the
+P13L48	   various servers that can handle the URI.
+P14L1	   The following is the information that DDDS requests an application to
+P14L2	   provide:
+P14L3	
+P14L4	      Application Unique String: The Application Unique String (AUS) is
+P14L5	         the input to the resolution service.  For this application, it
+P14L6	         is the URI to resolve.
+P14L7	
+P14L8	      First Well Known Rule: The first well known rule extracts a key
+P14L9	         from the AUS.  For this application, the first well known rule
+P14L10	         extracts the host portion of the SIP or SIPS URI.
+P14L11	
+P14L12	      Valid Databases: The key resulting from the first well known rule
+P14L13	         is looked up in a single database, the DNS [8].
+P14L14	
+P14L15	      Expected Output: The result of the application is an SRV record
+P14L16	         for the server to contact.
+P14L17	
+P14L18	9 IANA Considerations
+P14L19	
+P14L20	   The usage of NAPTR records described here requires well known values
+P14L21	   for the service fields for each transport supported by SIP.  The
+P14L22	   table of mappings from service field values to transport protocols is
+P14L23	   to be maintained by IANA.  New entries in the table MAY be added
+P14L24	   through the publication of standards track RFCs, as described in RFC
+P14L25	   2434 [5].
+P14L26	
+P14L27	   The registration in the RFC MUST include the following information:
+P14L28	
+P14L29	      Service Field: The service field being registered.  An example for
+P14L30	         a new fictitious transport protocol called NCTP might be
+P14L31	         "SIP+D2N".
+P14L32	
+P14L33	      Protocol: The specific transport protocol associated with that
+P14L34	         service field.  This MUST include the name and acronym for the
+P14L35	         protocol, along with reference to a document that describes the
+P14L36	         transport protocol.  For example - "New Connectionless
+P14L37	         Transport Protocol (NCTP), RFC 5766".
+P14L38	
+P14L39	      Name and Contact Information: The name, address, email address and
+P14L40	         telephone number for the person performing the registration.
+P14L41	
+P14L42	   The following values have been placed into the registry:
+P14L43	
+P14L44	   Services Field               Protocol
+P14L45	   SIP+D2T                       TCP
+P14L46	   SIPS+D2T                      TCP
+P14L47	   SIP+D2U                       UDP
+P14L48	   SIP+D2S                       SCTP (RFC 2960)
+P15L1	10 Acknowledgements
+P15L2	
+P15L3	   The authors would like to thank Randy Bush, Leslie Daigle, Patrik
+P15L4	   Faltstrom, Jo Hornsby, Rohan Mahy, Allison Mankin, Michael Mealling,
+P15L5	   Thomas Narten, and Jon Peterson for their useful comments.
+P15L6	
+P15L7	11 Normative References
+P15L8	
+P15L9	   [1]   Rosenberg, J., Schulzrinne, H., Camarillo, G., Johnston, A.,
+P15L10	         Peterson, J., Sparks, R., Handley, M. and E. Schooler, "SIP:
+P15L11	         Session Initiation Protocol", RFC 3261, June 2002.
+P15L12	
+P15L13	   [2]   Gulbrandsen, A., Vixie, P. and L. Esibov, "A DNS RR for
+P15L14	         Specifying the Location of Services (DNS SRV)", RFC 2782,
+P15L15	         February 2000.
+P15L16	
+P15L17	   [3]   Mealling, M. and R. Daniel, "The Naming Authority Pointer
+P15L18	         (NAPTR) DNS Resource Record", RFC 2915, September 2000.
+P15L19	
+P15L20	   [4]   Bradner, S., "Key Words for Use in RFCs to Indicate Requirement
+P15L21	         Levels", BCP 14, RFC 2119, March 1997.
+P15L22	
+P15L23	   [5]   Narten, T. and H. Alvestrand, "Guidelines for Writing an IANA
+P15L24	         Considerations Section in RFCs", BCP 26, RFC 2434, October
+P15L25	         1998.
+P15L26	
+P15L27	12 Informative References
+P15L28	
+P15L29	   [6]   Handley, M., Schulzrinne, H., Schooler, E. and J. Rosenberg,
+P15L30	         "SIP: Session Initiation Protocol", RFC 2543, March 1999.
+P15L31	
+P15L32	   [7]   Mealling, M., "Dynamic Delegation Discovery System (DDDS) Part
+P15L33	         One: The Comprehensive DDDS Standard", Work in Progress.
+P15L34	
+P15L35	   [8]   Mealling, M., "Dynamic Delegation Discovery System (DDDS) Part
+P15L36	         Three: The DNS Database", Work in Progress.
+P15L37	
+P15L38	
+P15L39	
+P15L40	
+P15L41	
+P15L42	
+P15L43	
+P15L44	
+P15L45	
+P15L46	
+P15L47	
+P15L48	
+P16L1	13 Authors' Addresses
+P16L2	
+P16L3	   Jonathan Rosenberg
+P16L4	   dynamicsoft
+P16L5	   72 Eagle Rock Avenue
+P16L6	   First Floor
+P16L7	   East Hanover, NJ 07936
+P16L8	
+P16L9	   EMail: jdrosen@dynamicsoft.com
+P16L10	
+P16L11	
+P16L12	   Henning Schulzrinne
+P16L13	   Columbia University
+P16L14	   M/S 0401
+P16L15	   1214 Amsterdam Ave.
+P16L16	   New York, NY 10027-7003
+P16L17	
+P16L18	   EMail: schulzrinne@cs.columbia.edu
+P16L19	
+P16L20	
+P16L21	
+P16L22	
+P16L23	
+P16L24	
+P16L25	
+P16L26	
+P16L27	
+P16L28	
+P16L29	
+P16L30	
+P16L31	
+P16L32	
+P16L33	
+P16L34	
+P16L35	
+P16L36	
+P16L37	
+P16L38	
+P16L39	
+P16L40	
+P16L41	
+P16L42	
+P16L43	
+P16L44	
+P16L45	
+P16L46	
+P16L47	
+P16L48	
+P17L1	14  Full Copyright Statement
+P17L2	
+P17L3	   Copyright (C) The Internet Society (2002).  All Rights Reserved.
+P17L4	
+P17L5	   This document and translations of it may be copied and furnished to
+P17L6	   others, and derivative works that comment on or otherwise explain it
+P17L7	   or assist in its implementation may be prepared, copied, published
+P17L8	   and distributed, in whole or in part, without restriction of any
+P17L9	   kind, provided that the above copyright notice and this paragraph are
+P17L10	   included on all such copies and derivative works.  However, this
+P17L11	   document itself may not be modified in any way, such as by removing
+P17L12	   the copyright notice or references to the Internet Society or other
+P17L13	   Internet organizations, except as needed for the purpose of
+P17L14	   developing Internet standards in which case the procedures for
+P17L15	   copyrights defined in the Internet Standards process must be
+P17L16	   followed, or as required to translate it into languages other than
+P17L17	   English.
+P17L18	
+P17L19	   The limited permissions granted above are perpetual and will not be
+P17L20	   revoked by the Internet Society or its successors or assigns.
+P17L21	
+P17L22	   This document and the information contained herein is provided on an
+P17L23	   "AS IS" basis and THE INTERNET SOCIETY AND THE INTERNET ENGINEERING
+P17L24	   TASK FORCE DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING
+P17L25	   BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF THE INFORMATION
+P17L26	   HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED WARRANTIES OF
+P17L27	   MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P17L28	
+P17L29	Acknowledgement
+P17L30	
+P17L31	   Funding for the RFC Editor function is currently provided by the
+P17L32	   Internet Society.
+P17L33	
+P17L34	
+P17L35	
+P17L36	
+P17L37	
+P17L38	
+P17L39	
+P17L40	
+P17L41	
+P17L42	
+P17L43	
+P17L44	
+P17L45	
+P17L46	
+P17L47	
+P17L48	

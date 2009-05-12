@@ -1,0 +1,57 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC2198 (Redundant RTP payload)</b></DIV><PRE>
+
+<span class="p_triple">'''
+Implements RTP payload for redundant audio data as per <a href="http://www.rfc-editor.org/rfc/rfc2198.txt">RFC 2198</a>.
+'''</span>
+
+<span class="p_word">import</span> struct
+
+<span class="p_word">def</span> createRedundant(packets):
+    <span class="p_triple">'''Create redundant payload using the individual RTP packets. The packets arg is assumed
+    to be a list of tuples (pt, timestamp, payload). The first packet is assumed to be 
+    primary, and is put the last. All other packets are put in the same order'''</span>
+    hdr, data = <span class="p_string">''</span>, <span class="p_string">''</span>
+    <span class="p_word">for</span> p <span class="p_word">in</span> packets[<span class="p_number">1</span>:]:
+        hdr += struct.pack(<span class="p_string">'!BHB'</span>, <span class="p_number">0x80</span> | p[<span class="p_number">0</span>], p[<span class="p_number">1</span>] - packets[<span class="p_number">0</span>][<span class="p_number">1</span>], len(p[<span class="p_number">2</span>]))
+        data += p[<span class="p_number">2</span>]
+    <span class="p_word">if</span> packets:
+        hdr += struct.pack(<span class="p_string">'!BHB'</span>, packets[<span class="p_number">0</span>][<span class="p_number">0</span>], packets[<span class="p_number">0</span>][<span class="p_number">1</span>], len(packets[<span class="p_number">0</span>][<span class="p_number">2</span>]))
+        data += packets[<span class="p_number">0</span>][<span class="p_number">2</span>]
+    <span class="p_word">return</span> hdr + data
+
+<span class="p_word">def</span> parseRedundant(packet, ts):
+    <span class="p_triple">'''Parse a redundant payload and return the individual payloads. The first in the result
+    is the primary payload. Each payload is tuple (pt, timestamp, payload). The ts of the 
+    original RTP packet should be supplied as well.'''</span>
+    all = []
+    <span class="p_word">while</span> packet:
+        pt, = struct.unpack(<span class="p_string">'!B'</span>, packet[:<span class="p_number">1</span>])
+        packet = packet[<span class="p_number">1</span>:]
+        <span class="p_word">if</span> pt &amp; <span class="p_number">0x80</span>: 
+            all.insert(<span class="p_number">0</span>, (pt))
+        <span class="p_word">else</span>:
+            tsoffset, len = struct.unpack(<span class="p_string">'!HB'</span>, packet[:<span class="p_number">3</span>])
+            packet = packet[<span class="p_number">3</span>:]
+            all.append((pt &amp; <span class="p_number">0x7f</span>, tsoffset, len))
+    result = []
+    <span class="p_word">for</span> a <span class="p_word">in</span> all[<span class="p_number">1</span>:]: <span class="p_commentline"># for all secondary data</span>
+        data = (a[<span class="p_number">0</span>], ts+a[<span class="p_number">1</span>], packet[:a[<span class="p_number">2</span>]])
+        packet = packet[a[<span class="p_number">2</span>]:]
+        result.append(data)
+    <span class="p_word">if</span> all:
+        result.insert(<span class="p_number">0</span>, (all[<span class="p_number">0</span>][<span class="p_number">0</span>], ts, packet)) <span class="p_commentline"># put remaining data as primary</span>
+    <span class="p_word">return</span> result
+
+
+
+  </PRE></BODY>
+</HTML>

@@ -1,0 +1,1152 @@
+P1L1	BEHAVE                                                      D. MacDonald
+P1L2	Internet-Draft                               CounterPath Solutions, Inc.
+P1L3	Intended status: Standards Track                             B. Lowekamp
+P1L4	Expires: December 29, 2007            SIPeerior Technologies and William
+P1L5	                                                                  & Mary
+P1L6	                                                           June 27, 2007
+P1L7	
+P1L8	
+P1L9	                   NAT Behavior Discovery Using STUN
+P1L10	              draft-ietf-behave-nat-behavior-discovery-01
+P1L11	
+P1L12	Status of this Memo
+P1L13	
+P1L14	   By submitting this Internet-Draft, each author represents that any
+P1L15	   applicable patent or other IPR claims of which he or she is aware
+P1L16	   have been or will be disclosed, and any of which he or she becomes
+P1L17	   aware will be disclosed, in accordance with Section 6 of BCP 79.
+P1L18	
+P1L19	   Internet-Drafts are working documents of the Internet Engineering
+P1L20	   Task Force (IETF), its areas, and its working groups.  Note that
+P1L21	   other groups may also distribute working documents as Internet-
+P1L22	   Drafts.
+P1L23	
+P1L24	   Internet-Drafts are draft documents valid for a maximum of six months
+P1L25	   and may be updated, replaced, or obsoleted by other documents at any
+P1L26	   time.  It is inappropriate to use Internet-Drafts as reference
+P1L27	   material or to cite them other than as "work in progress."
+P1L28	
+P1L29	   The list of current Internet-Drafts can be accessed at
+P1L30	   http://www.ietf.org/ietf/1id-abstracts.txt.
+P1L31	
+P1L32	   The list of Internet-Draft Shadow Directories can be accessed at
+P1L33	   http://www.ietf.org/shadow.html.
+P1L34	
+P1L35	   This Internet-Draft will expire on December 29, 2007.
+P1L36	
+P1L37	Copyright Notice
+P1L38	
+P1L39	   Copyright (C) The IETF Trust (2007).
+P1L40	
+P1L41	Abstract
+P1L42	
+P1L43	   This specification defines a usage of the Simple Traversal Underneath
+P1L44	   Network Address Translators (NAT) (STUN) Protocol that discovers the
+P1L45	   presence and current behaviour of NATs and firewalls between the STUN
+P1L46	   client and the STUN server.
+P1L47	
+P1L48	
+P2L1	Requirements Language
+P2L2	
+P2L3	   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+P2L4	   "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+P2L5	   document are to be interpreted as described in RFC 2119 [RFC2119].
+P2L6	
+P2L7	
+P2L8	Table of Contents
+P2L9	
+P2L10	   1.  Applicability  . . . . . . . . . . . . . . . . . . . . . . . .  4
+P2L11	   2.  Introduction . . . . . . . . . . . . . . . . . . . . . . . . .  4
+P2L12	   3.  Overview of Operations . . . . . . . . . . . . . . . . . . . .  5
+P2L13	     3.1.  Determining NAT Mapping  . . . . . . . . . . . . . . . . .  5
+P2L14	     3.2.  Determining NAT Filtering  . . . . . . . . . . . . . . . .  6
+P2L15	     3.3.  Binding Lifetime Discovery . . . . . . . . . . . . . . . .  6
+P2L16	     3.4.  Diagnosing NAT Hairpinning . . . . . . . . . . . . . . . .  6
+P2L17	     3.5.  Determining Fragment Handling  . . . . . . . . . . . . . .  7
+P2L18	     3.6.  Detecting Generic ALGs . . . . . . . . . . . . . . . . . .  7
+P2L19	   4.  Discovery Process  . . . . . . . . . . . . . . . . . . . . . .  7
+P2L20	     4.1.  Checking if UDP is Blocked . . . . . . . . . . . . . . . .  7
+P2L21	     4.2.  Determining NAT Mapping Behavior . . . . . . . . . . . . .  8
+P2L22	     4.3.  Determining NAT Filtering Behavior . . . . . . . . . . . .  8
+P2L23	     4.4.  Combining and Ordering Tests . . . . . . . . . . . . . . .  9
+P2L24	     4.5.  Binding Lifetime Discovery . . . . . . . . . . . . . . . .  9
+P2L25	   5.  Client Behavior  . . . . . . . . . . . . . . . . . . . . . . . 10
+P2L26	     5.1.  Discovery  . . . . . . . . . . . . . . . . . . . . . . . . 11
+P2L27	     5.2.  Security . . . . . . . . . . . . . . . . . . . . . . . . . 11
+P2L28	   6.  Server Behavior  . . . . . . . . . . . . . . . . . . . . . . . 12
+P2L29	     6.1.  Preparing the Response . . . . . . . . . . . . . . . . . . 12
+P2L30	   7.  New Attributes . . . . . . . . . . . . . . . . . . . . . . . . 14
+P2L31	     7.1.  Representing Transport Addresses . . . . . . . . . . . . . 15
+P2L32	     7.2.  CHANGE-REQUEST . . . . . . . . . . . . . . . . . . . . . . 15
+P2L33	     7.3.  SOURCE-ADDRESS . . . . . . . . . . . . . . . . . . . . . . 16
+P2L34	     7.4.  OTHER-ADDRESS  . . . . . . . . . . . . . . . . . . . . . . 16
+P2L35	     7.5.  XOR-REFLECTED-FROM . . . . . . . . . . . . . . . . . . . . 16
+P2L36	     7.6.  XOR-RESPONSE-ADDRESS . . . . . . . . . . . . . . . . . . . 16
+P2L37	     7.7.  PADDING  . . . . . . . . . . . . . . . . . . . . . . . . . 17
+P2L38	     7.8.  CACHE-TIMEOUT  . . . . . . . . . . . . . . . . . . . . . . 17
+P2L39	   8.  IAB Considerations . . . . . . . . . . . . . . . . . . . . . . 17
+P2L40	     8.1.  Problem Definition . . . . . . . . . . . . . . . . . . . . 18
+P2L41	     8.2.  Exit Strategy  . . . . . . . . . . . . . . . . . . . . . . 18
+P2L42	     8.3.  Brittleness Introduced by STUN NAT Behavior Discovery  . . 18
+P2L43	     8.4.  Requirements for a Long Term Solution  . . . . . . . . . . 19
+P2L44	     8.5.  Issues with Existing NAPT Boxes  . . . . . . . . . . . . . 19
+P2L45	   9.  IANA Considerations  . . . . . . . . . . . . . . . . . . . . . 20
+P2L46	   10. Security Considerations  . . . . . . . . . . . . . . . . . . . 20
+P2L47	   11. Open Issues  . . . . . . . . . . . . . . . . . . . . . . . . . 21
+P2L48	   12. Acknowledgements . . . . . . . . . . . . . . . . . . . . . . . 21
+P3L1	   13. References . . . . . . . . . . . . . . . . . . . . . . . . . . 21
+P3L2	     13.1. Normative References . . . . . . . . . . . . . . . . . . . 21
+P3L3	     13.2. Informative References . . . . . . . . . . . . . . . . . . 22
+P3L4	   Appendix A.  Change Log  . . . . . . . . . . . . . . . . . . . . . 22
+P3L5	     A.1.  from draft-macdonald-behave-nat-behavior-diagnostics-00  . 22
+P3L6	     A.2.  from draft-ietf-behave-nat-behavior-discovery-00 . . . . . 23
+P3L7	   Authors' Addresses . . . . . . . . . . . . . . . . . . . . . . . . 23
+P3L8	   Intellectual Property and Copyright Statements . . . . . . . . . . 24
+P3L9	
+P3L10	
+P3L11	
+P3L12	
+P3L13	
+P3L14	
+P3L15	
+P3L16	
+P3L17	
+P3L18	
+P3L19	
+P3L20	
+P3L21	
+P3L22	
+P3L23	
+P3L24	
+P3L25	
+P3L26	
+P3L27	
+P3L28	
+P3L29	
+P3L30	
+P3L31	
+P3L32	
+P3L33	
+P3L34	
+P3L35	
+P3L36	
+P3L37	
+P3L38	
+P3L39	
+P3L40	
+P3L41	
+P3L42	
+P3L43	
+P3L44	
+P3L45	
+P3L46	
+P3L47	
+P3L48	
+P4L1	1.  Applicability
+P4L2	
+P4L3	   This STUN usage does not allow an application behind a NAT to make an
+P4L4	   absolute determination of the NAT's characteristics.  NAT devices do
+P4L5	   not behave consistently enough to predict future behaviour with any
+P4L6	   guarantee.  This STUN usage provides information about observable
+P4L7	   transient behavior; it only truly determines a NAT's behavior with
+P4L8	   regard to the STUN server used at the instant the test is run.
+P4L9	   Applications requiring reliable reach must establish a communication
+P4L10	   channel through a NAT using another technique such as ICE
+P4L11	   [I-D.ietf-mmusic-ice] or OUTBOUND [I-D.ietf-sip-outbound].
+P4L12	
+P4L13	
+P4L14	2.  Introduction
+P4L15	
+P4L16	   The Simple Traversal Underneath Network Address Translators (NAT)
+P4L17	   (STUN) [I-D.ietf-behave-rfc3489bis] provides a mechanism to discover
+P4L18	   the reflexive transport address toward the STUN server, using the
+P4L19	   Binding Request.  This specification defines the NAT Behavior
+P4L20	   Discovery STUN usage, which allows a STUN client to probe the current
+P4L21	   behaviour of the NAT/FW devices between the client and the STUN
+P4L22	   server.  This usage defines new STUN attributes for the Binding
+P4L23	   Request and Binding Response.
+P4L24	
+P4L25	   Many NAT/FW devices do not behave consistently and will change their
+P4L26	   behaviour under load and over time.  Applications requiring high
+P4L27	   reliability must be prepared for the NAT's behaviour to become more
+P4L28	   restrictive.  Specifically, it has been found that under load NATs
+P4L29	   may transition to the most restrictive filtering and mapping
+P4L30	   behaviour and shorten the lifetime of new and existing bindings.  In
+P4L31	   short, applications can discover how bad things currently are, but
+P4L32	   not how bad things will get.
+P4L33	
+P4L34	   In principle, an application might base an adaptation decision based
+P4L35	   on the results of the Behavior Discovery usage.  For example, a P2P
+P4L36	   application could use some of these tests to deduce if it is a
+P4L37	   reasonable supernode candidate, meaning that its NAT(s) offer(s)
+P4L38	   Address Independent Filtering.  It might periodically re-run tests
+P4L39	   and would remove itself as a supernode if its NAT/FW chain lost this
+P4L40	   characteristic.  However, automatic adaptation based only on the
+P4L41	   results of the Behavior Discovery usage may fail to account for its
+P4L42	   inherent limitations in indicating only the current behavior of the
+P4L43	   NAT(s) with regard to a particular destination address at a
+P4L44	   particular instant in time.  More importantly, it assumes the
+P4L45	   application selects a STUN server that is appropriately located with
+P4L46	   regards to its future communication partners.  In general, an
+P4L47	   application is unable to make such determinations.  Consequently,
+P4L48	   usage of the NAT Behavior Discovery STUN usage by applications to
+P5L1	   select operating modes or optimizations is discouraged; only
+P5L2	   experience with establishing connections with real communication
+P5L3	   partners using a mechanism such as ICE or OUTBOUND can reliably
+P5L4	   indicate the behavior an application will experience from the NAT.
+P5L5	
+P5L6	   Despite these limitations, instantaneous observations are often quite
+P5L7	   useful in troubleshooting network problems, and repeated tests over
+P5L8	   time, or in known load situations, may be used to characterize a
+P5L9	   NAT's behavior.  In particular, in the hands of a person
+P5L10	   knowledgeable about the needs of an application and the nodes an
+P5L11	   application needs to communicate with, it can be a powerful tool.
+P5L12	
+P5L13	
+P5L14	3.  Overview of Operations
+P5L15	
+P5L16	   In a typical configuration, a STUN client is connected to a private
+P5L17	   network and through one or more NATs to the public Internet.  The
+P5L18	   client is configured with the address of a STUN server on the public
+P5L19	   Internet.  The Behavior Discovery usage makes use of SRV records so
+P5L20	   that a server may use a different transport address for this usage
+P5L21	   than for other usages.  This usage does not provide backward
+P5L22	   compatibility with RFC3489 [RFC3489] for either clients or servers.
+P5L23	   Implementors of clients that wish to be compliant with RFC3489
+P5L24	   servers should see that specification.  Implementors of servers
+P5L25	   SHOULD NOT include support for RFC3489 clients as the original uses
+P5L26	   of that protocol have been deprecated.
+P5L27	
+P5L28	   The STUN NAT Behavior Discovery usage defines new attributes on the
+P5L29	   STUN Binding Request and STUN Binding Response that allow these
+P5L30	   messages to be used to diagnose the current behavior of the NAT(s)
+P5L31	   between the client and server.
+P5L32	
+P5L33	   This section provides a descriptive overview of the typical use of
+P5L34	   these attributes.  Normative behavior is described in Sections 5, 6,
+P5L35	   and 7.
+P5L36	
+P5L37	3.1.  Determining NAT Mapping
+P5L38	
+P5L39	   A client behind a NAT wishes to determine if the NAT it is behind is
+P5L40	   currently using independent, address dependent, or port dependent
+P5L41	   mapping[RFC4787].  The client performs a series of tests that make
+P5L42	   use of the OTHER-ADDRESS attribute; these tests are described in
+P5L43	   detail in Section 4.  These tests send binding requests to the
+P5L44	   alternate address and port of the STUN server to determine mapping
+P5L45	   behaviour.  These tests can be used for UDP, TCP, or TCP/TLS
+P5L46	   connections.
+P5L47	
+P5L48	
+P6L1	      This usage renames RFC3489's CHANGED-ADDRESS attribute to OTHER-
+P6L2	      ADDRESS.  Experience with 3489 indicated that many found use of
+P6L3	      the word "changed" to be confusing.  In all respects, OTHER-
+P6L4	      ADDRESS is identical to CHANGED-ADDRESS, it is the same attribute
+P6L5	      (including its attribute type number) with a new name.
+P6L6	
+P6L7	3.2.  Determining NAT Filtering
+P6L8	
+P6L9	   A client behind a NAT wishes to determine if the NAT it is behind is
+P6L10	   currently using independent, address dependent, or port dependent
+P6L11	   filtering[RFC4787].  The client performs a series of tests that make
+P6L12	   use of the OTHER-ADDRESS and CHANGE-REQUEST attributes; these tests
+P6L13	   are described in Section 4.  These tests request responses from the
+P6L14	   alternate address and port of the STUN server; a precondition to
+P6L15	   these tests is that no binding be established to the alternate
+P6L16	   address and port.  Because the NAT does not know that the alternate
+P6L17	   address and port belong to the same server as the primary address and
+P6L18	   port, it treats these responses the same as it would those from any
+P6L19	   other host on the Internet.  Therefore, the success of the binding
+P6L20	   responses sent from the alternate address and port indicate whether
+P6L21	   the NAT is currently performing independent filtering, address
+P6L22	   dependent filtering, or address and port dependent filtering.  This
+P6L23	   test applies only to UDP datagrams.
+P6L24	
+P6L25	3.3.  Binding Lifetime Discovery
+P6L26	
+P6L27	   Many systems, such as VoIP, rely on being able to keep a connection
+P6L28	   open between a client and server or between peers of a P2P system.
+P6L29	   Because NAT bindings expire over time, keepalive messages must be
+P6L30	   sent across the connection to preserve it.  Because keepalives impose
+P6L31	   some overhead on the network and servers, reducing the frequency of
+P6L32	   keepalives can be useful.
+P6L33	
+P6L34	   Binding lifetime can be discovered by performing timed tests that use
+P6L35	   XOR-RESPONSE-ADDRESS.  The client uses a second port and the STUN
+P6L36	   server's alternate address to check if an existing binding that
+P6L37	   hasn't had traffic sent on it is still open after time T. This
+P6L38	   approach is described in detail in Section 4.5.  This test applies
+P6L39	   only to UDP datagrams.
+P6L40	
+P6L41	3.4.  Diagnosing NAT Hairpinning
+P6L42	
+P6L43	   STUN Binding Requests allow a client to determine whether it is
+P6L44	   behind a NAT that supports hairpinning of connections.  To perform
+P6L45	   this test, the client first sends a Binding Request to its STUN
+P6L46	   server to determine its mapped address.  The client then sends a STUN
+P6L47	   Binding Request to this mapped address from a different port.  If the
+P6L48	   client receives its own request, the NAT hairpins connections.  This
+P7L1	   test applies to UDP, TCP, or TCP/TLS connections.
+P7L2	
+P7L3	3.5.  Determining Fragment Handling
+P7L4	
+P7L5	   Some NATs exhibit different behavior when forwarding fragments than
+P7L6	   when forwarding a single-frame datagram.  In particular, some NATs do
+P7L7	   not hairpin fragments at all and some platforms discard fragments
+P7L8	   under load.  To diagnose this behavior, STUN messages may be sent
+P7L9	   with the PADDING attribute, which simply inserts additional space
+P7L10	   into the message.  By forcing the STUN message to be divided into
+P7L11	   multiple fragments, the NAT's behavior can be observed.
+P7L12	
+P7L13	   All of the previous tests can be performed with PADDING if a NAT's
+P7L14	   fragment behavior is important for an application, or only those
+P7L15	   tests which are most interesting to the application can be retested.
+P7L16	   PADDING only applies to UDP datagrams.  PADDING can not be used with
+P7L17	   XOR-RESPONSE-ADDRESS.
+P7L18	
+P7L19	3.6.  Detecting Generic ALGs
+P7L20	
+P7L21	   A number of NAT boxes are now being deployed into the market which
+P7L22	   try to provide "generic" ALG functionality.  These generic ALGs hunt
+P7L23	   for IP addresses, either in text or binary form within a packet, and
+P7L24	   rewrite them if they match a binding.  This behavior can be detected
+P7L25	   because the STUN server returns both the MAPPED-ADDRESS and XOR-
+P7L26	   MAPPED-ADDRESS in the same response.  If the result in the two does
+P7L27	   not match, there a NAT with a generic ALG in the path.
+P7L28	
+P7L29	
+P7L30	4.  Discovery Process
+P7L31	
+P7L32	   The NAT Behavior Discovery usage provides primitives that allow STUN
+P7L33	   checks to be made to determine the current behaviour of the NAT or
+P7L34	   NATs an application is behind.  These tests can only give the
+P7L35	   instantaneous behaviour of a NAT; it has been found that NATs can
+P7L36	   change behaviour under load and over time.  An application must
+P7L37	   assume that NAT behaviour can become more restrictive at any time.
+P7L38	   The tests described here are for UDP connectivity, NAT mapping
+P7L39	   behaviour, and NAT filtering behaviour; additional tests could be
+P7L40	   designed using this usage's mechanisms.  Definitions for NAT
+P7L41	   filtering and mapping behaviour are from [RFC4787].
+P7L42	
+P7L43	4.1.  Checking if UDP is Blocked
+P7L44	
+P7L45	   The client sends a STUN Binding Request to a server.  This causes the
+P7L46	   server to send the response back to the address and port that the
+P7L47	   request came from.  If this test yields no response, the client knows
+P7L48	   right away that it is not capable of UDP connectivity.  This test
+P8L1	   requires only RFC3489-bis [I-D.ietf-behave-rfc3489bis] functionality.
+P8L2	
+P8L3	4.2.  Determining NAT Mapping Behavior
+P8L4	
+P8L5	   This will require at most three tests.  In test I, the client
+P8L6	   performs the UDP connectivity test.  The server will return its
+P8L7	   alternate address and port in OTHER-ADDRESS in the binding response.
+P8L8	   If OTHER-ADDRESS is not returned, the server does not support this
+P8L9	   usage and this test cannot be run.  The client examines the XOR-
+P8L10	   MAPPED-ADDRESS attribute.  If this address and port are the same as
+P8L11	   the local IP address and port of the socket used to send the request,
+P8L12	   the client knows that it is not NATed and the effective mapping will
+P8L13	   be Endpoint Independent.
+P8L14	
+P8L15	   In test II, the client sends a Binding Request to the alternate
+P8L16	   address, but primary port.  If the XOR-MAPPED-ADDRESS in the Binding
+P8L17	   Response is the same as test I the NAT currently has Endpoint
+P8L18	   Independent Mapping.  If not, test III is performed: the client sends
+P8L19	   a Binding Request to the alternate address and port.  If the XOR-
+P8L20	   MAPPED-ADDRESS matches test II, the NAT currently has Address
+P8L21	   Dependent Mapping; if it doesn't match it currently has Address and
+P8L22	   Port Dependent Mapping.
+P8L23	
+P8L24	4.3.  Determining NAT Filtering Behavior
+P8L25	
+P8L26	   This will also require at most three tests.  These tests should be
+P8L27	   performed using a port that wasn't used for mapping or other tests as
+P8L28	   packets sent during those tests may affect results.  In test I, the
+P8L29	   client performs the UDP connectivity test.  The server will return
+P8L30	   its alternate address and port in OTHER-ADDRESS in the binding
+P8L31	   response.  If OTHER-ADDRESS is not returned, the server does not
+P8L32	   support this usage and this test cannot be run.
+P8L33	
+P8L34	   In test II, the client sends a binding request to the primary address
+P8L35	   of the server with the CHANGE-REQUEST attribute set to change-port
+P8L36	   and change-IP.  This will cause the server to send its response from
+P8L37	   its alternate IP address and alternate port.  If the client receives
+P8L38	   a response the current behaviour of the NAT is Address Independent
+P8L39	   Filtering.
+P8L40	
+P8L41	   If no response is received, test III must be performed to distinguish
+P8L42	   between Address Dependent Filtering and Address and Port Dependent
+P8L43	   Filtering.  In test III, the client sends a binding request to the
+P8L44	   original server address with CHANGE-REQUEST set to change-port.  If
+P8L45	   the client receives a response the current behaviour is Address
+P8L46	   Dependent Filtering; if no response is received the current behaviour
+P8L47	   is Address and Port Dependent Filtering.
+P8L48	
+P9L1	4.4.  Combining and Ordering Tests
+P9L2	
+P9L3	   Clients may wish to combine and parallelize these tests to reduce the
+P9L4	   number of packets sent and speed the discovery process.  For example,
+P9L5	   test I of the filtering and mapping tests also checks if UDP is
+P9L6	   blocked.  Furthermore, an application or user may not need as much
+P9L7	   detail as these sample tests provide.  For example, establishing
+P9L8	   connectivity between nodes becomes significantly more difficult if a
+P9L9	   NAT has any behavior other than endpoint independent mapping, which
+P9L10	   requires only test I and II of Section 4.2.  An application
+P9L11	   determining its NAT does not always provide independent mapping might
+P9L12	   notify the user if no relay is configured, whereas an application
+P9L13	   behind a NAT that provides endpoint independent mapping might not
+P9L14	   notify the user until a subsequent connection actually fails or might
+P9L15	   provide a less urgent notification that no relay is configured.  Such
+P9L16	   a test does not alleviate the need for ICE [I-D.ietf-mmusic-ice], but
+P9L17	   it does provide some information regarding whether ICE is likely to
+P9L18	   be successful establishing connections.
+P9L19	
+P9L20	   Care must be taken when parallelizing tests, as some NAT devices have
+P9L21	   an upper limit on how quickly bindings will be allocated.
+P9L22	
+P9L23	4.5.  Binding Lifetime Discovery
+P9L24	
+P9L25	   STUN can also be used to probe the lifetimes of the bindings created
+P9L26	   by the NAT.  For many NAT devices, an absolute refresh interval
+P9L27	   cannot be determined; bindings might be closed quicker under heavy
+P9L28	   load or might not behave as the tests suggest.  For this reason
+P9L29	   applications that require reliable bindings must send keep-alives as
+P9L30	   frequently as required by all NAT devices that will be encountered.
+P9L31	   Suggested refresh intervals are outside the scope of this document.
+P9L32	   ICE [I-D.ietf-mmusic-ice] and OUTBOUND [I-D.ietf-sip-outbound] have
+P9L33	   suggested refresh intervals.
+P9L34	
+P9L35	   To determine the binding lifetime, the client first sends a Binding
+P9L36	   Request to the server from a particular socket, X. This creates a
+P9L37	   binding in the NAT.  The response from the server contains a MAPPED-
+P9L38	   ADDRESS attribute, providing the public address and port on the NAT.
+P9L39	   Call this Pa and Pp, respectively.  The client then starts a timer
+P9L40	   with a value of T seconds.  When this timer fires, the client sends
+P9L41	   another Binding Request to the server, using the same destination
+P9L42	   address and port, but from a different socket, Y. This request
+P9L43	   contains an XOR-RESPONSE-ADDRESS address attribute, set to (Pa,Pp).
+P9L44	   This will create a new binding on the NAT, and cause the STUN server
+P9L45	   to send a Binding Response that would match the old binding, if it
+P9L46	   still exists.  If the client receives the Binding Response on socket
+P9L47	   X, it knows that the binding has not expired.  If the client receives
+P9L48	   the Binding Response on socket Y (which is possible if the old
+P10L1	   binding expired, and the NAT allocated the same public address and
+P10L2	   port to the new binding), or receives no response at all, it knows
+P10L3	   that the binding has expired.
+P10L4	
+P10L5	   Because some NATs only refresh bindings when outbound traffic is
+P10L6	   sent, the client must resend a binding request on the original port
+P10L7	   before beginning a second test with a different value of T. The
+P10L8	   client can find the value of the binding lifetime by doing a binary
+P10L9	   search through T, arriving eventually at the value where the response
+P10L10	   is not received for any timer greater than T, but is received for any
+P10L11	   timer less than T.
+P10L12	
+P10L13	   This discovery process takes quite a bit of time and is something
+P10L14	   that will typically be run in the background on a device once it
+P10L15	   boots.
+P10L16	
+P10L17	   It is possible that the client can get inconsistent results each time
+P10L18	   this process is run.  For example, if the NAT should reboot, or be
+P10L19	   reset for some reason, the process may discover a lifetime than is
+P10L20	   shorter than the actual one.  For this reason, implementations are
+P10L21	   encouraged to run the test numerous times and be prepared to get
+P10L22	   inconsistent results.
+P10L23	
+P10L24	   Like the other diagnostics, this test is inherently unstable.  In
+P10L25	   particular, an overloaded NAT might reduce binding lifetime to shed
+P10L26	   load.  A client might find this diagnostic useful at startup, for
+P10L27	   example setting the initial keepalive interval on its connection to
+P10L28	   the server to 10 seconds while beginning this check.  After
+P10L29	   determining the current lifetime, the keepalive interval used by the
+P10L30	   connection to the server can be set to this appropriate value.
+P10L31	   Subsequent checks of the binding lifetime can then be performed using
+P10L32	   the keepalives in the server connection.  The STUN Keepalive Usage
+P10L33	   [I-D.ietf-behave-rfc3489bis]provides a response that confirms the
+P10L34	   connection is open and allows the client to check that its mapped
+P10L35	   address has not changed.  As that provides both the keepalive action
+P10L36	   and diagnostic that it is working, it should be preferred over any
+P10L37	   attempt to characterize the connection by a secondary technique.
+P10L38	
+P10L39	
+P10L40	5.  Client Behavior
+P10L41	
+P10L42	   Unless otherwise specified here, all procedures for preparing,
+P10L43	   sending, and processing messages as described in the STUN Binding
+P10L44	   Usage [I-D.ietf-behave-rfc3489bis] are followed.
+P10L45	
+P10L46	   If a client intends to utilize an XOR-RESPONSE-ADDRESS attribute in
+P10L47	   future transactions, as described in Section 4.5, then it MUST
+P10L48	   include a CACHE-TIMEOUT attribute in the Request with the value set
+P11L1	   greater than the longest time duration it intends to test.  The
+P11L2	   server will also include this attribute in its Response, modified
+P11L3	   with its estimate of how long it will be able to cache this
+P11L4	   connection.  Because the returned value is only an estimate, the
+P11L5	   client must be prepared for the value to be wrong, and therefore to
+P11L6	   receive a 430 response to its subsequent Requests with XOR-RESPONSE-
+P11L7	   ADDRESS.
+P11L8	
+P11L9	   OPEN ISSUE: is 430 the best approach to this (which should force the
+P11L10	   client to get a new shared secret and retry the transaction) or
+P11L11	   should a new return-type be used.  Also, if shared secret is not
+P11L12	   required, it's not at all appropriate.
+P11L13	
+P11L14	   Support for XOR-RESPONSE-ADDRESS is optional; it has a state cost on
+P11L15	   the server and requires short-term credentials, which many
+P11L16	   implementations don't support.  Therefore, a client MUST be prepared
+P11L17	   for receiving a 420 (Unknown Attribute) error to requests that
+P11L18	   include XOR-RESPONSE-ADDRESS.  Support for OTHER-ADDRESS and CHANGE-
+P11L19	   REQUEST is optional, but MUST be supported by servers advertised via
+P11L20	   SRV, as described below.  This is to allow the use of PADDING and
+P11L21	   XOR-RESPONSE-ADDRESS in P2P situations where peers do not have
+P11L22	   multiple IP addresses.  Clients MUST be prepared to receive a 420 for
+P11L23	   requests that include CHANGE-REQUEST when OTHER-ADDRESS was not
+P11L24	   received in Binding Response messages from the server.
+P11L25	
+P11L26	5.1.  Discovery
+P11L27	
+P11L28	   Unless the user or application is aware of the transport address of a
+P11L29	   STUN server supporting the NAT Behavior Discovery usage through other
+P11L30	   means, a client is configured with the domain name of the provider of
+P11L31	   the STUN servers.  The domain is resolved to a transport address
+P11L32	   using SRV procedures [RFC2782].  The mechanism for configuring the
+P11L33	   client with the domain name of the STUN servers or of acquiring a
+P11L34	   specific transport address is out of scope for this document.
+P11L35	
+P11L36	   For the Behavior Discovery Usage the service name is "stun-behavior".
+P11L37	   The protocol can be "udp", "tcp" or "tls".  Other aspects of handling
+P11L38	   failures and default ports are followed as described in STUN
+P11L39	   [I-D.ietf-behave-rfc3489bis].
+P11L40	
+P11L41	5.2.  Security
+P11L42	
+P11L43	   If the client is interested in performing a Binding Lifetime
+P11L44	   Discovery test or other test requiring use of the XOR-RESPONSE-
+P11L45	   ADDRESS attribute, it MUST obtain a shared secret prior to beginning
+P11L46	   the test, and that shared secret must be used for all transactions
+P11L47	   during the test.  If the client receives a 430 (Stale Credentials)
+P11L48	   Response to a Request containing a XOR-RESPONSE-ADDRESS, then it must
+P12L1	   acquire a new short-term credential and begin the test again.
+P12L2	   Procedures for obtaining a shared secret are described in STUN
+P12L3	   [I-D.ietf-behave-rfc3489bis].
+P12L4	
+P12L5	   OPEN ISSUE: We would like to remove the MUST requirement for shared
+P12L6	   secret in favor of allowing servers to do rate limiting.
+P12L7	
+P12L8	
+P12L9	6.  Server Behavior
+P12L10	
+P12L11	   Unless otherwise specified here, all procedures for preparing,
+P12L12	   sending, and processing messages as described for the STUN Binding
+P12L13	   Usage of STUN [I-D.ietf-behave-rfc3489bis] are followed.
+P12L14	
+P12L15	   A server implementing the NAT Behavior Discovery usage SHOULD be
+P12L16	   configured with two separate IP addresses on the public Internet.  On
+P12L17	   startup, the server SHOULD allocate two UDP ports, such that it can
+P12L18	   send and receive datagrams using the same ports on each IP address
+P12L19	   (normally a wildcard binding accomplishes this).  If a server cannot
+P12L20	   allocate the same ports on two different IP address, then it MUST NOT
+P12L21	   include an OTHER-ADDRESS attribute in any Response and MUST respond
+P12L22	   with a 420 (Unknown Attribute) to any Request with a CHANGE-REQUEST
+P12L23	   attribute.  A server with only one IP address MUST NOT be advertised
+P12L24	   using the SRV service name "stun-behavior".
+P12L25	
+P12L26	6.1.  Preparing the Response
+P12L27	
+P12L28	   After performing all authentication and verification steps the server
+P12L29	   begins processing specific to this Usage if the Request contains any
+P12L30	   request attributes defined in this document: XOR-RESPONSE-ADDRESS,
+P12L31	   CHANGE-REQUEST, or PADDING.  If the Request does not contain any
+P12L32	   attributes from this document, OTHER-ADDRESS and SOURCE-ADDRESS are
+P12L33	   still included in the response as specified below.
+P12L34	
+P12L35	   The server MUST include both MAPPED-ADDRESS and XOR-MAPPED-ADDRESS in
+P12L36	   its Response.
+P12L37	
+P12L38	   If the Request contains CHANGE-REQUEST attribute and the server does
+P12L39	   not have an alternate address and port as described above, the server
+P12L40	   MUST generate an error response of type 420.
+P12L41	
+P12L42	   If the Request contains a CACHE-TIMEOUT attribute, then the server
+P12L43	   SHOULD include a CACHE-TIMEOUT attribute in its response indicating
+P12L44	   the duration (in seconds) it anticipates being able to cache this
+P12L45	   binding request in anticipation of a future Request using the XOR-
+P12L46	   RESPONSE-ADDRESS attribute.  The CACHE-TIMEOUT response value can be
+P12L47	   greater or less than the value in the request.  If the server is not
+P12L48	   prepared to provide such an estimate, it SHOULD NOT include the
+P13L1	   CACHE-TIMEOUT attribute in its Response.
+P13L2	
+P13L3	   If the Request contains a XOR-RESPONSE-ADDRESS attribute, but the
+P13L4	   message does not contain a MESSAGE-INTEGRITY attribute and a
+P13L5	   USERNAME, the server MUST generate an error response of type 401.  If
+P13L6	   XOR-RESPONSE-ADDRESS is included, then the server must verify that it
+P13L7	   has previously received a binding request from the same address as is
+P13L8	   specified in XOR-RESPONSE-ADDRESS.  If it has not, or if sufficient
+P13L9	   time has passed that it no longer has a record of having received
+P13L10	   such a request due to limited state, it MUST respond with an error
+P13L11	   response of type 430.
+P13L12	
+P13L13	   The source address and port of the Binding Response depend on the
+P13L14	   value of the CHANGE-REQUEST attribute and on the address and port the
+P13L15	   Binding Request was received on, and are summarized in Table 1.
+P13L16	
+P13L17	   Let Da represent the destination IP address of the Binding Request
+P13L18	   (which will be either A1 or A2), and Dp represent the destination
+P13L19	   port of the Binding Request (which will be either P1 or P2).  Let Ca
+P13L20	   represent the other address, so that if Da is A1, Ca is A2.  If Da is
+P13L21	   A2, Ca is A1.  Similarly, let Cp represent the other port, so that if
+P13L22	   Dp is P1, Cp is P2.  If Dp is P2, Cp is P1.  If the "change port"
+P13L23	   flag was set in CHANGE-REQUEST attribute of the Binding Request, and
+P13L24	   the "change IP" flag was not set, the source IP address of the
+P13L25	   Binding Response MUST be Da and the source port of the Binding
+P13L26	   Response MUST be Cp.  If the "change IP" flag was set in the Binding
+P13L27	   Request, and the "change port" flag was not set, the source IP
+P13L28	   address of the Binding Response MUST be Ca and the source port of the
+P13L29	   Binding Response MUST be Dp.  When both flags are set, the source IP
+P13L30	   address of the Binding Response MUST be Ca and the source port of the
+P13L31	   Binding Response MUST be Cp.  If neither flag is set, or if the
+P13L32	   CHANGE-REQUEST attribute is absent entirely, the source IP address of
+P13L33	   the Binding Response MUST be Da and the source port of the Binding
+P13L34	   Response MUST be Dp.
+P13L35	
+P13L36	   +--------------------+----------------+-------------+---------------+
+P13L37	   | Flags              | Source Address | Source Port | OTHER-ADDRESS |
+P13L38	   +--------------------+----------------+-------------+---------------+
+P13L39	   | none               | Da             | Dp          | Ca:Cp         |
+P13L40	   | Change IP          | Ca             | Dp          | Ca:Cp         |
+P13L41	   | Change port        | Da             | Cp          | Ca:Cp         |
+P13L42	   | Change IP and      | Ca             | Cp          | Ca:Cp         |
+P13L43	   | Change port        |                |             |               |
+P13L44	   +--------------------+----------------+-------------+---------------+
+P13L45	
+P13L46	        Table 1: Impact of Flags on Packet Source and OTHER-ADDRESS
+P13L47	
+P13L48	   The server MUST add a SOURCE-ADDRESS attribute to the Binding
+P14L1	   Response, containing the source address and port used to send the
+P14L2	   Binding Response.
+P14L3	
+P14L4	   OPEN ISSUE: 3489bis MUST allow SOURCE-ADDRESS and OTHER-ADDRESS in
+P14L5	   any Binding Response, to allow 3489bis clients to use 3489 servers,
+P14L6	   and to allow multiplexing of this usage on the same port of other
+P14L7	   stun usages without adding a discovery mechanism.  We decided that
+P14L8	   this made sense for OTHER-ADDRESS in San Diego, but we forgot about
+P14L9	   SOURCE-ADDRESS.  This would be accomplished by adding SOURCE-ADDRESS
+P14L10	   and OTHER-ADDRESS as known attributes to 3489bis...IANA registration
+P14L11	   of the attributes would also move there.
+P14L12	
+P14L13	   If the server supports an alternate address and port the server MUST
+P14L14	   add an OTHER-ADDRESS attribute to the Binding Response.  This
+P14L15	   contains the source IP address and port that would be used if the
+P14L16	   client had set the "change IP" and "change port" flags in the Binding
+P14L17	   Request.  As summarized in Table 1, these are Ca and Cp,
+P14L18	   respectively, regardless of the value of the CHANGE-REQUEST flags.
+P14L19	
+P14L20	   Next the server inspects the Request for a XOR-RESPONSE-ADDRESS
+P14L21	   attribute.  If the XOR-RESPONSE-ADDRESS attribute is included, then
+P14L22	   it includes an XOR-REFLECTED-FROM attribute with the source address
+P14L23	   the Request was received from.
+P14L24	
+P14L25	   If the Request contained a PADDING attribute, then the server SHOULD
+P14L26	   insert a PADDING attribute of the same length into its response, but
+P14L27	   no longer than 64K. If the Request also contains the XOR-RESPONSE-
+P14L28	   ADDRESS attribute the server MUST return an error response of type
+P14L29	   400.
+P14L30	
+P14L31	   Following that, the server completes the remainder of the processing
+P14L32	   from STUN [I-D.ietf-behave-rfc3489bis], including adding the SERVER,
+P14L33	   MESSAGE-INTEGRITY, and FINGERPRINT attributes as appropriate.  When
+P14L34	   it sends the Response, it is sent from the source address as
+P14L35	   determined above and to the destination address determined from the
+P14L36	   XOR-RESPONSE-ADDRESS, or to the source address of the Request if not
+P14L37	   specified.
+P14L38	
+P14L39	
+P14L40	7.  New Attributes
+P14L41	
+P14L42	   This document defines several STUN attributes that are required for
+P14L43	   NAT Behavior Discovery.  These attributes are all used only with
+P14L44	   Binding Requests and Binding Responses.  The majority of these
+P14L45	   attributes were originally defined in RFC3489 [RFC3489], but are
+P14L46	   redefined here as that document is obsoleted by RFC3489bis
+P14L47	   [I-D.ietf-behave-rfc3489bis].
+P14L48	
+P15L1	   0x0003: CHANGE-REQUEST
+P15L2	   0x0004: SOURCE-ADDRESS
+P15L3	   0x0005: OTHER-ADDRESS
+P15L4	   0x0023: XOR-REFLECTED-FROM
+P15L5	   0x0027: XOR-RESPONSE-ADDRESS
+P15L6	   0x8026: PADDING
+P15L7	   0x8027: CACHE-TIMEOUT
+P15L8	
+P15L9	7.1.  Representing Transport Addresses
+P15L10	
+P15L11	   Whenever an attribute contains a transport address, it has the same
+P15L12	   format as MAPPED-ADDRESS.  Similarly, the XOR- attributes have the
+P15L13	   same format as XOR-MAPPED-ADDRESS[I-D.ietf-behave-rfc3489bis].
+P15L14	
+P15L15	7.2.  CHANGE-REQUEST
+P15L16	
+P15L17	   The CHANGE-REQUEST attribute contains two flags to control the IP
+P15L18	   address and port the server uses to send the response.  These flags
+P15L19	   are called the "change IP" and "change port" flags.  The CHANGE-
+P15L20	   REQUEST attribute is allowed only in the Binding Request.  The
+P15L21	   "change IP" and "change port" flags are useful for determining the
+P15L22	   current filtering behavior of a NAT.  They instruct the server to
+P15L23	   send the Binding Responses from the alternate source IP address
+P15L24	   and/or alternate port.  The CHANGE-REQUEST attribute is optional in
+P15L25	   the Binding Request.
+P15L26	
+P15L27	   The attribute is 32 bits long, although only two bits (A and B) are
+P15L28	   used:
+P15L29	    0                   1                   2                   3
+P15L30	    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P15L31	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P15L32	   |0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 A B 0|
+P15L33	   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P15L34	
+P15L35	   The meanings of the flags are:
+P15L36	
+P15L37	   A: This is the "change IP" flag.  If true, it requests the server to
+P15L38	      send the Binding Response with a different IP address than the one
+P15L39	      the Binding Request was received on.
+P15L40	
+P15L41	   B: This is the "change port" flag.  If true, it requests the server
+P15L42	      to send the Binding Response with a different port than the one
+P15L43	      the Binding Request was received on.
+P15L44	
+P15L45	
+P15L46	
+P15L47	
+P15L48	
+P16L1	7.3.  SOURCE-ADDRESS
+P16L2	
+P16L3	   The SOURCE-ADDRESS attribute is inserted by the server and indicates
+P16L4	   the source IP address and port the response was sent from.  It is
+P16L5	   useful for detecting twice NAT configurations.  It is only present in
+P16L6	   Binding Responses.
+P16L7	
+P16L8	7.4.  OTHER-ADDRESS
+P16L9	
+P16L10	   The OTHER-ADDRESS attribute is used in Binding Responses.  It informs
+P16L11	   the client of the source IP address and port that would be used if
+P16L12	   the client requested the "change IP" and "change port" behavior.
+P16L13	   OTHER-ADDRESS MUST NOT be inserted into a Binding Response unless the
+P16L14	   server has a second IP address.
+P16L15	
+P16L16	   OTHER-ADDRESS uses the same attribute as CHANGED-ADDRESS from RFC3489
+P16L17	   because it is simply a new name with the same semantics as CHANGED-
+P16L18	   ADDRESS.  It has been renamed to more clearly indicate its function.
+P16L19	
+P16L20	7.5.  XOR-REFLECTED-FROM
+P16L21	
+P16L22	   The XOR-REFLECTED-FROM attribute is present only in Binding Responses
+P16L23	   when the Binding Request contained a XOR-RESPONSE-ADDRESS attribute.
+P16L24	   The attribute contains the transport address of the source where the
+P16L25	   request came from.  Its purpose is to provide traceability, so that a
+P16L26	   STUN server cannot be used as a reflector for anonymous denial-of-
+P16L27	   service attacks.
+P16L28	
+P16L29	   The XOR-REFLECTED-FROM attribute is used in place of RFC3489's
+P16L30	   REFLECTED-FROM attribute.  It provides the same information, but
+P16L31	   because the NAT's public address is obfuscated through the XOR
+P16L32	   function, It can pass through a NAT that would otherwise attempt to
+P16L33	   translate it to the private network address.
+P16L34	
+P16L35	7.6.  XOR-RESPONSE-ADDRESS
+P16L36	
+P16L37	   The XOR-RESPONSE-ADDRESS attribute contains an IP address and port.
+P16L38	   The XOR-RESPONSE-ADDRESS attribute can be present in the Binding
+P16L39	   Request and indicates where the Binding Response is to be sent.  When
+P16L40	   not present, the server sends the Binding Response to the source IP
+P16L41	   address and port of the Binding Request.  The server MUST NOT process
+P16L42	   a request containing a XOR-RESPONSE-ADDRESS that does not contain
+P16L43	   MESSAGE-INTEGRITY.  The XOR-RESPONSE-ADDRESS attribute is optional in
+P16L44	   the Binding Request.
+P16L45	
+P16L46	   XOR-RESPONSE-ADDRESS is used in place of RFC3489's RESPONSE-ADDRESS.
+P16L47	   It provides the same information, but because the NAT's public
+P16L48	   address is obfuscated through the XOR function, It can pass through a
+P17L1	   NAT that would otherwise attempt to translate it to the private
+P17L2	   network address.
+P17L3	
+P17L4	7.7.  PADDING
+P17L5	
+P17L6	   The PADDING attribute allows for the entire message to be padded to
+P17L7	   force the STUN message to be divided into IP fragments.  PADDING
+P17L8	   consists entirely of a freeform string, the value of which does not
+P17L9	   matter.  When PADDING is used, it SHOULD be 1500 bytes long, unless a
+P17L10	   more appropriate length is known based on the MTU of the path.
+P17L11	   PADDING can be used in either Binding Requests or Binding Responses.
+P17L12	   If PADDING is present in the Binding Request and the server supports
+P17L13	   it, PADDING MUST be present in the Binding Response.  The server
+P17L14	   SHOULD use the same length PADDING as was used in the Binding
+P17L15	   Request, but it MAY use another length if it knows what length is
+P17L16	   required to cause fragmentation along the return path.  If the server
+P17L17	   supports PADDING (i.e. doesn't return a 420 in response to a Request
+P17L18	   containing PADDING), then it MUST use either the requested length or
+P17L19	   a length it knows is sufficient to cause fragmentation.
+P17L20	
+P17L21	   PADDING MUST be no longer than 64K and SHOULD be an even multiple of
+P17L22	   four bytes.
+P17L23	
+P17L24	7.8.  CACHE-TIMEOUT
+P17L25	
+P17L26	   The CACHE-TIMEOUT is used in Binding Requests and Responses.  It
+P17L27	   indicates the time duration (in seconds) that the server will cache
+P17L28	   the source address and USERNAME of an original binding request that
+P17L29	   will later by followed by a request from a different source address
+P17L30	   with a XOR-RESPONSE-ADDRESS asking that a response be reflected to
+P17L31	   the source address of the original binding request.  A server SHOULD
+P17L32	   NOT send a response to a target address requested with XOR-RESPONSE-
+P17L33	   ADDRESS unless it has cached that the same USERNAME made a previous
+P17L34	   binding request from that target address.  The client inserts a value
+P17L35	   in CACHE-TIMEOUT into the Binding Request indicating the amount of
+P17L36	   time it would like the server to cache that information.  The server
+P17L37	   responds with a CACHE-TIMEOUT in its Binding Response providing a
+P17L38	   prediction of how long it will cache that information.  The response
+P17L39	   value can be greater than, equal to, or less than the requested
+P17L40	   value.  If the server is not able to provide such an estimate or the
+P17L41	   information in the response would be meaningless, the server should
+P17L42	   not include a CACHE-TIMEOUT attribute in its response.
+P17L43	
+P17L44	
+P17L45	8.  IAB Considerations
+P17L46	
+P17L47	   The IAB has studied the problem of ``Unilateral Self Address
+P17L48	   Fixing'', which is the general process by which a client attempts to
+P18L1	   determine its address in another realm on the other side of a NAT
+P18L2	   through a collaborative protocol reflection mechanism RFC 3424
+P18L3	   [RFC3424].  The STUN NAT Behavior Discovery usage is an example of a
+P18L4	   protocol that performs this type of function.  The IAB has mandated
+P18L5	   that any protocols developed for this purpose document a specific set
+P18L6	   of considerations.  This section meets those requirements.
+P18L7	
+P18L8	8.1.  Problem Definition
+P18L9	
+P18L10	   From RFC 3424 [RFC3424], any UNSAF proposal must provide:
+P18L11	
+P18L12	      Precise definition of a specific, limited-scope problem that is to
+P18L13	      be solved with the UNSAF proposal.  A short term fix should not be
+P18L14	      generalized to solve other problems; this is why "short term fixes
+P18L15	      usually aren't".
+P18L16	
+P18L17	   The specific problem being solved by the STUN NAT Behavior Discovery
+P18L18	   usage is for a client, which may be located behind a NAT of any type,
+P18L19	   to determine the characteristics of that NAT in order to either
+P18L20	   diagnose the cause of problems experienced by that or other
+P18L21	   applications or for an application to modify its behavior based on
+P18L22	   the current behavior of the NAT.
+P18L23	
+P18L24	8.2.  Exit Strategy
+P18L25	
+P18L26	   From [RFC3424], any UNSAF proposal must provide:
+P18L27	
+P18L28	      Description of an exit strategy/transition plan.  The better short
+P18L29	      term fixes are the ones that will naturally see less and less use
+P18L30	      as the appropriate technology is deployed.
+P18L31	
+P18L32	   The STUN NAT Behavior Discovery usage does not itself provide an exit
+P18L33	   strategy.  Instead, that is provided by other protocols.
+P18L34	   Specifically, the Interactive Connectivity Establishment (ICE)
+P18L35	   [I-D.ietf-mmusic-ice] mechanism allows two cooperating clients to
+P18L36	   interactively determine the best addresses to use when communicating,
+P18L37	   regardless of the type of NAT involved.  BEHAVE is currently
+P18L38	   considering proposals for protocols that allow clients to determine
+P18L39	   the location of and control the behavior of NATs through direct
+P18L40	   interaction with the NAT.  STUN NAT Behavior Discovery is no longer
+P18L41	   needed once NATs that can be communicated with directly are in use.
+P18L42	   Finally, as NATs phase out and as IPv6 is deployed, STUN NAT Behavior
+P18L43	   Discovery will no longer be of any interest.
+P18L44	
+P18L45	8.3.  Brittleness Introduced by STUN NAT Behavior Discovery
+P18L46	
+P18L47	   From [RFC3424], any UNSAF proposal must provide:
+P18L48	
+P19L1	      Discussion of specific issues that may render systems more
+P19L2	      "brittle".  For example, approaches that involve using data at
+P19L3	      multiple network layers create more dependencies, increase
+P19L4	      debugging challenges, and make it harder to transition.
+P19L5	
+P19L6	   The STUN NAT Behavior Discovery usage allows a client to determine
+P19L7	   the current behavior of a NAT.  This information can be quite useful
+P19L8	   to a developer or network administrator outside of an application,
+P19L9	   and as such can be used to diagnose the brittleness induced in
+P19L10	   another application.  When used within an application itself, STUN
+P19L11	   NAT Behavior Discovery allows the application to adjust its behavior
+P19L12	   according to the current behavior of the NAT.  While this can be
+P19L13	   helpful in improving the performance of an application, an improperly
+P19L14	   written application could use information from this usage and assume
+P19L15	   that the NAT will always behave in the same manner, and thus failing
+P19L16	   to work properly when the NAT changes its behavior.  Regardless of
+P19L17	   whether an application makes use of NAT Behavior Discovery or not, if
+P19L18	   it does not use techniques such as ICE [I-D.ietf-mmusic-ice] or
+P19L19	   OUTBOUND [I-D.ietf-sip-outbound] it exposes itself to the inherent
+P19L20	   instability of NAT.
+P19L21	
+P19L22	8.4.  Requirements for a Long Term Solution
+P19L23	
+P19L24	   From [RFC3424]}, any UNSAF proposal must provide:
+P19L25	
+P19L26	      Identify requirements for longer term, sound technical solutions
+P19L27	      -- contribute to the process of finding the right longer term
+P19L28	      solution.
+P19L29	
+P19L30	   Our experience with STUN NAT Behavior Discovery continues to validate
+P19L31	   our belief in the requirements outlined in Section 14.4 of STUN
+P19L32	   [I-D.ietf-behave-rfc3489bis].
+P19L33	
+P19L34	8.5.  Issues with Existing NAPT Boxes
+P19L35	
+P19L36	   >From [RFC3424], any UNSAF proposal must provide:
+P19L37	
+P19L38	      Discussion of the impact of the noted practical issues with
+P19L39	      existing, deployed NA[P]Ts and experience reports.
+P19L40	
+P19L41	   A number of NAT boxes are now being deployed into the market which
+P19L42	   try and provide "generic" ALG functionality.  These generic ALGs hunt
+P19L43	   for IP addresses, either in text or binary form within a packet, and
+P19L44	   rewrite them if they match a binding.  This usage avoids that problem
+P19L45	   by using the XOR-REFLECTED-FROM and XOR-RESPONSE-ADDRESS attributes
+P19L46	   instead of the older REFLECTED-FROM and RESPONSE-ADDRESS attributes.
+P19L47	
+P19L48	   This usage provides a set of generic attributes that can be assembled
+P20L1	   to test many types of NAT behavior.  While tests for the most
+P20L2	   commonly known NAT box behaviors are described, the BEHAVE mailing
+P20L3	   list regularly has descriptions of new behaviors, some of which may
+P20L4	   not be readily detected using the tests described herein.  However,
+P20L5	   the techniques described in this usage can be assembled in different
+P20L6	   combinations to test NAT behaviors not now known or envisioned.
+P20L7	
+P20L8	
+P20L9	9.  IANA Considerations
+P20L10	
+P20L11	   This specification defines several new STUN attributes.  This section
+P20L12	   directs IANA to add these new protocol elements to the IANA registry
+P20L13	   of STUN protocol elements.  The code for OTHER-ADDRESS renames this
+P20L14	   code from CHANGED-ADDRESS to OTHER-ADDRESS for clarity, the semantics
+P20L15	   remain the same.
+P20L16	
+P20L17	   OPEN ISSUE: does IANA consider these new attributes or are they in
+P20L18	   forever from original 3489?
+P20L19	
+P20L20	   0x0003: CHANGE-REQUEST
+P20L21	   0x0004: SOURCE-ADDRESS
+P20L22	   0x0005: OTHER-ADDRESS
+P20L23	   0x0023: XOR-REFLECTED-FROM
+P20L24	   0x0027: XOR-RESPONSE-ADDRESS
+P20L25	   0x0026: PADDING
+P20L26	   0x8026: CACHE-TIMEOUT
+P20L27	
+P20L28	
+P20L29	10.  Security Considerations
+P20L30	
+P20L31	   This usage inherits the security considerations of STUN
+P20L32	   [I-D.ietf-behave-rfc3489bis].  This usage adds several new
+P20L33	   attributes; security considerations for those are detailed here.
+P20L34	
+P20L35	   OTHER-ADDRESS does not permit any new attacks; it provides another
+P20L36	   place where an attacker can impersonate a STUN server but it is not
+P20L37	   an interesting attack.  An attacker positioned where it can
+P20L38	   compromise the Binding Request can completely hide the STUN server
+P20L39	   from the client.
+P20L40	
+P20L41	   XOR-RESPONSE-ADDRESS allows a STUN server to be used as a reflector
+P20L42	   for denial-of-service attacks.  The XOR-REFLECTED-FROM mitigates this
+P20L43	   by providing the identity (in terms of IP address) of the source
+P20L44	   where the request came from.  Its purpose is to provide traceability,
+P20L45	   so that a STUN server cannot be used as an anonymous reflector for
+P20L46	   denial-of-service attacks.  Authenticating the XOR-RESPONSE-ADDRESS
+P20L47	   using shared secrets alleviates this threat.  Server caching previous
+P20L48	   contacts before directing a response to a XOR-RESPONSE-ADDRESS
+P21L1	   further eliminates the threat, although it introduces the complexity
+P21L2	   of state into a STUN server.  CACHE-TIMEOUT is used to reduce the
+P21L3	   amount of additional state required.
+P21L4	
+P21L5	   The only attack possible with the PADDING attribute is to have a
+P21L6	   large padding length which could cause a server to allocate a large
+P21L7	   amount of memory.  As servers will ignore any padding length greater
+P21L8	   than 64k so the scope of this attack is limited.  In general, servers
+P21L9	   should not allocate more memory than the size of the received
+P21L10	   datagram.  This attack would only affect non-compliant
+P21L11	   implementations.
+P21L12	
+P21L13	
+P21L14	11.  Open Issues
+P21L15	
+P21L16	   In Section 5: Use 430 for CACHE-TIMEOUT errors or introduce a new
+P21L17	   error code?
+P21L18	
+P21L19	   In Section 6.1 need to confirm final solution for 3489bis clients to
+P21L20	   not error out on responses with SOURCE-ADDRESS and OTHER-ADDRESS.
+P21L21	
+P21L22	   Does IANA consider attributes that were in 3489 but not in 3489bis to
+P21L23	   have been removed from the registry and should be re-registered by
+P21L24	   this document, or are there forever in the registry from 3489?
+P21L25	
+P21L26	   We would like to remove the MUST requirement for shared secret when
+P21L27	   used with XOR-RESPONSE-ADDRESS in favor of allowing servers to do
+P21L28	   rate limiting.
+P21L29	
+P21L30	
+P21L31	12.  Acknowledgements
+P21L32	
+P21L33	   The authors would like to thank the authors of the original STUN
+P21L34	   specification [RFC3489] from which many of the ideas, attributes, and
+P21L35	   description in this document originated.
+P21L36	
+P21L37	
+P21L38	13.  References
+P21L39	
+P21L40	13.1.  Normative References
+P21L41	
+P21L42	   [I-D.ietf-behave-rfc3489bis]
+P21L43	              Rosenberg, J., Huitema, C., Mahy, R., Matthews, P., and D.
+P21L44	              Wing, "Session Traversal Utilities for (NAT) (STUN)",
+P21L45	              draft-ietf-behave-rfc3489bis-07 (work in progress),
+P21L46	              July 2007.
+P21L47	
+P21L48	   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+P22L1	              Requirement Levels", BCP 14, RFC 2119, March 1997.
+P22L2	
+P22L3	   [RFC2782]  Gulbrandsen, A., Vixie, P., and L. Esibov, "A DNS RR for
+P22L4	              specifying the location of services (DNS SRV)", RFC 2782,
+P22L5	              February 2000.
+P22L6	
+P22L7	   [RFC4787]  Audet, F. and C. Jennings, "Network Address Translation
+P22L8	              (NAT) Behavioral Requirements for Unicast UDP", BCP 127,
+P22L9	              RFC 4787, January 2007.
+P22L10	
+P22L11	13.2.  Informative References
+P22L12	
+P22L13	   [I-D.ietf-mmusic-ice]
+P22L14	              Rosenberg, J., "Interactive Connectivity Establishment
+P22L15	              (ICE): A Protocol for Network Address  Translator (NAT)
+P22L16	              Traversal for Offer/Answer Protocols",
+P22L17	              draft-ietf-mmusic-ice-16 (work in progress), June 2007.
+P22L18	
+P22L19	   [I-D.ietf-sip-outbound]
+P22L20	              Jennings, C. and R. Mahy, "Managing Client Initiated
+P22L21	              Connections in the Session Initiation Protocol  (SIP)",
+P22L22	              draft-ietf-sip-outbound-09 (work in progress), June 2007.
+P22L23	
+P22L24	   [RFC3424]  Daigle, L. and IAB, "IAB Considerations for UNilateral
+P22L25	              Self-Address Fixing (UNSAF) Across Network Address
+P22L26	              Translation", RFC 3424, November 2002.
+P22L27	
+P22L28	   [RFC3489]  Rosenberg, J., Weinberger, J., Huitema, C., and R. Mahy,
+P22L29	              "STUN - Simple Traversal of User Datagram Protocol (UDP)
+P22L30	              Through Network Address Translators (NATs)", RFC 3489,
+P22L31	              March 2003.
+P22L32	
+P22L33	
+P22L34	Appendix A.  Change Log
+P22L35	
+P22L36	   RFC-EDITOR: Please remove this entire Change Log section while
+P22L37	   formatting this document for publication.
+P22L38	
+P22L39	A.1.  from draft-macdonald-behave-nat-behavior-diagnostics-00
+P22L40	
+P22L41	   o  Only OTHER-ADDRESS, CHANGE-ADDRESS, and XOR-RESPONSE-ADDRESS
+P22L42	      support is optional; support for PADDING and SOURCE-ADDRESS is now
+P22L43	      mandatory
+P22L44	
+P22L45	   o  PADDING is now a mandatory attribute
+P22L46	
+P22L47	   o  OTHER-ADDRESS is returned in all binding responses if the server
+P22L48	      has a second IP address
+P23L1	A.2.  from draft-ietf-behave-nat-behavior-discovery-00
+P23L2	
+P23L3	   o  Clarified that only servers with two IP addresses should have an
+P23L4	      SRV entry
+P23L5	
+P23L6	   o  Removed support for backward compatibility with 3489 clients by
+P23L7	      removing non-XOR forms of attributes.  Language states that
+P23L8	      backward compatiblity with 3489 clients is SHOULD NOT.
+P23L9	      Compatibility with 3489 servers is left unspecified.
+P23L10	
+P23L11	   o  PADDING is mandatory and language has been changed to indicate
+P23L12	      that if a server supports PADDING it must either actually provide
+P23L13	      the padding or return an error (can't support it but refuse to do
+P23L14	      it)
+P23L15	
+P23L16	   o  Require both MAPPED-ADDRESS and XOR-MAPPED-ADDRESS to be returned
+P23L17	      to support detection of generic ALGs
+P23L18	
+P23L19	
+P23L20	Authors' Addresses
+P23L21	
+P23L22	   Derek C. MacDonald
+P23L23	   CounterPath Solutions, Inc.
+P23L24	   Suite 300, One Bentall Centre, 505 Burrard St
+P23L25	   Vancouver, BC  V7X1M3
+P23L26	   Canada
+P23L27	
+P23L28	   Phone: +1-604-320-3344
+P23L29	   Email: derek@counterpath.com
+P23L30	
+P23L31	
+P23L32	   Bruce B. Lowekamp
+P23L33	   SIPeerior Technologies and William & Mary
+P23L34	   3000 Easter Circle
+P23L35	   Williamsburg, Virginia  23188
+P23L36	   USA
+P23L37	
+P23L38	   Phone: +1-757-565-0101
+P23L39	   Email: lowekamp@sipeerior.com
+P23L40	
+P23L41	
+P23L42	
+P23L43	
+P23L44	
+P23L45	
+P23L46	
+P23L47	
+P23L48	
+P24L1	Full Copyright Statement
+P24L2	
+P24L3	   Copyright (C) The IETF Trust (2007).
+P24L4	
+P24L5	   This document is subject to the rights, licenses and restrictions
+P24L6	   contained in BCP 78, and except as set forth therein, the authors
+P24L7	   retain all their rights.
+P24L8	
+P24L9	   This document and the information contained herein are provided on an
+P24L10	   "AS IS" basis and THE CONTRIBUTOR, THE ORGANIZATION HE/SHE REPRESENTS
+P24L11	   OR IS SPONSORED BY (IF ANY), THE INTERNET SOCIETY, THE IETF TRUST AND
+P24L12	   THE INTERNET ENGINEERING TASK FORCE DISCLAIM ALL WARRANTIES, EXPRESS
+P24L13	   OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF
+P24L14	   THE INFORMATION HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED
+P24L15	   WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P24L16	
+P24L17	
+P24L18	Intellectual Property
+P24L19	
+P24L20	   The IETF takes no position regarding the validity or scope of any
+P24L21	   Intellectual Property Rights or other rights that might be claimed to
+P24L22	   pertain to the implementation or use of the technology described in
+P24L23	   this document or the extent to which any license under such rights
+P24L24	   might or might not be available; nor does it represent that it has
+P24L25	   made any independent effort to identify any such rights.  Information
+P24L26	   on the procedures with respect to rights in RFC documents can be
+P24L27	   found in BCP 78 and BCP 79.
+P24L28	
+P24L29	   Copies of IPR disclosures made to the IETF Secretariat and any
+P24L30	   assurances of licenses to be made available, or the result of an
+P24L31	   attempt made to obtain a general license or permission for the use of
+P24L32	   such proprietary rights by implementers or users of this
+P24L33	   specification can be obtained from the IETF on-line IPR repository at
+P24L34	   http://www.ietf.org/ipr.
+P24L35	
+P24L36	   The IETF invites any interested party to bring to its attention any
+P24L37	   copyrights, patents or patent applications, or other proprietary
+P24L38	   rights that may cover technology that may be required to implement
+P24L39	   this standard.  Please address the information to the IETF at
+P24L40	   ietf-ipr@ietf.org.
+P24L41	
+P24L42	
+P24L43	Acknowledgment
+P24L44	
+P24L45	   Funding for the RFC Editor function is provided by the IETF
+P24L46	   Administrative Support Activity (IASA).
+P24L47	
+P24L48	

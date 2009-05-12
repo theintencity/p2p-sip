@@ -1,0 +1,291 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2008, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC3263 (Locating SIP servers)</b></DIV><PRE>
+
+<span class="p_triple">'''
+Uses DNS to resolve a domain name into SIP servers using NAPTR, SRV and A/AAAA records.
+TODO: (1) need to make it multitask compatible or have a separate thread, (3) need to return priority and weight.
+
+&gt;&gt;&gt; print resolve('sip:192.1.2.3')                    # with numeric IP
+[('192.1.2.3', 5060, 'udp'), ('192.1.2.3', 5060, 'tcp'), ('192.1.2.3', 5060, 'sctp')]
+&gt;&gt;&gt; print resolve('sip:192.1.2.3;maddr=192.3.3.3')    #    and maddr param
+[('192.3.3.3', 5060, 'udp'), ('192.3.3.3', 5060, 'tcp'), ('192.3.3.3', 5060, 'sctp')]
+&gt;&gt;&gt; print resolve('sip:192.1.2.3:5062;transport=tcp') #    and port, transport param
+[('192.1.2.3', 5062, 'tcp')]
+&gt;&gt;&gt; print resolve('sips:192.1.2.3')                   #    and sips
+[('192.1.2.3', 5061, 'tls')]
+&gt;&gt;&gt; print resolve('sips:192.1.2.3:5062')              #    and sips, port
+[('192.1.2.3', 5062, 'tls')]
+&gt;&gt;&gt; print resolve('sip:39peers.net')                  # with non-numeric without NAPTR/SRV
+[('74.220.215.84', 5060, 'udp'), ('74.220.215.84', 5060, 'tcp'), ('74.220.215.84', 5060, 'sctp')]
+&gt;&gt;&gt; print resolve('sip:39peers.net:5062')             #    and port  
+[('74.220.215.84', 5062, 'udp'), ('74.220.215.84', 5062, 'tcp'), ('74.220.215.84', 5062, 'sctp')]
+&gt;&gt;&gt; print resolve('sip:39peers.net;transport=tcp')    #    and transport  
+[('74.220.215.84', 5060, 'tcp')]
+&gt;&gt;&gt; print resolve('sips:39peers.net')                 #    and sips  
+[('74.220.215.84', 5061, 'tls')]
+&gt;&gt;&gt; print resolve('sip:iptel.org')                    # with no NAPTR but has SRV records
+[('213.192.59.75', 5060, '_sip._udp'), ('213.192.59.75', 5060, '_sip._tcp')]
+&gt;&gt;&gt; print resolve('sips:iptel.org')                   #    and sips
+[('213.192.59.75', 5061, 'tls')]
+&gt;&gt;&gt; print sorted(resolve('sip:columbia.edu'))         # with one NAPTR and two SRV records
+[('128.59.59.199', 5060, 'udp'), ('128.59.59.79', 5060, 'udp')]
+&gt;&gt;&gt; print sorted(resolve('sips:columbia.edu'))        #    and sips (no NAPTR for sips)
+[('128.59.48.24', 5061, 'tls')]
+&gt;&gt;&gt; print sorted(resolve('sip:yale.edu'))             # with NAPTR and SRV, but no A. uses A for domain.
+[('130.132.51.8', 5060, 'tcp'), ('130.132.51.8', 5060, 'udp')]
+&gt;&gt;&gt; print sorted(resolve('sip:adobe.com'))            # with multiple NAPTR and multiple SRV
+[('192.150.12.115', 5060, 'tcp'), ('192.150.12.115', 5060, 'udp'), ('192.150.12.115', 5061, 'tls')]
+'''</span>
+
+<span class="p_word">import</span> sys, os, time, random
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>: <span class="p_commentline"># hack to add other libraries in the sys.path</span>
+    f = os.path.dirname(sys.path.pop(<span class="p_number">0</span>))
+    sys.path.append(os.path.join(f, <span class="p_string">'external'</span>))
+<span class="p_word">if</span> os.name == <span class="p_string">'nt'</span>: <span class="p_commentline"># on windows import w32util and use RegistryResolve</span>
+    <span class="p_word">import</span> w32util
+    _nameservers = w32util.RegistryResolve()
+<span class="p_word">else</span>: _nameservers = <span class="p_word">None</span>
+
+<span class="p_word">import</span> dns
+<span class="p_word">from</span> std.rfc2396 <span class="p_word">import</span> URI, isIPv4
+
+_debug = False; <span class="p_commentline"># enable debug trace or not</span>
+_resolver, _cache, _secproto, _unsecproto = <span class="p_word">None</span>, {}, (<span class="p_string">'tls'</span>, ), (<span class="p_string">'udp'</span>, <span class="p_string">'tcp'</span>, <span class="p_string">'sctp'</span>) <span class="p_commentline"># Name servers and supported transports, resolver and DNS cache (plus negative cache)</span>
+_supported = _secproto + _unsecproto <span class="p_commentline"># list of supported protocols </span>
+_proto = {<span class="p_string">'udp'</span>: (<span class="p_string">'sip+d2u'</span>, <span class="p_number">5060</span>), <span class="p_string">'tcp'</span>: (<span class="p_string">'sip+d2t'</span>, <span class="p_number">5060</span>), <span class="p_string">'tls'</span>: (<span class="p_string">'sips+d2t'</span>, <span class="p_number">5061</span>), <span class="p_string">'sctp'</span>: (<span class="p_string">'sip+d2s'</span>, <span class="p_number">5060</span>)} <span class="p_commentline"># map from transport to details</span>
+_rproto = dict([(x[<span class="p_number">1</span>][<span class="p_number">0</span>], x[<span class="p_number">0</span>]) <span class="p_word">for</span> x <span class="p_word">in</span> _proto.iteritems()]) <span class="p_commentline"># reverse mapping {'sip+d2u': 'udp', ...} </span>
+_xproto = dict([(x[<span class="p_number">0</span>], <span class="p_string">'_%s._%s'</span>%(x[<span class="p_number">1</span>][<span class="p_number">0</span>].split(<span class="p_string">'+'</span>)[<span class="p_number">0</span>], x[<span class="p_number">0</span>] <span class="p_word">if</span> x[<span class="p_number">0</span>] != <span class="p_string">'tls'</span> <span class="p_word">else</span> <span class="p_string">'tcp'</span>)) <span class="p_word">for</span> x <span class="p_word">in</span> _proto.iteritems()]) <span class="p_commentline"># mapping {'udp' : '_sip._udp', ...}</span>
+_rxproto = dict([(x[<span class="p_number">1</span>], x[<span class="p_number">0</span>]) <span class="p_word">for</span> x <span class="p_word">in</span> _xproto.iteritems()]) <span class="p_commentline"># mapping { '_sips._tcp': 'tls', ...} </span>
+_zxproto = dict([(x[<span class="p_number">0</span>], _proto[x[<span class="p_number">1</span>]]) <span class="p_word">for</span> x <span class="p_word">in</span> _rxproto.iteritems()]) <span class="p_commentline"># mapping { '_sips._tcp': ('sip+d2t, 5061), ...}</span>
+_group = <span class="p_word">lambda</span> x: sorted(x, <span class="p_word">lambda</span> a,b: a[<span class="p_number">1</span>]-b[<span class="p_number">1</span>]) <span class="p_commentline"># sort a list of tuples based on priority</span>
+
+<span class="p_word">def</span> _query(key, negTimeout=<span class="p_number">60</span>): <span class="p_commentline"># key is (target, type)</span>
+    <span class="p_triple">'''Perform a single DNS query, and return the ANSWER section. Uses internal cache to avoid repeating the queries. 
+    The timeout of the cache entry is determined by TTL obtained in the results. It always returns a list, even if empty.'''</span>
+    <span class="p_word">global</span> _resolver; resolver = _resolver <span class="p_word">or</span> dns.Resolver(_nameservers)
+    <span class="p_word">if</span> key <span class="p_word">in</span> _cache <span class="p_word">and</span> _cache[key][<span class="p_number">1</span>] &lt; time.time(): <span class="p_word">return</span> random.shuffle(_cache[key][<span class="p_number">0</span>]) <span class="p_word">and</span> _cache[key][<span class="p_number">0</span>]
+    <span class="p_word">try</span>:
+        raw = resolver.Raw(key[<span class="p_number">0</span>], key[<span class="p_number">1</span>], dns.C_IN, True)
+        answer = raw <span class="p_word">and</span> raw[<span class="p_string">'HEADER'</span>][<span class="p_string">'ANCOUNT'</span>] &gt; <span class="p_number">0</span> <span class="p_word">and</span> raw[<span class="p_string">'ANSWER'</span>] <span class="p_word">or</span> []; random.shuffle(answer)
+    <span class="p_word">except</span> Exception, e:
+        <span class="p_word">if</span> _debug: <span class="p_word">print</span> <span class="p_string">'_query('</span>, key, <span class="p_string">') exception='</span>, e 
+        answer = []
+    _cache[key] = (answer, time.time() + min([(x[<span class="p_string">'TTL'</span>] <span class="p_word">if</span> <span class="p_string">'TTL'</span> <span class="p_word">in</span> x <span class="p_word">else</span> negTimeout) <span class="p_word">for</span> x <span class="p_word">in</span> answer] + [negTimeout]))
+    <span class="p_word">return</span> answer
+ 
+
+</PRE><DIV class="commentbox">From RFC3263 p.1<pre>   The Session Initiation Protocol (SIP) uses DNS procedures to allow a
+   client to resolve a SIP Uniform Resource Identifier (URI) into the IP
+   address, port, and transport protocol of the next hop to contact.  It
+   also uses DNS to allow a server to send a response to a backup client
+   if the primary client has failed.  This document describes those DNS
+   procedures in detail.</pre></DIV><PRE>
+<span class="p_word">def</span> resolve(uri):
+    <span class="p_triple">'''Resolve a URI using <a href="http://www.rfc-editor.org/rfc/rfc3263.txt">RFC3263</a> to list of (IP address, port) tuples each with its order, preference, transport and 
+    TTL information. The application can supply a list of supported protocols if needed.'''</span>
+    <span class="p_word">if</span> <span class="p_word">not</span> isinstance(uri, URI): uri = URI(uri)
+    transport, target = uri.param[<span class="p_string">'transport'</span>] <span class="p_word">if</span> <span class="p_string">'transport'</span> <span class="p_word">in</span> uri.param <span class="p_word">else</span> <span class="p_word">None</span>, uri.param[<span class="p_string">'maddr'</span>] <span class="p_word">if</span> <span class="p_string">'maddr'</span> <span class="p_word">in</span> uri.param <span class="p_word">else</span> uri.host
+    numeric, port, result, naptr, srv, result = isIPv4(target), uri.port, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>, <span class="p_word">None</span>
+
+</PRE><DIV class="commentbox">From rfc3263 p.6<pre>4.1 Selecting a Transport Protocol
+
+   First, the client selects a transport protocol.
+
+   If the URI specifies a transport protocol in the transport parameter,
+   that transport protocol SHOULD be used.
+
+   Otherwise, if no transport protocol is specified, but the TARGET is a
+   numeric IP address, the client SHOULD use UDP for a SIP URI, and TCP
+   for a SIPS URI.  Similarly, if no transport protocol is specified,
+   and the TARGET is not numeric, but an explicit port is provided, the
+   client SHOULD use UDP for a SIP URI, and TCP for a SIPS URI.  This is
+   because UDP is the only mandatory transport in RFC 2543 [6], and thus
+   the only one guaranteed to be interoperable for a SIP URI.  It was
+   also specified as the default transport in RFC 2543 when no transport
+   was present in the SIP URI.  However, another transport, such as TCP,
+   MAY be used if the guidelines of SIP mandate it for this particular
+   request.  That is the case, for example, for requests that exceed the
+   path MTU.
+
+   Otherwise, if no transport protocol or port is specified, and the
+   target is not a numeric IP address, the client SHOULD perform a NAPTR
+   query for the domain in the URI.  The services relevant for the task
+   of transport protocol selection are those with NAPTR service fields
+   with values "SIP+D2X" and "SIPS+D2X", where X is a letter that
+   corresponds to a transport protocol supported by the domain.  This
+   specification defines D2U for UDP, D2T for TCP, and D2S for SCTP.  We
+   also establish an IANA registry for NAPTR service name to transport
+   protocol mappings.
+
+   These NAPTR records provide a mapping from a domain to the SRV record
+   for contacting a server with the specific transport protocol in the
+   NAPTR services field.  The resource record will contain an empty
+   regular expression and a replacement value, which is the SRV record
+   for that particular transport protocol.  If the server supports
+   multiple transport protocols, there will be multiple NAPTR records,
+   each with a different service value.  As per RFC 2915 [3], the client
+   discards any records whose services fields are not applicable.  For
+   the purposes of this specification, several rules are defined.
+   First, a client resolving a SIPS URI MUST discard any services that
+   do not contain "SIPS" as the protocol in the service field.  The
+   converse is not true, however.  A client resolving a SIP URI SHOULD
+   retain records with "SIPS" as the protocol, if the client supports
+   TLS.  Second, a client MUST discard any service fields that identify
+   a resolution service whose value is not "D2X", for values of X that
+   indicate transport protocols supported by the client.  The NAPTR
+   processing as described in RFC 2915 will result in the discovery of
+   the most preferred transport protocol of the server that is supported
+   by the client, as well as an SRV record for the server.  It will also
+   allow the client to discover if TLS is available and its preference
+   for its usage.
+
+   As an example, consider a client that wishes to resolve
+   sip:user@example.com.  The client performs a NAPTR query for that
+   domain, and the following NAPTR records are returned:
+
+   ;          order pref flags service      regexp  replacement
+      IN NAPTR 50   50  "s"  "SIPS+D2T"     ""  _sips._tcp.example.com.
+      IN NAPTR 90   50  "s"  "SIP+D2T"      ""  _sip._tcp.example.com
+      IN NAPTR 100  50  "s"  "SIP+D2U"      ""  _sip._udp.example.com.
+
+   This indicates that the server supports TLS over TCP, TCP, and UDP,
+   in that order of preference.  Since the client supports TCP and UDP,
+   TCP will be used, targeted to a host determined by an SRV lookup of
+   _sip._tcp.example.com.  That lookup would return:
+
+   ;;          Priority Weight Port   Target
+       IN SRV  0        1      5060   server1.example.com
+       IN SRV  0        2      5060   server2.example.com
+
+   If a SIP proxy, redirect server, or registrar is to be contacted
+   through the lookup of NAPTR records, there MUST be at least three
+   records - one with a "SIP+D2T" service field, one with a "SIP+D2U"
+   service field, and one with a "SIPS+D2T" service field.  The records
+   with SIPS as the protocol in the service field SHOULD be preferred
+   (i.e., have a lower value of the order field) above records with SIP
+   as the protocol in the service field.  A record with a "SIPS+D2U"
+   service field SHOULD NOT be placed into the DNS, since it is not
+   possible to use TLS over UDP.
+
+   It is not necessary for the domain suffixes in the NAPTR replacement
+   field to match the domain of the original query (i.e., example.com
+   above).  However, for backwards compatibility with RFC 2543, a domain
+   MUST maintain SRV records for the domain of the original query, even
+   if the NAPTR record is in a different domain.  As an example, even
+   though the SRV record for TCP is _sip._tcp.school.edu, there MUST
+   also be an SRV record at _sip._tcp.example.com.
+      RFC 2543 will look up the SRV records for the domain directly.  If
+      these do not exist because the NAPTR replacement points to a
+      different domain, the client will fail.
+
+   For NAPTR records with SIPS protocol fields, (if the server is using
+   a site certificate), the domain name in the query and the domain name
+   in the replacement field MUST both be valid based on the site
+   certificate handed out by the server in the TLS exchange.  Similarly,
+   the domain name in the SRV query and the domain name in the target in
+   the SRV record MUST both be valid based on the same site certificate.
+   Otherwise, an attacker could modify the DNS records to contain
+   replacement values in a different domain, and the client could not
+   validate that this was the desired behavior or the result of an
+   attack.
+
+   If no NAPTR records are found, the client constructs SRV queries for
+   those transport protocols it supports, and does a query for each.
+   Queries are done using the service identifier "_sip" for SIP URIs and
+   "_sips" for SIPS URIs.  A particular transport is supported if the
+   query is successful.  The client MAY use any transport protocol it
+   desires which is supported by the server.
+
+      This is a change from RFC 2543.  It specified that a client would
+      lookup SRV records for all transports it supported, and merge the
+      priority values across those records.  Then, it would choose the
+      most preferred record.
+
+   If no SRV records are found, the client SHOULD use TCP for a SIPS
+   URI, and UDP for a SIP URI.  However, another transport protocol,
+   such as TCP, MAY be used if the guidelines of SIP mandate it for this
+   particular request.  That is the case, for example, for requests that
+   exceed the path MTU.</pre></DIV><PRE>
+    <span class="p_word">if</span> transport: transports = [transport] <span class="p_commentline"># only the given transport is used</span>
+    <span class="p_word">elif</span> numeric <span class="p_word">or</span> port <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: transports = [x <span class="p_word">for</span> x <span class="p_word">in</span> (_secproto <span class="p_word">if</span> uri.secure <span class="p_word">else</span> _unsecproto)]
+    <span class="p_word">else</span>:
+        naptr = _query((target, dns.T_NAPTR))
+        <span class="p_word">if</span> naptr:
+            transports = map(<span class="p_word">lambda</span> y: _rproto[y[<span class="p_number">1</span>].lower()], sorted(map(<span class="p_word">lambda</span> x: (x[<span class="p_string">'RDATA'</span>][<span class="p_string">'ORDER'</span>], x[<span class="p_string">'RDATA'</span>][<span class="p_string">'SERVICE'</span>]), naptr), <span class="p_word">lambda</span> a,b: a[<span class="p_number">0</span>]-b[<span class="p_number">0</span>]))
+            <span class="p_word">if</span> uri.secure: 
+                transports = filter(<span class="p_word">lambda</span> x: x <span class="p_word">in</span> _secproto, transports)
+                <span class="p_word">if</span> <span class="p_word">not</span> transports: transports, naptr = _secproto, <span class="p_word">None</span> <span class="p_commentline"># assume tls if not found; clear the naptr response</span>
+        <span class="p_word">else</span>:
+            srv = filter(<span class="p_word">lambda</span> x: x[<span class="p_number">1</span>], [(p, _query((<span class="p_string">'%s.%s'</span>%(p, target), dns.T_SRV))) <span class="p_word">for</span> p <span class="p_word">in</span> [_xproto[x] <span class="p_word">for</span> x <span class="p_word">in</span> (_secproto <span class="p_word">if</span> uri.secure <span class="p_word">else</span> _unsecproto)]])
+            transports = [_rxproto[y[<span class="p_number">0</span>]] <span class="p_word">for</span> y <span class="p_word">in</span> srv] <span class="p_word">or</span> uri.secure <span class="p_word">and</span> list(_secproto) <span class="p_word">or</span> list(_unsecproto)
+
+</PRE><DIV class="commentbox">From rfc3263 p.8<pre>4.2 Determining Port and IP Address
+
+   Once the transport protocol has been determined, the next step is to
+   determine the IP address and port.
+
+   If TARGET is a numeric IP address, the client uses that address.  If
+   the URI also contains a port, it uses that port.  If no port is
+   specified, it uses the default port for the particular transport
+   protocol.
+
+   If the TARGET was not a numeric IP address, but a port is present in
+   the URI, the client performs an A or AAAA record lookup of the domain
+   name.  The result will be a list of IP addresses, each of which can
+   be contacted at the specific port from the URI and transport protocol
+
+   determined previously.  The client SHOULD try the first record.  If
+   an attempt should fail, based on the definition of failure in Section
+   4.3, the next SHOULD be tried, and if that should fail, the next
+   SHOULD be tried, and so on.
+
+      This is a change from RFC 2543.  Previously, if the port was
+      explicit, but with a value of 5060, SRV records were used.  Now, A
+      or AAAA records will be used.
+
+   If the TARGET was not a numeric IP address, and no port was present
+   in the URI, the client performs an SRV query on the record returned
+   from the NAPTR processing of Section 4.1, if such processing was
+   performed.  If it was not, because a transport was specified
+   explicitly, the client performs an SRV query for that specific
+   transport, using the service identifier "_sips" for SIPS URIs.  For a
+   SIP URI, if the client wishes to use TLS, it also uses the service
+   identifier "_sips" for that specific transport, otherwise, it uses
+   "_sip".  If the NAPTR processing was not done because no NAPTR
+   records were found, but an SRV query for a supported transport
+   protocol was successful, those SRV records are selected. Irregardless
+   of how the SRV records were determined, the procedures of RFC 2782,
+   as described in the section titled "Usage rules" are followed,
+   augmented by the additional procedures of Section 4.3 of this
+   document.
+
+   If no SRV records were found, the client performs an A or AAAA record
+   lookup of the domain name.  The result will be a list of IP
+   addresses, each of which can be contacted using the transport
+   protocol determined previously, at the default port for that
+   transport.  Processing then proceeds as described above for an
+   explicit port once the A or AAAA records have been looked up.</pre></DIV><PRE>
+    <span class="p_word">if</span> numeric: result = [(target, port <span class="p_word">or</span> _proto[x][<span class="p_number">1</span>], x) <span class="p_word">for</span> x <span class="p_word">in</span> transports]
+    <span class="p_word">elif</span> port <span class="p_word">is</span> <span class="p_word">None</span>:
+        service = <span class="p_word">None</span>
+        <span class="p_word">if</span> naptr: service = sorted(map(<span class="p_word">lambda</span> x: (x[<span class="p_string">'RDATA'</span>][<span class="p_string">'REPLACEMENT'</span>].lower(), x[<span class="p_string">'RDATA'</span>][<span class="p_string">'ORDER'</span>], x[<span class="p_string">'RDATA'</span>][<span class="p_string">'PREFERENCE'</span>], x[<span class="p_string">'RDATA'</span>][<span class="p_string">'SERVICE'</span>].lower()), naptr), <span class="p_word">lambda</span> a,b: a[<span class="p_number">1</span>]-b[<span class="p_number">1</span>])
+        <span class="p_word">elif</span> transport: service = [(<span class="p_string">'%s.%s'</span>%(_xproto[transport], target), <span class="p_number">0</span>, <span class="p_number">0</span>, _proto[transport][<span class="p_number">0</span>])]
+        <span class="p_word">if</span> <span class="p_word">not</span> srv: srv = filter(<span class="p_word">lambda</span> y: y[<span class="p_number">1</span>], [(_rproto[a[<span class="p_number">3</span>].lower()], _query((a[<span class="p_number">0</span>], dns.T_SRV))) <span class="p_word">for</span> a <span class="p_word">in</span> service]) <span class="p_word">if</span> service <span class="p_word">else</span> []
+        <span class="p_word">if</span> srv:
+            out = sum([[sorted([(y[<span class="p_string">'RDATA'</span>][<span class="p_string">'DOMAIN'</span>].lower(), y[<span class="p_string">'RDATA'</span>][<span class="p_string">'PRIORITY'</span>], y[<span class="p_string">'RDATA'</span>][<span class="p_string">'WEIGHT'</span>], y[<span class="p_string">'RDATA'</span>][<span class="p_string">'PORT'</span>], x[<span class="p_number">0</span>])],  <span class="p_word">lambda</span> a,b: a[<span class="p_number">1</span>]-b[<span class="p_number">1</span>]) <span class="p_word">for</span> y <span class="p_word">in</span> x[<span class="p_number">1</span>]] <span class="p_word">for</span> x <span class="p_word">in</span> srv], [])
+            result = sum([[(y[<span class="p_string">'RDATA'</span>], x[<span class="p_number">1</span>], x[<span class="p_number">2</span>]) <span class="p_word">for</span> y <span class="p_word">in</span> (_query((x[<span class="p_number">0</span>], dns.T_A)) <span class="p_word">or</span> [])] <span class="p_word">for</span> x <span class="p_word">in</span> [(x[<span class="p_number">0</span>], x[<span class="p_number">3</span>], x[<span class="p_number">4</span>]) <span class="p_word">for</span> x <span class="p_word">in</span> sum(out, [])]], [])
+    <span class="p_word">return</span> result <span class="p_word">or</span> [(x[<span class="p_number">0</span>], port <span class="p_word">or</span> _proto[x[<span class="p_number">1</span>]][<span class="p_number">1</span>], x[<span class="p_number">1</span>]) <span class="p_word">for</span> x <span class="p_word">in</span> sum([[(a, b) <span class="p_word">for</span> a <span class="p_word">in</span> [x[<span class="p_string">'RDATA'</span>] <span class="p_word">for</span> x <span class="p_word">in</span> _query((target, dns.T_A))] ] <span class="p_word">for</span> b <span class="p_word">in</span> transports], [])] <span class="p_commentline"># finally do A record on target, if nothing else worked</span>
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>: <span class="p_commentline"># Unit test of this module</span>
+    <span class="p_word">import</span> doctest; doctest.testmod()
+
+  </PRE></BODY>
+</HTML>

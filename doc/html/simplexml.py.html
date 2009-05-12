@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2008, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+<span class="p_triple">'''
+Simple XML handling. The existing xml.dom.minidom is too Java'ish, so simplexml is used to allow easier syntax
+when processing XML. The basic API ideas are inspired from ActionScript's XML and XMLList data types.
+XML is the main class which can be used as follows:
+
+An XML string can be parsed using the constructor.
+&gt;&gt;&gt; a1 = XML(u'&lt;people xmlns="private" type="contacts"&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;/people&gt;')
+&gt;&gt;&gt; print a1
+&lt;people xmlns="private" type="contacts"&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;/people&gt;
+
+The XML element has attributes such as xmlns, tag and children. The XML attributes can be accessed using the
+special attribute named '_' in the XML object. The XML attribute can also be read-accessed as a regular
+Python attribute on the XML element assuming there is no conflict and the attribute name is simple.
+&gt;&gt;&gt; print a1.xmlns, a1.tag
+private people
+&gt;&gt;&gt; print a1.type
+contacts
+&gt;&gt;&gt; print a1.type == a1._['type'] == a1._.type == 'contacts'
+True
+&gt;&gt;&gt; a1._.source='yahoo'; print a1
+&lt;people xmlns="private" source="yahoo" type="contacts"&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;/people&gt;
+&gt;&gt;&gt; del a1._['source']; print a1
+&lt;people xmlns="private" type="contacts"&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;/people&gt;
+
+The children can be accessed using various ways. The children attribute returns the XMLList of children
+which includes both elements and data objects.
+&gt;&gt;&gt; x1 = a1.children
+&gt;&gt;&gt; print len(x1)
+3
+
+An XMLList is derived from list, and each element contains individual XML element or data item.
+&gt;&gt;&gt; print x1
+start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end
+&gt;&gt;&gt; print list(x1)
+[u'start', &lt;contact&gt;Kundan Singh&lt;/contact&gt;, u'end']
+&gt;&gt;&gt; print ', '.join(map(unicode, x1))
+start, &lt;contact&gt;Kundan Singh&lt;/contact&gt;, end
+&gt;&gt;&gt; print XML('&lt;contact&gt;Kundan Singh&lt;/contact&gt;') in x1, u'start' in x1
+True False
+
+You can use the list semantics to access the children. The list methods such as append, extend, 
+insert, pop, reverse, and operators such as del, slicing and indexing. The only catch is that
+the slicing operation returns a regular list, instead of XMLList.
+&gt;&gt;&gt; x1.append(XML('&lt;contact/&gt;')); print x1
+start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;contact /&gt;
+&gt;&gt;&gt; x1.extend(['final']); print x1
+start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;contact /&gt;final
+&gt;&gt;&gt; x1.insert(1, 'begin'); print x1
+startbegin&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;contact /&gt;final
+&gt;&gt;&gt; y = x1.pop(); print y, x1
+final startbegin&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;contact /&gt;
+&gt;&gt;&gt; x1.reverse(); print x1
+&lt;contact /&gt;end&lt;contact&gt;Kundan Singh&lt;/contact&gt;beginstart
+&gt;&gt;&gt; del x1[3]; print x1
+&lt;contact /&gt;end&lt;contact&gt;Kundan Singh&lt;/contact&gt;start
+&gt;&gt;&gt; x1[1], x1[3] = x1[3], x1[1]; print x1
+&lt;contact /&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end
+&gt;&gt;&gt; print x1[0], isinstance(x1[0], XML), type(x1[1])
+&lt;contact /&gt; True &lt;type 'unicode'&gt;
+&gt;&gt;&gt; print x1[0:2], type(x1) == XMLList, type(x1[0:2])
+[&lt;contact /&gt;, u'start'] True &lt;type 'list'&gt;
+&gt;&gt;&gt; print x1[:]
+[&lt;contact /&gt;, u'start', &lt;contact&gt;Kundan Singh&lt;/contact&gt;, u'end']
+
+You can also use the mapping semantics to access the children. It allows various filtering and
+search method as well. There are some special index defined such as x1['*'] to return all the
+elements with no data items of this XMLList, and x1('name') to return all the children elements
+of the elements in XMLList with tag as 'name', and x1() to return all the children elements
+of the elements in XMLList. Additionally the cdata and elems attributes fetch only the concatenated
+CDATA string or list of elements, respectively.
+&gt;&gt;&gt; type(x1.contact) == XMLList
+True
+&gt;&gt;&gt; print x1.contact
+&lt;contact /&gt;&lt;contact&gt;Kundan Singh&lt;/contact&gt;
+&gt;&gt;&gt; print x1.contact == x1["contact"]
+True
+&gt;&gt;&gt; print x1.contact == x1[lambda x: x.tag == 'contact']
+True
+
+&gt;&gt;&gt; x = XML('&lt;first&gt;&lt;second&gt;&lt;third a="1"/&gt;&lt;third a="2"/&gt;&lt;third2/&gt;&lt;/second&gt;&lt;/first&gt;')
+&gt;&gt;&gt; x2 = x.children
+&gt;&gt;&gt; print x2("third")
+&lt;third a="1" /&gt;&lt;third a="2" /&gt;
+&gt;&gt;&gt; print x2(lambda x: x.tag == 'third') == x2('third')
+True
+&gt;&gt;&gt; print x2()
+&lt;third a="1" /&gt;&lt;third a="2" /&gt;&lt;third2 /&gt;
+&gt;&gt;&gt; print x2['*']
+&lt;second&gt;&lt;third a="1" /&gt;&lt;third a="2" /&gt;&lt;third2 /&gt;&lt;/second&gt;
+&gt;&gt;&gt; print x()('third')
+&lt;third a="1" /&gt;&lt;third a="2" /&gt;
+&gt;&gt;&gt; print x() == x.children["*"]
+True
+
+&gt;&gt;&gt; print 'contact' in x1, 'info' in x1
+True False
+&gt;&gt;&gt; x1['info'] = XML('&lt;info&gt;contact list&lt;/info&gt;'); print x1
+&lt;contact /&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;info&gt;contact list&lt;/info&gt;
+&gt;&gt;&gt; del x1['info']; print x1
+&lt;contact /&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end
+&gt;&gt;&gt; x1['info'] = 'contact list'; print x1 # has same effect as earlier explict XML assignment
+&lt;contact /&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end&lt;info&gt;contact list&lt;/info&gt;
+&gt;&gt;&gt; x1['info'] = None; print x1; # same effect as del x1['info']
+&lt;contact /&gt;start&lt;contact&gt;Kundan Singh&lt;/contact&gt;end
+&gt;&gt;&gt; x1['contact'] = XMLList([XML('&lt;contact&gt;Kundan Singh&lt;/contact&gt;'), XML('&lt;contact&gt;Mamta Singh&lt;/contact&gt;')]); print x1
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;contact&gt;Mamta Singh&lt;/contact&gt;startend
+&gt;&gt;&gt; x1['info'] = XMLList([XML('&lt;info&gt;contact list&lt;/info&gt;')]); print x1
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;contact&gt;Mamta Singh&lt;/contact&gt;startend&lt;info&gt;contact list&lt;/info&gt;
+
+&gt;&gt;&gt; print x1.keys()
+set([u'info', u'contact'])
+&gt;&gt;&gt; print map(unicode, x1.iterkeys())
+[u'info', u'contact']
+
+&gt;&gt;&gt; print x1.values()
+[&lt;contact&gt;Kundan Singh&lt;/contact&gt;, &lt;contact&gt;Mamta Singh&lt;/contact&gt;, u'start', u'end', &lt;info&gt;contact list&lt;/info&gt;]
+&gt;&gt;&gt; print map(unicode, x1.itervalues())
+[u'&lt;contact&gt;Kundan Singh&lt;/contact&gt;', u'&lt;contact&gt;Mamta Singh&lt;/contact&gt;', u'start', u'end', u'&lt;info&gt;contact list&lt;/info&gt;']
+
+&gt;&gt;&gt; print x1.items()
+[(u'contact', &lt;contact&gt;Kundan Singh&lt;/contact&gt;), (u'contact', &lt;contact&gt;Mamta Singh&lt;/contact&gt;), ('#text', u'start'), ('#text', u'end'), (u'info', &lt;info&gt;contact list&lt;/info&gt;)]
+&gt;&gt;&gt; print map(unicode, x1.iteritems())
+[u"(u'contact', &lt;contact&gt;Kundan Singh&lt;/contact&gt;)", u"(u'contact', &lt;contact&gt;Mamta Singh&lt;/contact&gt;)", u"('#text', u'start')", u"('#text', u'end')", u"(u'info', &lt;info&gt;contact list&lt;/info&gt;)"]
+
+&gt;&gt;&gt; x2 = x1.copy(); print type(x2) == XMLList, x2 == x1
+True True
+&gt;&gt;&gt; x2.clear(); print len(x2), len(x1)
+0 5
+
+&gt;&gt;&gt; print x1.cdata
+Kundan SinghMamta Singhstartendcontact list
+&gt;&gt;&gt; print x1.elems
+[&lt;contact&gt;Kundan Singh&lt;/contact&gt;, &lt;contact&gt;Mamta Singh&lt;/contact&gt;, &lt;info&gt;contact list&lt;/info&gt;]
+&gt;&gt;&gt; del x1[1:]; print x1
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;
+
+Additionally, the XMLList defines certain arithmetic style operations to manipulate the
+data or list.
+&gt;&gt;&gt; print x1 + XML('&lt;desc/&gt;')
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;desc /&gt;
+&gt;&gt;&gt; print x1 + x1
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;contact&gt;Kundan Singh&lt;/contact&gt;
+&gt;&gt;&gt; print x1 + 'something'
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;something
+
+&gt;&gt;&gt; x1 += XML('&lt;desc/&gt;'); print x1                        # append tag
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;desc /&gt;
+&gt;&gt;&gt; x1 |= XML('&lt;desc/&gt;'); x1 |= XML('&lt;desc type="1"/&gt;'); x1 |= XML('&lt;info/&gt;'); print x1 # overwrite or append tag
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;desc type="1" /&gt;&lt;info /&gt;
+&gt;&gt;&gt; x1 -= XML('&lt;info/&gt;'); print x1                        # remove if tag is present
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;desc type="1" /&gt;
+&gt;&gt;&gt; x1 ^= XML('&lt;desc/&gt;'); x1 ^= XML('&lt;info/&gt;'); print x1; # append if tag not already present, else don't overwrite
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;desc type="1" /&gt;&lt;info /&gt;
+&gt;&gt;&gt; x1 &amp;= XML('&lt;desc/&gt;'); x1 &amp;= XML('&lt;info2/&gt;'); print x1 # overwrite if tag already present, else don't append
+&lt;contact&gt;Kundan Singh&lt;/contact&gt;&lt;info /&gt;&lt;desc /&gt;
+
+The XML namespaces are handled using the xmlns property. The namespaces attribute of the top-level XML element
+contains the list of namespace URI and their prefixes. The xmlns attribute is just the namespace URI. The namespace
+declaration might get moved from parent to child or vice-versa during various XML operations.
+&gt;&gt;&gt; x2 = XML('&lt;a:node xmlns:a="private" xmlns:b="public"&gt;&lt;a:child/&gt;&lt;b:child/&gt;&lt;/a:node&gt;'); print x2
+&lt;node xmlns="private"&gt;&lt;child /&gt;&lt;child xmlns="public" /&gt;&lt;/node&gt;
+'''</span>
+
+<span class="p_word">from</span> xml.parsers <span class="p_word">import</span> expat
+
+escape =<span class="p_word">lambda</span> x: x.replace(<span class="p_string">'&amp;'</span>, <span class="p_string">'&amp;amp;'</span>).replace(<span class="p_string">'&lt;'</span>, <span class="p_string">'&amp;lt;'</span>).replace(<span class="p_string">'&gt;'</span>, <span class="p_string">'&amp;gt;'</span>).replace(<span class="p_string">'"'</span>, <span class="p_string">'&amp;quot;'</span>) <span class="p_commentline"># escape &amp; &lt; &gt; " with appropriate XML entities</span>
+
+<span class="p_word">def</span> ustr(value):
+    <span class="p_triple">'''Converts 'value' to utf-8 string using value's __str__ or unicode.
+    &gt;&gt;&gt; print type (ustr(u'kundan')) == unicode, ustr(u'kundan') == ustr('kundan')
+    True True
+    '''</span>
+    <span class="p_word">if</span> isinstance(value, unicode): <span class="p_word">return</span> value
+    <span class="p_word">try</span>: r = value.__str__()
+    <span class="p_word">except</span> AttributeError: r = str(value)
+    <span class="p_word">return</span> r <span class="p_word">if</span> isinstance(r, unicode) <span class="p_word">else</span> unicode(r, <span class="p_string">'utf-8'</span>)
+
+<span class="p_word">class</span> parser(object):
+    <span class="p_triple">'''A parser using expat to parse XML string into XML object. Use the xml attribute to extract the parsed XML.'''</span>
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, node=<span class="p_word">None</span>):
+        self._parser = expat.ParserCreate(namespace_separator=<span class="p_string">' '</span>)
+        <span class="p_word">for</span> n <span class="p_word">in</span> (<span class="p_string">'StartElementHandler'</span>, <span class="p_string">'EndElementHandler'</span>, <span class="p_string">'CharacterDataHandler'</span>, <span class="p_string">'StartNamespaceDeclHandler'</span>):
+            <span class="p_word">exec</span> <span class="p_string">'self._parser.%s = self._%s'</span>%(n, n) <span class="p_commentline"># TODO: should avoid calling exec</span>
+        self._current, self._depth, self._root = <span class="p_word">None</span>, <span class="p_number">0</span>, node
+        self.namespaces={<span class="p_string">'<a href="http://www.w3.org/XML/1998/namespace">http://www.w3.org/XML/1998/namespace</a>'</span>: <span class="p_string">'xml:'</span>}
+        self.xmlns=<span class="p_string">'<a href="http://www.w3.org/XML/1998/namespace">http://www.w3.org/XML/1998/namespace</a>'</span>
+        <span class="p_word">if</span> value: 
+            self._parser.Parse(value, <span class="p_number">1</span>)
+            <span class="p_word">if</span> self._depth != <span class="p_number">0</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'Invalid XML value '</span> + value
+            
+    <span class="p_word">def</span> update(self, value): self._parser.Parse(value, <span class="p_number">0</span>) <span class="p_commentline"># add more data to be parsed</span>
+
+    @property
+    <span class="p_word">def</span> xml(self): <span class="p_word">return</span> self._root <span class="p_commentline"># return the root XML node after parsing</span>
+
+    <span class="p_word">def</span> _StartElementHandler(self, tag, attrs):
+        xmlns, tag = tag.split(<span class="p_string">' '</span>) <span class="p_word">if</span> tag.find(<span class="p_string">' '</span>) &gt;= <span class="p_number">0</span> <span class="p_word">else</span> (<span class="p_string">''</span>, tag)
+        <span class="p_word">for</span> n, v <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: x[<span class="p_number">0</span>].rfind(<span class="p_string">' '</span>) &gt;= <span class="p_number">0</span>, attrs.items()):
+            uri,ignore,prefix = n.partition(<span class="p_string">' '</span>)
+            attrs[self.namespaces[uri]+prefix] = v; <span class="p_word">del</span> attrs[n]
+        <span class="p_word">if</span> self._depth == <span class="p_number">0</span> <span class="p_word">and</span> self._root <span class="p_word">is</span> <span class="p_word">None</span>: self._root = XML(tag=tag, xmlns=xmlns, attrs=attrs) <span class="p_commentline"># create new root element</span>
+        <span class="p_word">elif</span> self._depth == <span class="p_number">0</span>: XML.__init__(self._root, tag=tag, xmlns=xmlns, attrs=attrs) <span class="p_commentline"># re-invoke the constructor</span>
+        <span class="p_word">else</span>: self._current.children.append(XML(tag=tag, xmlns=xmlns, parent=self._current, attrs=attrs)) <span class="p_commentline"># append child element</span>
+        self._current = self._root <span class="p_word">if</span> self._depth == <span class="p_number">0</span> <span class="p_word">else</span> self._current.children[-<span class="p_number">1</span>] <span class="p_commentline"># current node is root or last child</span>
+        self._depth += <span class="p_number">1</span>
+
+    <span class="p_word">def</span> _EndElementHandler(self, tag):
+        self._depth -= <span class="p_number">1</span>
+        <span class="p_word">if</span> self._depth &gt; <span class="p_number">0</span>: self._current = self._current.parent
+
+    <span class="p_word">def</span> _CharacterDataHandler(self, data):
+        <span class="p_word">if</span> <span class="p_word">not</span> self._current: <span class="p_word">return</span>
+        <span class="p_word">if</span> self._current.children <span class="p_word">and</span> isinstance(self._current.children[-<span class="p_number">1</span>], XML): self._current.children.append(data)
+        <span class="p_word">elif</span> self._current.children: self._current.children[-<span class="p_number">1</span>] += data
+        <span class="p_word">else</span>: self._current.children.append(data)
+
+    <span class="p_word">def</span> _StartNamespaceDeclHandler(self, prefix, uri):
+        <span class="p_word">if</span> prefix: self.namespaces[uri] = prefix + <span class="p_string">':'</span>
+        <span class="p_word">else</span>: self.xmlns = uri
+        
+<span class="p_word">class</span> XMLList(list):
+    <span class="p_triple">'''List of XML or CDATA elements. Used for children in XML.'''</span>
+    <span class="p_word">def</span> __init__(self, values=[]): list.__init__(self, values)
+    <span class="p_word">def</span> __repr__(self): <span class="p_word">return</span> <span class="p_string">u''</span>.join([str(x) <span class="p_word">for</span> x <span class="p_word">in</span> self])
+    
+    <span class="p_commentline"># private functions</span>
+    <span class="p_word">def</span> _filter(self, func, recurse=False): <span class="p_commentline"># filter the elements in the sub-tree</span>
+        <span class="p_word">if</span> recurse:
+            result = XMLList()
+            <span class="p_word">for</span> x <span class="p_word">in</span> filter(<span class="p_word">lambda</span> y: isinstance(y, XML), self):
+                <span class="p_word">if</span> func(x): result.append(x)
+                res = x.children._filter(func, recurse)
+                <span class="p_word">if</span> res: result.extend(res)
+            <span class="p_word">return</span> result
+        <span class="p_word">else</span>: <span class="p_word">return</span> XMLList(filter(<span class="p_word">lambda</span> x: isinstance(x, XML) <span class="p_word">and</span> func(x), self))
+        
+    <span class="p_word">def</span> _delete(self, func, recurse=False): <span class="p_commentline"># delete the elements in the sub-tree</span>
+        result = XMLList()
+        remove = list()
+        <span class="p_word">for</span> x <span class="p_word">in</span> filter(<span class="p_word">lambda</span> y: isinstance(y, XML), self):
+            <span class="p_word">if</span> func(x): result.append(x); remove.append(x)
+            <span class="p_word">elif</span> recurse: 
+                res = x.children._delete(func, recurse)
+                <span class="p_word">if</span> res: result.extend(res)
+        <span class="p_word">for</span> x <span class="p_word">in</span> remove: self.remove(x)
+        <span class="p_word">return</span> result
+    
+    <span class="p_word">def</span> _update(self, tag, values):
+        remove = list()
+        pos = -<span class="p_number">1</span>
+        <span class="p_word">for</span> i <span class="p_word">in</span> xrange(<span class="p_number">0</span>, len(self)):
+            x = self[i] <span class="p_word">if</span> isinstance(self[i], XML) <span class="p_word">and</span> self[i].tag == tag <span class="p_word">else</span> <span class="p_word">None</span>
+            <span class="p_word">if</span> x <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                <span class="p_word">if</span> pos &lt; <span class="p_number">0</span>: pos = i
+                remove.append(x)
+        <span class="p_word">for</span> x <span class="p_word">in</span> remove: self.remove(x)
+        <span class="p_word">if</span> pos &lt; <span class="p_number">0</span>: pos = len(self)
+        <span class="p_word">if</span> isinstance(values, XMLList): self[pos:pos] = values[:]
+        <span class="p_word">elif</span> isinstance(values, XML): self[pos:pos] = [values]
+        <span class="p_word">elif</span> isinstance(values, (str, unicode)): self[pos:pos] = [XML(<span class="p_string">'&lt;%s&gt;%s&lt;/%s&gt;'</span>%(tag, values, tag))]
+        <span class="p_word">elif</span> values <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">or</span> <span class="p_word">not</span> values:  <span class="p_word">pass</span> <span class="p_commentline"># do nothing, already deleted</span>
+        <span class="p_word">else</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'Invalid argument in XMLList._update '</span> + str(type(values))
+    
+    <span class="p_commentline"># attribute access for elements, and call semantics for accessing or filtering child elements</span>
+    <span class="p_word">def</span> __getattr__(self, name): <span class="p_word">return</span> self._filter(<span class="p_word">lambda</span> x: x.tag == name)
+    
+    <span class="p_word">def</span> __call__(self, name=<span class="p_word">None</span>):
+        f = (<span class="p_word">lambda</span> x: x.tag == name <span class="p_word">or</span> <span class="p_word">not</span> name) <span class="p_word">if</span> <span class="p_word">not</span> callable(name) <span class="p_word">else</span> name
+        <span class="p_word">return</span> XMLList(sum([[y <span class="p_word">for</span> y <span class="p_word">in</span> x.children._filter(f)] <span class="p_word">for</span> x <span class="p_word">in</span> self[<span class="p_string">"*"</span>]], []))
+
+    <span class="p_commentline"># container access for elements as well as filtering elements</span>
+    <span class="p_word">def</span> __contains__(self, item): <span class="p_commentline"># item is either XML, or tag name, or lambda function to test</span>
+        <span class="p_word">if</span> isinstance(item, XML): <span class="p_word">return</span> list.__contains__(self, item)
+        <span class="p_word">elif</span> isinstance(item, (str, unicode)): <span class="p_word">return</span> self._filter(<span class="p_word">lambda</span> x: x.tag == item)
+        <span class="p_word">elif</span> callable(item): <span class="p_word">return</span> self._filter(item)
+        <span class="p_word">else</span>: <span class="p_word">return</span> False
+    
+    <span class="p_word">def</span> __getitem__(self, key): <span class="p_commentline"># key is either int, or "*", or tag name, or lambda function to test</span>
+        <span class="p_word">if</span> isinstance(key, int): <span class="p_word">return</span> list.__getitem__(self, key)
+        <span class="p_word">elif</span> key == <span class="p_string">u'*'</span>: <span class="p_word">return</span> self._filter(<span class="p_word">lambda</span> x: True)
+        <span class="p_word">elif</span> isinstance(key, (str, unicode)): <span class="p_word">return</span> self._filter(<span class="p_word">lambda</span> x: x.tag == key)
+        <span class="p_word">elif</span> callable(key): <span class="p_word">return</span> self._filter(key)
+        <span class="p_word">else</span>: <span class="p_word">return</span> <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> __setitem__(self, key, value): <span class="p_commentline"># key is either int, or tag name.</span>
+        <span class="p_word">if</span> isinstance(key, int): list.__setitem__(self, key, value); result = value
+        <span class="p_word">elif</span> key == <span class="p_string">u'*'</span>: self[:] = value <span class="p_word">if</span> isinstance(value, XMLList) <span class="p_word">else</span> [value]; result = self
+        <span class="p_word">elif</span> isinstance(key, (str, unicode)): self._update(key, value); result = value
+        <span class="p_word">return</span> result
+
+    <span class="p_word">def</span> __delitem__(self, key): <span class="p_commentline"># key is same as that in __getitem__ </span>
+        <span class="p_word">if</span> isinstance(key, int): list.__delitem__(self, key); <span class="p_word">return</span> <span class="p_word">None</span>
+        <span class="p_word">elif</span> key == <span class="p_string">u'*'</span>: result, self[:] = self[:], []; <span class="p_word">return</span> result <span class="p_commentline"># make it empty</span>
+        <span class="p_word">elif</span> isinstance(key, (str, unicode)): <span class="p_word">return</span> self._delete(<span class="p_word">lambda</span> x: x.tag == key)
+        <span class="p_word">elif</span> callable(key): <span class="p_word">return</span> self._delete(key)
+        <span class="p_word">else</span>: <span class="p_word">return</span> <span class="p_word">None</span>
+    
+    <span class="p_commentline"># mapping related methods similar to container access for elements</span>
+    <span class="p_word">def</span> keys(self): <span class="p_word">return</span> set([x.tag <span class="p_word">for</span> x <span class="p_word">in</span> filter(<span class="p_word">lambda</span> y: isinstance(y, XML), self)]) <span class="p_commentline"># returns a set of all tags</span>
+    <span class="p_word">def</span> values(self): <span class="p_word">return</span> self[:] <span class="p_commentline"># return all the XML and data elements in this list</span>
+    <span class="p_word">def</span> items(self): <span class="p_word">return</span> [(x.tag, x) <span class="p_word">if</span> isinstance(x, XML) <span class="p_word">else</span> (<span class="p_string">'#text'</span>, x) <span class="p_word">for</span> x <span class="p_word">in</span> self] <span class="p_commentline"># return list of tuples of (tag, XML)</span>
+    <span class="p_word">def</span> has_key(self, key): <span class="p_commentline"># return true if the tag exists</span>
+        <span class="p_word">for</span> y <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: isinstance(x, XML), self):
+            <span class="p_word">if</span> y.tag == key: <span class="p_word">return</span> True
+        <span class="p_word">return</span> False
+    <span class="p_word">def</span> get(self, key, default=<span class="p_word">None</span>): <span class="p_word">return</span> self._filter(<span class="p_word">lambda</span> x: x.tag == key) <span class="p_word">or</span> default <span class="p_commentline"># return the value for the key, or default</span>
+    <span class="p_word">def</span> clear(self): self[:] = [] <span class="p_commentline"># clear the list</span>
+    <span class="p_word">def</span> iterkeys(self): <span class="p_word">return</span> iter(self.keys()) <span class="p_commentline"># iterator for keys</span>
+    <span class="p_word">def</span> itervalues(self): <span class="p_word">return</span> iter(self) <span class="p_commentline"># iterator for values</span>
+    <span class="p_word">def</span> iteritems(self): <span class="p_commentline"># iterator for items</span>
+        <span class="p_word">for</span> x <span class="p_word">in</span> self: <span class="p_word">yield</span> (x.tag <span class="p_word">if</span> isinstance(x, XML) <span class="p_word">else</span> <span class="p_string">'#text'</span>, x)
+    <span class="p_word">def</span> copy(self): <span class="p_word">return</span> XMLList(self[:])
+    <span class="p_word">def</span> update(self, arg): self[:] = arg <span class="p_commentline"># update self with the given list of XML</span>
+    <span class="p_commentline">#not implemented:  setdefault(), pop(), popitem()</span>
+        
+    @property
+    <span class="p_word">def</span> cdata(self): <span class="p_word">return</span> <span class="p_string">u''</span>.join([(x.cdata <span class="p_word">if</span> isinstance(x, XML) <span class="p_word">else</span> x) <span class="p_word">for</span> x <span class="p_word">in</span> self])
+    @property
+    <span class="p_word">def</span> elems(self): <span class="p_word">return</span> filter(<span class="p_word">lambda</span> x: isinstance(x, XML), self)
+
+    <span class="p_commentline"># arithmetic manipulation or operations</span>
+    <span class="p_word">def</span> __add__(self, other): <span class="p_commentline"># XMLList + XML, XMLList + XMLList, XMLList + list, XMLList + object</span>
+        <span class="p_word">if</span> isinstance(other, list): <span class="p_word">return</span> XMLList(self[:] + other)
+        <span class="p_word">else</span>: <span class="p_word">return</span> XMLList(self[:] + [other <span class="p_word">if</span> isinstance(other, XML) <span class="p_word">else</span> unicode(other)])
+    
+    <span class="p_word">def</span> __radd__(self, other): 
+        <span class="p_word">if</span> isinstance(other, list): <span class="p_word">return</span> XMLList(other + self[:])
+        <span class="p_word">else</span>: <span class="p_word">return</span> XMLList([other <span class="p_word">if</span> isinstance(other, XML) <span class="p_word">else</span> unicode(other)] + self[:])
+    
+    <span class="p_word">def</span> __iadd__(self, other): <span class="p_commentline"># XMLList += XML, XMLList += XMLList, XMLList += list, XMLList += object</span>
+        <span class="p_word">if</span> isinstance(other, list): self.extend(other)
+        <span class="p_word">else</span>: self.append(other <span class="p_word">if</span> isinstance(other, XML) <span class="p_word">else</span> unicode(other))
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> __isub__(self, other): <span class="p_commentline"># XMLList -= XML, XMLList -= XMLList, XMLList -= list, XMLList -= object</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(other, list): other = [other]
+        self[:] = filter(<span class="p_word">lambda</span> x: x <span class="p_word">not</span> <span class="p_word">in</span> other, self)
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> __ixor__(self, other): <span class="p_commentline"># XMLList ^= XML, XMLList ^= XMLList (add only if tag is not found, else don't overwrite)</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(other, list): other = [other]
+        self.extend(filter(<span class="p_word">lambda</span> x: x.tag <span class="p_word">not</span> <span class="p_word">in</span> self.keys(), other))
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> __ior__(self, other): <span class="p_commentline"># XMLList |= XML, XMLList |= XMLList (overwrite if tag is found else append)</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(other, list): other = [other]
+        overwrite = filter(<span class="p_word">lambda</span> x: x.tag <span class="p_word">in</span> self.keys(), other)       <span class="p_commentline"># that needs to be overwritten</span>
+        overtags = map(<span class="p_word">lambda</span> x: x.tag, overwrite)
+        add = filter(<span class="p_word">lambda</span> x: x.tag <span class="p_word">not</span> <span class="p_word">in</span> self.keys(), other)         <span class="p_commentline"># that needs to be added</span>
+        self[:] = filter(<span class="p_word">lambda</span> x: x.tag <span class="p_word">not</span> <span class="p_word">in</span> overtags, self) <span class="p_commentline"># remove these for overwritting</span>
+        self.extend(overwrite + add)                             <span class="p_commentline"># append the overwritten and added elements</span>
+        <span class="p_word">return</span> self
+        
+    <span class="p_word">def</span> __iand__(self, other): <span class="p_commentline"># XMLList &amp;= XML, XMLList &amp;= XMLList (overwrite only if tag is found, else don't append)</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> isinstance(other, list): other = [other]
+        overwrite = filter(<span class="p_word">lambda</span> x: x.tag <span class="p_word">in</span> self.keys(), other)       <span class="p_commentline"># that needs to be overwritten</span>
+        overtags = map(<span class="p_word">lambda</span> x: x.tag, overwrite)
+        self[:] = filter(<span class="p_word">lambda</span> x: x.tag <span class="p_word">not</span> <span class="p_word">in</span> overtags, self) <span class="p_commentline"># remove these for overwriting</span>
+        self.extend(overwrite)                                         <span class="p_commentline"># append the overwritten elements</span>
+        <span class="p_word">return</span> self
+    
+<span class="p_word">class</span> XML(object):
+    <span class="p_triple">'''A single XML element. Can be constructed either using raw string or individual fields.'''</span>
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, tag=<span class="p_string">'element'</span>, xmlns=<span class="p_string">''</span>, attrs={}, children=<span class="p_word">None</span>, parent=<span class="p_word">None</span>):
+        <span class="p_word">if</span> value <span class="p_word">and</span> value[<span class="p_number">0</span>] == <span class="p_string">'&lt;'</span>: p = parser(value, self); <span class="p_word">return</span>
+        self.tag, self.xmlns, self.attrs, self.children, self.parent = tag, xmlns, attrs.copy() <span class="p_word">if</span> attrs <span class="p_word">else</span> {}, children <span class="p_word">if</span> isinstance(children, XMLList) <span class="p_word">else</span> XMLList(children) <span class="p_word">if</span> children <span class="p_word">else</span> XMLList(), parent
+        <span class="p_word">if</span> self.parent <span class="p_word">and</span> <span class="p_word">not</span> self.xmlns: self.xmlns = self.parent.xmlns
+        <span class="p_word">if</span> isinstance(self.children, (str, unicode)): self.children = [self.children]
+
+    <span class="p_word">def</span> __repr__(self):
+        ns = [<span class="p_string">u'xmlns="%s"'</span>%(self.xmlns,)] <span class="p_word">if</span> self.xmlns <span class="p_word">and</span> (<span class="p_word">not</span> self.parent <span class="p_word">or</span> self.xmlns != self.parent.xmlns) <span class="p_word">else</span> []
+        attrs = [<span class="p_string">u'%s="%s"'</span>%(k, escape(ustr(v))) <span class="p_word">for</span> k,v <span class="p_word">in</span> self.attrs.iteritems()]
+        intag = <span class="p_string">u' '</span>.join([self.tag] + ns + attrs)
+        inner = <span class="p_string">u''</span>.join([str(x) <span class="p_word">if</span> isinstance(x, XML) <span class="p_word">else</span> escape(x) <span class="p_word">for</span> x <span class="p_word">in</span> self.children])
+        <span class="p_word">return</span> <span class="p_string">u'&lt;%s&gt;%s&lt;/%s&gt;'</span>%(intag, inner, self.tag) <span class="p_word">if</span> inner <span class="p_word">else</span> <span class="p_string">u'&lt;%s /&gt;'</span>%(intag)
+    
+    <span class="p_word">def</span> __cmp__(self, other): <span class="p_word">return</span> cmp(unicode(self), unicode(other))
+    
+    <span class="p_commentline"># XML attributes can be accessed using Python container semantics. Doesn't throw exception.</span>
+    <span class="p_word">def</span> __getitem__(self, item): <span class="p_word">return</span> self.attrs.get(item, <span class="p_word">None</span>)
+    <span class="p_word">def</span> __setitem__(self, item, value): self.attrs[item] = value
+    <span class="p_word">def</span> __delitem__(self, item): <span class="p_word">del</span> self.attrs[item]
+    <span class="p_word">def</span> __contains__(self, item): <span class="p_word">return</span> item <span class="p_word">in</span> self.attrs
+    
+    <span class="p_word">def</span> __call__(self, name=<span class="p_word">None</span>): <span class="p_word">return</span> self.children[name <span class="p_word">if</span> name <span class="p_word">else</span> <span class="p_string">"*"</span>]
+    
+    <span class="p_word">def</span> __getattr__(self, name): <span class="p_commentline"># if Python attribute not found, then check XML attribute. Never throws exception for attribute error</span>
+        <span class="p_word">if</span> name == <span class="p_string">'_'</span>:
+            <span class="p_word">if</span> name <span class="p_word">not</span> <span class="p_word">in</span> self.__dict__: self.__dict__[name] = _(self)
+            <span class="p_word">return</span> self.__dict__[name]
+        <span class="p_word">elif</span> name <span class="p_word">in</span> self.__dict__[<span class="p_string">'attrs'</span>]:
+            <span class="p_word">return</span> self.__dict__[<span class="p_string">'attrs'</span>].get(name)
+        <span class="p_word">raise</span> AttributeError, <span class="p_string">'Invalid attribute access '</span> + name
+    
+    <span class="p_word">def</span> clear(self): self.children.clear(); self.attrs.clear() <span class="p_commentline"># clear all children and attributes</span>
+    <span class="p_word">def</span> copy(self): <span class="p_word">return</span> XML(str(self)) <span class="p_commentline"># copy into another XML</span>
+    @property
+    <span class="p_word">def</span> cdata(self): <span class="p_word">return</span> self.children.cdata
+    @property
+    <span class="p_word">def</span> elems(self): <span class="p_word">return</span> self.children.elems
+    
+<span class="p_word">class</span> _(object):
+    <span class="p_triple">'''Allows accessing XML attributes by name using Python attribute semantics.'''</span>
+    <span class="p_word">def</span> __init__(self, node): self.__dict__[<span class="p_string">'_node'</span>] = node
+    <span class="p_word">def</span> __getattr__(self, name): <span class="p_word">return</span> self._node.attrs.get(name, <span class="p_word">None</span>)
+    <span class="p_word">def</span> __setattr__(self, name, value): self._node.attrs[name] = value
+    <span class="p_word">def</span> __delattr__(self, name): <span class="p_word">del</span> self._node.attrs[name]
+    <span class="p_word">def</span> __contains__(self, name): <span class="p_word">return</span> name <span class="p_word">in</span> self._node.attrs
+    <span class="p_word">def</span> __setitem__(self, name, value): self._node.attrs[name] = value
+    <span class="p_word">def</span> __getitem__(self, name): <span class="p_word">return</span> self._node.attrs.get(name, <span class="p_word">None</span>)
+    <span class="p_word">def</span> __delitem__(self, name): <span class="p_word">del</span> self._node.attrs[name]
+    <span class="p_word">def</span> __call__(self, name): <span class="p_word">return</span> self._node.attrs.get(name, <span class="p_word">None</span>)
+
+<span class="p_commentline"># unit testing of this module    </span>
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()
+
+
+  </PRE></BODY>
+</HTML>

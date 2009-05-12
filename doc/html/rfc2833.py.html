@@ -1,0 +1,52 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC2833 (DTMF in RTP)</b></DIV><PRE>
+
+<span class="p_triple">'''
+Implement the DTMF tone payload in RTP using <a href="http://www.rfc-editor.org/rfc/rfc2833.txt">RFC 2833</a>
+'''</span>
+
+<span class="p_word">import</span> struct
+
+<span class="p_word">class</span> DTMF(object):
+    <span class="p_triple">'''Payload format for DTMF'''</span>
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, **kwargs):
+        <span class="p_triple">'''Construct a new tone using the specified key.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> value:
+            self.event = self.mapkey(kwargs.get(<span class="p_string">'key'</span>, <span class="p_word">None</span>))
+            self.E     = kwargs.get(<span class="p_string">'end'</span>, False)
+            self.R     = False <span class="p_commentline"># reserved bit</span>
+            self.volume = kwargs.get(<span class="p_string">'volume'</span>, <span class="p_number">0</span>)
+            self.duration=kwargs.get(<span class="p_string">'duration'</span>, <span class="p_number">200</span>)
+        <span class="p_word">else</span>:
+            self.event, second, self.duration = struct.unpack(<span class="p_string">'!BBH'</span>, value)
+            self.E, self.R = (second &amp; <span class="p_number">0x80</span> != <span class="p_number">0</span>), False <span class="p_commentline"># ignore the reserved bit</span>
+            self.volume = second &amp; <span class="p_number">0x3f</span>
+
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_word">return</span> struct.pack(<span class="p_string">'!BBH'</span>, self.event, (self.E <span class="p_word">and</span> <span class="p_number">0x80</span> <span class="p_word">or</span> <span class="p_number">0x00</span>) | (self.volume &amp; <span class="p_number">0x3f</span>), self.duration)
+    
+    @staticmethod
+    <span class="p_word">def</span> mapkey(key):
+        <span class="p_triple">'''Convert a key to an event.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> key <span class="p_word">or</span> len(key)!= <span class="p_number">1</span>: <span class="p_word">return</span> <span class="p_number">16</span> <span class="p_commentline"># either empty or not one char</span>
+        index = <span class="p_string">'0123456789*#ABCD'</span>.find(key)
+        <span class="p_word">if</span> index&gt;= <span class="p_number">0</span>: <span class="p_word">return</span> index
+        <span class="p_word">else</span>: <span class="p_word">return</span> <span class="p_number">16</span>
+
+<span class="p_word">def</span> createDTMFs(keys):
+    <span class="p_triple">'''Return an array of DTMF objects with each representing one key in the keys.'''</span>
+    result = map(<span class="p_word">lambda</span> x: DTMF(key=x), keys)
+    <span class="p_word">if</span> result: result[-<span class="p_number">1</span>].E = True <span class="p_commentline"># last one has E set to True</span>
+    <span class="p_word">return</span> result
+        
+
+  </PRE></BODY>
+</HTML>

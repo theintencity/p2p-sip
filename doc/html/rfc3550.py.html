@@ -1,0 +1,1222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC3550 (RTP)</b></DIV><PRE>
+
+<span class="p_triple">'''
+This module implements the real-time transport protocol (RTP) and companion real-time
+transport control protocol (RTCP) based on <a href="http://www.rfc-editor.org/rfc/rfc3550.txt">RFC 3550</a>.
+
+The RTP and RTCP classes define the packet format for RTP and RTCP.
+The Session class defines the control behavior for an RTP session.
+The Source class represents a member or source.
+The Network class abstracts out the network behavior such as pair of sockets. 
+'''</span>
+
+
+</PRE><DIV class="commentbox">From RFC3550 p.1<pre>   This memorandum describes RTP, the real-time transport protocol.  RTP
+   provides end-to-end network transport functions suitable for
+   applications transmitting real-time data, such as audio, video or
+   simulation data, over multicast or unicast network services.  RTP
+   does not address resource reservation and does not guarantee
+   quality-of-service for real-time services.  The data transport is
+   augmented by a control protocol (RTCP) to allow monitoring of the
+   data delivery in a manner scalable to large multicast networks, and
+   to provide minimal control and identification functionality.  RTP and
+   RTCP are designed to be independent of the underlying transport and
+   network layers.  The protocol supports the use of RTP-level
+   translators and mixers.
+
+   Most of the text in this memorandum is identical to RFC 1889 which it
+   obsoletes.  There are no changes in the packet formats on the wire,
+   only changes to the rules and algorithms governing how the protocol
+   is used.  The biggest change is an enhancement to the scalable timer
+   algorithm for calculating when to send RTCP packets in order to
+   minimize transmission in excess of the intended rate when many
+   participants join a session simultaneously.</pre></DIV><PRE>
+
+<span class="p_word">import</span> struct, random, math, time, socket
+<span class="p_word">from</span> kutil <span class="p_word">import</span> getlocaladdr
+
+_debug = False
+
+<span class="p_triple">'''
+return the data as list string representing binary form of the characted in data.
+&gt;&gt;&gt; print binstr('\\x01\\x02\\x03\\x04\\x05\\x06\\x07')
+00000001000000100000001100000100
+000001010000011000000111--------
+'''</span>
+<span class="p_commentline">#binary = lambda a, s=1: [''.join([('1' if (ord(x) &amp; (1&lt;&lt;(7-y))) else '0') for y in range(0, 8)]) for x in a]</span>
+<span class="p_word">def</span> binary(data, size=<span class="p_number">4</span>):
+    all = <span class="p_string">''</span>.join([<span class="p_string">''</span>.join([(<span class="p_string">'1'</span> <span class="p_word">if</span> (ord(x) &amp; (<span class="p_number">1</span>&lt;&lt;(<span class="p_number">7</span>-y))) <span class="p_word">else</span> <span class="p_string">'0'</span>) <span class="p_word">for</span> y <span class="p_word">in</span> range(<span class="p_number">0</span>, <span class="p_number">8</span>)]) <span class="p_word">for</span> x <span class="p_word">in</span> data])
+    result, size = [], size*<span class="p_number">8</span>  <span class="p_commentline"># size to bits</span>
+    <span class="p_word">while</span> len(all) &gt;= size:
+        result.append(all[:size])
+        all = all[size:]
+    <span class="p_word">if</span> len(all)&gt;<span class="p_number">0</span>:
+        result.append(all + <span class="p_string">'-'</span>*(size-len(all)))
+    <span class="p_word">return</span> result
+binstr = <span class="p_word">lambda</span> x: <span class="p_string">'\n'</span>.join(binary(x))
+
+
+</PRE><DIV class="commentbox">From RFC3550 p.8<pre>   RTP packet: A data packet consisting of the fixed RTP header, a
+      possibly empty list of contributing sources (see below), and the
+      payload data.  Some underlying protocols may require an
+      encapsulation of the RTP packet to be defined.  Typically one
+      packet of the underlying protocol contains a single RTP packet,
+      but several RTP packets MAY be contained if permitted by the
+      encapsulation method (see Section 11).</pre></DIV><PRE>
+<span class="p_word">class</span> RTP(object):
+    <span class="p_triple">'''A RTP packet.
+    &gt;&gt;&gt; p1 = RTP(pt=8, seq=12, ts=13, ssrc=14, csrcs=[15, 16], marker=True, extn=(17, '\\x18\\x19\\x1a\\x1b'), payload='\\x1c\\x1d\\x1e')
+    &gt;&gt;&gt; print ''.join(['%02x'%ord(x) for x in str(p1)])
+    b288000c0000000d0000000e0000000f000000100011000118191a1b1c1d1e01
+    &gt;&gt;&gt; p2 = RTP(value=str(p1))
+    &gt;&gt;&gt; print p2.pt, p2.seq, p2.ts, p2.ssrc, p2.csrcs, p2.marker, p2.extn, repr(p2.payload)
+    8 12 13 14 [15, 16] True (17, '\\x18\\x19\\x1a\\x1b') '\\x1c\\x1d\\x1e'
+    &gt;&gt;&gt; print '\\n'.join(binary(str(p2)))
+    10110010100010000000000000001100
+    00000000000000000000000000001101
+    00000000000000000000000000001110
+    00000000000000000000000000001111
+    00000000000000000000000000010000
+    00000000000100010000000000000001
+    00011000000110010001101000011011
+    00011100000111010001111000000001
+    '''</span>
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>, pt=<span class="p_number">0</span>, seq=<span class="p_number">0</span>, ts=<span class="p_number">0</span>, ssrc=<span class="p_number">0</span>, csrcs=[], marker=False, extn=<span class="p_word">None</span>, payload=<span class="p_string">''</span>):
+        <span class="p_triple">'''Construct a RTP packet from individual components: pt a payload type [0, 128),
+        seq a 16 bit unsigned sequence number, ts a 32 bit unsigned timestamp, ssrc a
+        32 bit source identifier, csrcs a list of 32-bit contributing source identifiers
+        with max size of 15, marker a boolean, extn a tuple of (type, value) for the header
+        extension and payload is the RTP payload data. 
+        Alternatively, if value is specified, then construct the RTP packet by parsing the 
+        value.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> value: <span class="p_commentline"># construct using components.</span>
+            self.pt, self.seq, self.ts, self.ssrc, self.csrcs, self.marker, self.extn, self.payload = \
+            pt, seq, ts, ssrc, csrcs, marker, extn, payload
+        <span class="p_word">else</span>: <span class="p_commentline"># parse the packet.</span>
+            <span class="p_word">if</span> len(value) &lt; <span class="p_number">12</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'RTP packet must be at least 12 bytes'</span>
+            <span class="p_word">if</span> ord(value[<span class="p_number">0</span>]) &amp; <span class="p_number">0xC0</span> != <span class="p_number">0x80</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'RTP version must be 2'</span>
+            px, mpt, self.seq, self.ts, self.ssrc = struct.unpack(<span class="p_string">'!BBHII'</span>, value[:<span class="p_number">12</span>])
+            self.marker, self.pt = (mpt &amp; <span class="p_number">0x80</span> <span class="p_word">and</span> True <span class="p_word">or</span> False), (mpt &amp; <span class="p_number">0x7f</span>)
+            self.csrcs, value = ([] <span class="p_word">if</span> (px &amp; <span class="p_number">0x0f</span> == <span class="p_number">0</span>) <span class="p_word">else</span> list(struct.unpack(<span class="p_string">'!'</span>+<span class="p_string">'I'</span>*(px&amp;<span class="p_number">0x0f</span>), value[<span class="p_number">12</span>:<span class="p_number">12</span>+(px&amp;<span class="p_number">0x0f</span>)*<span class="p_number">4</span>]))), value[<span class="p_number">12</span>+(px &amp; <span class="p_number">0x0f</span>)*<span class="p_number">4</span>:]
+            <span class="p_word">if</span> px &amp; <span class="p_number">0x10</span>:
+                xtype, xlen = struct.unpack(<span class="p_string">'!HH'</span>, value[:<span class="p_number">4</span>])
+                self.extn, value = (xtype, value[<span class="p_number">4</span>:<span class="p_number">4</span>+xlen*<span class="p_number">4</span>]), value[<span class="p_number">4</span>+xlen*<span class="p_number">4</span>:]
+            <span class="p_word">else</span>: self.extn = <span class="p_word">None</span>
+            self.payload = value <span class="p_word">if</span> px &amp; <span class="p_number">0x20</span> == <span class="p_number">0</span> <span class="p_word">else</span> value[:len(value)-ord(value[-<span class="p_number">1</span>])]
+    <span class="p_word">def</span> __repr__(self):
+        <span class="p_word">return</span> struct.pack(<span class="p_string">'!BBHII'</span>, <span class="p_number">0x80</span> | ((len(self.payload)%<span class="p_number">4</span> != <span class="p_number">0</span>) <span class="p_word">and</span> <span class="p_number">0x20</span> <span class="p_word">or</span> <span class="p_number">0x00</span>) | (self.extn <span class="p_word">and</span> <span class="p_number">0x10</span> <span class="p_word">or</span> <span class="p_number">0x00</span>) | (len(self.csrcs) &gt; <span class="p_number">15</span> <span class="p_word">and</span> <span class="p_number">15</span> <span class="p_word">or</span> len(self.csrcs)), \
+                           (self.pt &amp; <span class="p_number">0x7f</span>) | (self.marker <span class="p_word">and</span> <span class="p_number">1</span> <span class="p_word">or</span> <span class="p_number">0</span>) &lt;&lt; <span class="p_number">7</span>, (self.seq &amp; <span class="p_number">0xffff</span>), self.ts, self.ssrc) \
+                + <span class="p_string">''</span>.join(struct.pack(<span class="p_string">'!I'</span>, x) <span class="p_word">for</span> x <span class="p_word">in</span> self.csrcs[:<span class="p_number">16</span>]) \
+                + (<span class="p_string">''</span> <span class="p_word">if</span> <span class="p_word">not</span> self.extn <span class="p_word">else</span> (struct.pack(<span class="p_string">'!HH'</span>, self.extn[<span class="p_number">0</span>] &amp; <span class="p_number">0xffff</span>, len(self.extn[<span class="p_number">1</span>])/<span class="p_number">4</span>) + self.extn[<span class="p_number">1</span>])) \
+                + self.payload \
+                + (<span class="p_string">''</span> <span class="p_word">if</span> (len(self.payload) % <span class="p_number">4</span> == <span class="p_number">0</span>) <span class="p_word">else</span> (<span class="p_string">'\x00'</span>*(<span class="p_number">4</span>-len(self.payload)%<span class="p_number">4</span>-<span class="p_number">1</span>) + struct.pack(<span class="p_string">'!B'</span>, <span class="p_number">4</span>-len(self.payload)%<span class="p_number">4</span>)))
+        
+
+
+</PRE><DIV class="commentbox">From RFC3550 p.9<pre>   RTCP packet: A control packet consisting of a fixed header part
+      similar to that of RTP data packets, followed by structured
+      elements that vary depending upon the RTCP packet type.  The
+      formats are defined in Section 6.  Typically, multiple RTCP
+      packets are sent together as a compound RTCP packet in a single
+      packet of the underlying protocol; this is enabled by the length
+      field in the fixed header of each RTCP packet.</pre></DIV><PRE>
+<span class="p_word">class</span> RTCP(list):
+    <span class="p_triple">'''A compound RTCP packet is a list of individual RTCP packets. A individual RTCP
+    packet is of type RTCP.packet with attributes or items defined depending on the type
+    of the packet.
+    
+    &gt;&gt;&gt; sr = RTCP.packet(pt=RTCP.SR, ssrc=1, ntp=2, ts=3, pktcount=4, octcount=5, reports=[], extn=None)
+    &gt;&gt;&gt; r1 = RTCP.packet(ssrc=1, flost=2, clost=3, hseq=4, jitter=5, lsr=6, dlsr=7)
+    &gt;&gt;&gt; r2 = RTCP.packet(ssrc=8, flost=9, clost=10, hseq=11, jitter=12, lsr=13, dlsr=14)
+    &gt;&gt;&gt; rr = RTCP.packet(pt=RTCP.RR, ssrc=1, reports=[r1, r2])
+    &gt;&gt;&gt; item1 = (1, [(RTCP.CNAME, 'kundan@example.net'), (RTCP.NAME, 'Kundan Singh'), (RTCP.EMAIL, 'kundan@example.net'), (RTCP.PHONE, '9176216392')])
+    &gt;&gt;&gt; item2 = (2, [(RTCP.CNAME, 'sanjayc77@example.net'), ])
+    &gt;&gt;&gt; sdes = RTCP.packet(pt=RTCP.SDES, items=[item1, item2])
+    &gt;&gt;&gt; bye  = RTCP.packet(pt=RTCP.BYE, ssrcs=[1,2,3], reason='disconnecting') 
+    &gt;&gt;&gt; p1 = RTCP([sr, rr, sdes, bye])
+    &gt;&gt;&gt; p2 = RTCP(str(p1))
+    &gt;&gt;&gt; sr, rr, sdes, bye = tuple(p2)
+    &gt;&gt;&gt; print sr.pt, sr.ssrc, sr.ntp, sr.ts, sr.pktcount, sr.octcount
+    200 1 2.0 3 4 5
+    &gt;&gt;&gt; print rr.pt, rr.ssrc, [(x.ssrc, x.flost, x.clost, x.hseq, x.jitter, x.lsr, x.dlsr) for x in rr.reports]
+    201 1 [(1, 2, 3, 4, 5, 6, 7), (8, 9, 10, 11, 12, 13, 14)]
+    &gt;&gt;&gt; print sdes.pt
+    202
+    &gt;&gt;&gt; for item in sdes.items:
+    ...    print 'ssrc=', item[0]
+    ...    for n,v in item[1]: print '',n,'=',v
+    ssrc= 1
+     1 = kundan@example.net
+     2 = Kundan Singh
+     3 = kundan@example.net
+     4 = 9176216392
+    ssrc= 2
+     1 = sanjayc77@example.net
+    &gt;&gt;&gt; print bye.pt, bye.ssrcs, bye.reason
+    203 [1, 2, 3] disconnecting
+    '''</span>
+    SR, RR, SDES, BYE, APP = range(<span class="p_number">200</span>, <span class="p_number">205</span>) <span class="p_commentline"># various packet types</span>
+    CNAME, NAME, EMAIL, PHONE, LOC, TOOL, NOTE, PRIV = range(<span class="p_number">1</span>, <span class="p_number">9</span>)
+    
+    <span class="p_word">def</span> __init__(self, value=<span class="p_word">None</span>): <span class="p_commentline"># parse the compound RTCP packet.</span>
+        <span class="p_word">if</span> isinstance(value, list):
+            <span class="p_word">for</span> v <span class="p_word">in</span> value: self.append(v) <span class="p_commentline"># just append the list of packets</span>
+            <span class="p_word">return</span>
+        <span class="p_word">while</span> value <span class="p_word">and</span> len(value)&gt;<span class="p_number">0</span>:
+            p = RTCP.packet() <span class="p_commentline"># individual RTCP packet</span>
+            px, p.pt, plen = struct.unpack(<span class="p_string">'!BBH'</span>, value[:<span class="p_number">4</span>])
+            <span class="p_word">if</span> px &amp; <span class="p_number">0xC0</span> != <span class="p_number">0x80</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'RTP version must be 2'</span>
+            <span class="p_word">if</span> p.pt &lt; <span class="p_number">200</span> <span class="p_word">or</span> p.pt &gt;= <span class="p_number">205</span>: <span class="p_word">raise</span> ValueError, <span class="p_string">'Not an RTCP packet type %d'</span>%(p.pt)
+            data, value = value[<span class="p_number">4</span>:<span class="p_number">4</span>+plen*<span class="p_number">4</span>], value[<span class="p_number">4</span>+plen*<span class="p_number">4</span>:] <span class="p_commentline"># data for this packet, value for next</span>
+            <span class="p_word">if</span> px &amp; <span class="p_number">0x20</span>: data = data[:len(data)-ord(data[-<span class="p_number">1</span>])] <span class="p_commentline"># remove padding</span>
+            <span class="p_word">if</span> p.pt == RTCP.SR <span class="p_word">or</span> p.pt == RTCP.RR:
+                <span class="p_word">if</span> p.pt == RTCP.SR:
+                    p.ssrc, ntp1, ntp2, p.ts, p.pktcount, p.octcount = struct.unpack(<span class="p_string">'!IIIIII'</span>, data[:<span class="p_number">24</span>])
+                    p.ntp = ntp2time((ntp1, ntp2))
+                    data = data[<span class="p_number">24</span>:]
+                <span class="p_word">else</span>:
+                    p.ssrc, = struct.unpack(<span class="p_string">'!I'</span>, data[:<span class="p_number">4</span>])
+                    data = data[<span class="p_number">4</span>:]
+                p.reports = []
+                <span class="p_word">for</span> i <span class="p_word">in</span> range(px&amp;<span class="p_number">0x1f</span>):
+                    r = RTCP.packet()
+                    r.ssrc, lost, r.hseq, r.jitter, r.lsr, r.dlsr = struct.unpack(<span class="p_string">'!IIIIII'</span>, data[:<span class="p_number">24</span>])
+                    r.flost, r.clost = (lost &gt;&gt; <span class="p_number">24</span>) &amp; <span class="p_number">0x0ff</span>, (lost &amp; <span class="p_number">0x0ffffff</span>)
+                    p.reports.append(r)
+                    data = data[<span class="p_number">24</span>:]
+                p.extn = data <span class="p_word">if</span> data <span class="p_word">else</span> <span class="p_word">None</span>
+            <span class="p_word">elif</span> p.pt == RTCP.SDES:
+                p.items = []
+                <span class="p_word">for</span> i <span class="p_word">in</span> range(<span class="p_number">0</span>, px&amp;<span class="p_number">0x1f</span>):
+                    ssrc, = struct.unpack(<span class="p_string">'!I'</span>, data[:<span class="p_number">4</span>])
+                    items = []
+                    data, count = data[<span class="p_number">4</span>:], <span class="p_number">0</span>
+                    <span class="p_word">while</span> len(data)&gt;<span class="p_number">0</span>:
+                        itype, ilen = struct.unpack(<span class="p_string">'!BB'</span>, data[:<span class="p_number">2</span>])
+                        count += (<span class="p_number">2</span> + ilen)
+                        ivalue, data = data[<span class="p_number">2</span>:<span class="p_number">2</span>+ilen], data[<span class="p_number">2</span>+ilen:]
+                        <span class="p_word">if</span> itype == <span class="p_number">0</span>: <span class="p_word">break</span>
+                        items.append((itype, ivalue))
+                    <span class="p_word">if</span> count % <span class="p_number">4</span> != <span class="p_number">0</span>: data = data[(<span class="p_number">4</span>-count%<span class="p_number">4</span>):] <span class="p_commentline"># ignore padding for the chunk</span>
+                    p.items.append((ssrc, items))
+            <span class="p_word">elif</span> p.pt == RTCP.BYE:
+                p.ssrcs, p.reason = [], <span class="p_word">None</span>
+                <span class="p_word">for</span> i <span class="p_word">in</span> range(<span class="p_number">0</span>, px &amp; <span class="p_number">0x01f</span>):
+                    ssrc, = struct.unpack(<span class="p_string">'!I'</span>, data[:<span class="p_number">4</span>])
+                    p.ssrcs.append(ssrc)
+                    data = data[<span class="p_number">4</span>:]
+                <span class="p_word">if</span> data <span class="p_word">and</span> len(data)&gt;<span class="p_number">0</span>:
+                    rlen, = struct.unpack(<span class="p_string">'!B'</span>, data[:<span class="p_number">1</span>])
+                    p.reason = data[<span class="p_number">1</span>:<span class="p_number">1</span>+rlen] <span class="p_commentline"># no need to ignore padding, it already gets ignored when we use next packet</span>
+            <span class="p_word">elif</span> p.pt == RTCP.APP:
+                p.subtype = px&amp;<span class="p_number">0x1f</span>
+                p.ssrc, p.name = struct.unpack(<span class="p_string">'!I4s'</span>, data[:<span class="p_number">8</span>])
+                p.data = data[<span class="p_number">8</span>:]
+                <span class="p_word">if</span> <span class="p_word">not</span> p.data: p.data = <span class="p_word">None</span>
+            <span class="p_word">else</span>: <span class="p_commentline"># just store the raw data</span>
+                p.subtype = px&amp;<span class="p_number">0x1f</span>
+                p.data = data[<span class="p_number">4</span>:]
+            self.append(p)
+
+    <span class="p_word">def</span> __str__(self):
+        result = <span class="p_string">''</span>
+        <span class="p_word">for</span> p <span class="p_word">in</span> self:
+            count, value = <span class="p_number">0</span>, <span class="p_string">''</span>
+            <span class="p_word">if</span> p.pt == RTCP.SR <span class="p_word">or</span> p.pt == RTCP.RR:
+                <span class="p_word">if</span> p.pt == RTCP.SR:
+                    ntp1, ntp2 = time2ntp(p.ntp) 
+                    value = struct.pack(<span class="p_string">'!IIIIII'</span>, p.ssrc, ntp1, ntp2, p.ts, p.pktcount, p.octcount)
+                <span class="p_word">else</span>: value = struct.pack(<span class="p_string">'!I'</span>, p.ssrc)
+                count = len(p.reports)
+                <span class="p_word">for</span> r <span class="p_word">in</span> p.reports:
+                    value += struct.pack(<span class="p_string">'!IIIIII'</span>, r.ssrc, (r.flost &lt;&lt; <span class="p_number">24</span>) | (r.clost &amp; <span class="p_number">0x0ffffff</span>), r.hseq, r.jitter, r.lsr, r.dlsr)
+                <span class="p_word">if</span> p.extn: value += p.extn
+            <span class="p_word">elif</span> p.pt == RTCP.SDES:
+                count = len(p.items)
+                <span class="p_word">for</span> ssrc,items <span class="p_word">in</span> p.items:
+                    chunk = struct.pack(<span class="p_string">'!I'</span>, ssrc)
+                    <span class="p_word">for</span> n,v <span class="p_word">in</span> items:
+                        chunk += struct.pack(<span class="p_string">'!BB'</span>, n, len(v)&gt;<span class="p_number">255</span> <span class="p_word">and</span> <span class="p_number">255</span> <span class="p_word">or</span> len(v)) + v[:<span class="p_number">256</span>]
+                    chunk += struct.pack(<span class="p_string">'!BB'</span>, <span class="p_number">0</span>, <span class="p_number">0</span>) <span class="p_commentline"># to indicate end of items.</span>
+                    <span class="p_word">if</span> len(chunk)%<span class="p_number">4</span>!=<span class="p_number">0</span>: chunk += <span class="p_string">'\x00'</span>*(<span class="p_number">4</span>-len(chunk)%<span class="p_number">4</span>)
+                    value += chunk
+            <span class="p_word">elif</span> p.pt == RTCP.BYE:
+                count = len(p.ssrcs)
+                <span class="p_word">for</span> ssrc <span class="p_word">in</span> p.ssrcs: value += struct.pack(<span class="p_string">'!I'</span>, ssrc)
+                <span class="p_word">if</span> p.reason <span class="p_word">and</span> len(p.reason)&gt;<span class="p_number">0</span>: value += struct.pack(<span class="p_string">'!B'</span>, len(p.reason)&gt;<span class="p_number">255</span> <span class="p_word">and</span> <span class="p_number">255</span> <span class="p_word">or</span> len(p.reason)) + p.reason[:<span class="p_number">256</span>]
+            <span class="p_word">elif</span> p.pt == RTCP.APP:
+                count = p.subtype
+                value += struct.pack(<span class="p_string">'!I4s'</span>, p.ssrc, p.name) + (p.data <span class="p_word">if</span> p.data <span class="p_word">else</span> <span class="p_string">''</span>)
+            <span class="p_word">else</span>: <span class="p_commentline"># just add the raw data</span>
+                count = p.subtype
+                value += p.data
+            length = len(value)/<span class="p_number">4</span> + (<span class="p_number">1</span> <span class="p_word">if</span> len(value)%<span class="p_number">4</span> != <span class="p_number">0</span> <span class="p_word">else</span> <span class="p_number">0</span>)
+            result += struct.pack(<span class="p_string">'!BBH'</span>, <span class="p_number">0x80</span> | (len(value)%<span class="p_number">4</span> != <span class="p_number">0</span> <span class="p_word">and</span> <span class="p_number">0x20</span> <span class="p_word">or</span> <span class="p_number">0x00</span>) | (count &amp; <span class="p_number">0x1f</span>), p.pt, length) \
+                + value + (<span class="p_string">''</span> <span class="p_word">if</span> (len(value) % <span class="p_number">4</span> == <span class="p_number">0</span>) <span class="p_word">else</span> (<span class="p_string">'\x00'</span>*(<span class="p_number">4</span>-len(value)%<span class="p_number">4</span>-<span class="p_number">1</span>) + struct.pack(<span class="p_string">'!B'</span>, <span class="p_number">4</span>-len(value)%<span class="p_number">4</span>)))
+        <span class="p_commentline"># TODO: we do padding in each packet, instead of only in last.</span>
+        <span class="p_word">return</span> result
+
+    <span class="p_word">class</span> packet(object):
+        <span class="p_triple">'''A generic class for individual packet or report. It exposes both container and
+        attribute interface.'''</span>
+        <span class="p_word">def</span> __init__(self, **kwargs): 
+            <span class="p_word">for</span> n,v <span class="p_word">in</span> kwargs.items(): self[n] = v 
+        <span class="p_commentline"># attribute access: use container if not found</span>
+        <span class="p_word">def</span> __getattr__(self, name): <span class="p_word">return</span> self.__getitem__(name)
+        <span class="p_commentline"># container access: use key in __dict__</span>
+        <span class="p_word">def</span> __getitem__(self, name): <span class="p_word">return</span> self.__dict__.get(name, <span class="p_word">None</span>)
+        <span class="p_word">def</span> __setitem__(self, name, value): self.__dict__[name] = value
+        <span class="p_word">def</span> __contains__(self, name): <span class="p_word">return</span> name <span class="p_word">in</span> self.__dict__
+    
+
+<span class="p_commentline"># following definitions are borrowed from <a href="http://www.rfc-editor.org/rfc/rfc3550.txt">RFC 3550</a></span>
+RTP_SEQ_MOD    = (<span class="p_number">1</span>&lt;&lt;<span class="p_number">16</span>)
+MAX_DROPOUT    = <span class="p_number">3000</span>
+MAX_MISORDER   = <span class="p_number">100</span>
+MIN_SEQUENTIAL = <span class="p_number">2</span>
+
+
+</PRE><DIV class="commentbox">From RFC3550 p.78<pre>   /*
+    * Per-source state information
+    */
+   typedef struct {
+       u_int16 max_seq;        /* highest seq. number seen */
+       u_int32 cycles;         /* shifted count of seq. number cycles */
+       u_int32 base_seq;       /* base seq number */
+       u_int32 bad_seq;        /* last 'bad' seq number + 1 */
+       u_int32 probation;      /* sequ. packets till source is valid */
+       u_int32 received;       /* packets received */
+       u_int32 expected_prior; /* packet expected at last interval */
+       u_int32 received_prior; /* packet received at last interval */
+       u_int32 transit;        /* relative trans time for prev pkt */
+       u_int32 jitter;         /* estimated jitter */
+       /* ... */
+   } source;</pre></DIV><PRE>
+<span class="p_word">class</span> Source(object):
+    <span class="p_triple">'''A source in a RTP-based Session. This is used to represent both the local member
+    as well as the remote members. The SSRC and SDES's CNAME must be unique in a session.
+    '''</span>
+    <span class="p_word">def</span> __init__(self, ssrc, items=[], address=<span class="p_word">None</span>):
+        <span class="p_triple">'''Create a new member for the given SSRC.
+        &gt;&gt;&gt; m = Source(1, [(RTCP.CNAME, 'kundan@example.net'), (RTCP.NAME, 'Kundan Singh')], ('127.0.0.1', 8000))
+        &gt;&gt;&gt; print m
+        &lt;Source ssrc=1 items=[(1, 'kundan@example.net'), (2, 'Kundan Singh')] address=('127.0.0.1', 8000) lost=0 fraction=0 pktcount=0 octcount=0 maxseq=0 badseq=0 cycles=0 baseseq=0 probation=0 received=0 expectedprior=0 receivedprior=0 transit=0 jitter=0 lastts=None lastntp=None rtcpdelay=None&gt;
+        '''</span>
+        self.ssrc, self.items, self.address = ssrc, items, address
+        self.lost = self.fraction = self.pktcount = self.octcount = self.timeout = <span class="p_number">0</span>
+        self.maxseq = self.badseq = self.cycles = self.baseseq = self.probation = self.received = self.expectedprior = self.receivedprior = self.transit = self.jitter = <span class="p_number">0</span> <span class="p_commentline"># based on <a href="http://www.rfc-editor.org/rfc/rfc3550.txt">RFC 3550</a>'s source structure</span>
+        self.lastts = self.lastntp = self.rtcpdelay = <span class="p_word">None</span>
+    
+    <span class="p_word">def</span> __repr__(self):
+        props =  (<span class="p_string">'ssrc'</span>, <span class="p_string">'items'</span>, <span class="p_string">'address'</span>, <span class="p_string">'lost'</span>, <span class="p_string">'fraction'</span>, <span class="p_string">'pktcount'</span>, <span class="p_string">'octcount'</span>, \
+                  <span class="p_string">'maxseq'</span>, <span class="p_string">'badseq'</span>, <span class="p_string">'cycles'</span>, <span class="p_string">'baseseq'</span>, <span class="p_string">'probation'</span>, <span class="p_string">'received'</span>,      \
+                  <span class="p_string">'expectedprior'</span>, <span class="p_string">'receivedprior'</span>, <span class="p_string">'transit'</span>, <span class="p_string">'jitter'</span>, <span class="p_string">'lastts'</span>,     \
+                  <span class="p_string">'lastntp'</span>, <span class="p_string">'rtcpdelay'</span>)
+        <span class="p_word">return</span> (<span class="p_string">'&lt;Source '</span> + <span class="p_string">' '</span>.join([p+<span class="p_string">'=%r'</span> <span class="p_word">for</span> p <span class="p_word">in</span> props]) + <span class="p_string">'&gt;'</span>)%tuple([(eval(<span class="p_string">'self.%s'</span>%p)) <span class="p_word">for</span> p <span class="p_word">in</span> props])
+        
+
+</PRE><DIV class="commentbox">From RFC3550 p.80<pre>   void init_seq(source *s, u_int16 seq)
+   {
+       s-&amp;gt;base_seq = seq;
+       s-&amp;gt;max_seq = seq;
+       s-&amp;gt;bad_seq = RTP_SEQ_MOD + 1;   /* so seq == bad_seq is false */
+       s-&amp;gt;cycles = 0;
+       s-&amp;gt;received = 0;
+       s-&amp;gt;received_prior = 0;
+       s-&amp;gt;expected_prior = 0;
+       /* other initialization */
+   }</pre></DIV><PRE>
+    <span class="p_word">def</span> initseq(self, seq):
+        <span class="p_triple">'''Initialize the seq using the newly received seq of RTP packet.
+        &gt;&gt;&gt; print Source(ssrc=1).initseq(10)
+        &lt;Source ssrc=1 items=[] address=None lost=0 fraction=0 pktcount=0 octcount=0 maxseq=10 badseq=9 cycles=0 baseseq=10 probation=0 received=0 expectedprior=0 receivedprior=0 transit=0 jitter=0 lastts=None lastntp=None rtcpdelay=None&gt;
+        '''</span>
+        self.baseseq = self.maxseq = seq
+        self.badseq = seq - <span class="p_number">1</span>
+        self.cycles = self.received = self.receivedprior = self.expectedprior = <span class="p_number">0</span>
+        <span class="p_word">return</span> self
+        
+
+</PRE><DIV class="commentbox">From RFC3550 p.79<pre>   When a new source is heard for the first time, that is, its SSRC
+   identifier is not in the table (see Section 8.2), and the per-source
+   state is allocated for it, s-&amp;gt;probation is set to the number of
+   sequential packets required before declaring a source valid
+   (parameter MIN_SEQUENTIAL) and other variables are initialized:
+
+      init_seq(s, seq);
+      s-&amp;gt;max_seq = seq - 1;
+      s-&amp;gt;probation = MIN_SEQUENTIAL;
+
+   A non-zero s-&amp;gt;probation marks the source as not yet valid so the
+   state may be discarded after a short timeout rather than a long one,
+   as discussed in Section 6.2.1.</pre></DIV><PRE>
+    <span class="p_word">def</span> newfound(self, seq):
+        <span class="p_triple">'''Indicate that this source is newly found and added to members table.
+        &gt;&gt;&gt; print Source(ssrc=1).newfound(10)
+        &lt;Source ssrc=1 items=[] address=None lost=0 fraction=0 pktcount=0 octcount=0 maxseq=9 badseq=9 cycles=0 baseseq=10 probation=2 received=0 expectedprior=0 receivedprior=0 transit=0 jitter=0 lastts=None lastntp=None rtcpdelay=None&gt;
+        '''</span>
+        self.initseq(seq)
+        self.maxseq, self.probation = seq-<span class="p_number">1</span>, MIN_SEQUENTIAL
+        <span class="p_word">return</span> self <span class="p_commentline"># return so that methods can be nested</span>
+    
+
+</PRE><DIV class="commentbox">From RFC3550 p.80<pre>   int update_seq(source *s, u_int16 seq)
+   {
+       u_int16 udelta = seq - s-&amp;gt;max_seq;
+       const int MAX_DROPOUT = 3000;
+       const int MAX_MISORDER = 100;
+       const int MIN_SEQUENTIAL = 2;
+
+       /*
+        * Source is not valid until MIN_SEQUENTIAL packets with
+        * sequential sequence numbers have been received.
+        */
+       if (s-&amp;gt;probation) {
+           /* packet is in sequence */
+           if (seq == s-&amp;gt;max_seq + 1) {
+               s-&amp;gt;probation--;
+               s-&amp;gt;max_seq = seq;
+               if (s-&amp;gt;probation == 0) {
+                   init_seq(s, seq);
+                   s-&amp;gt;received++;
+                   return 1;
+               }
+           } else {
+               s-&amp;gt;probation = MIN_SEQUENTIAL - 1;
+               s-&amp;gt;max_seq = seq;
+           }
+           return 0;
+       } else if (udelta &amp;lt; MAX_DROPOUT) {
+           /* in order, with permissible gap */
+           if (seq &amp;lt; s-&amp;gt;max_seq) {
+               /*
+                * Sequence number wrapped - count another 64K cycle.
+                */
+               s-&amp;gt;cycles += RTP_SEQ_MOD;
+           }
+           s-&amp;gt;max_seq = seq;
+       } else if (udelta &amp;lt;= RTP_SEQ_MOD - MAX_MISORDER) {
+           /* the sequence number made a very large jump */
+           if (seq == s-&amp;gt;bad_seq) {
+               /*
+                * Two sequential packets -- assume that the other side
+                * restarted without telling us so just re-sync
+                * (i.e., pretend this was the first packet).
+                */
+               init_seq(s, seq);
+           }
+           else {
+               s-&amp;gt;bad_seq = (seq + 1) &amp; (RTP_SEQ_MOD-1);
+               return 0;
+           }
+       } else {
+           /* duplicate or reordered packet */
+       }
+       s-&amp;gt;received++;
+       return 1;
+   }</pre></DIV><PRE>
+    <span class="p_word">def</span> updateseq(self, seq):
+        <span class="p_triple">'''Update the source properties based on received RTP packet's seq.
+        &gt;&gt;&gt; print Source(1).newfound(10).updateseq(12).updateseq(13) # simulate loss of 11
+        &lt;Source ssrc=1 items=[] address=None lost=0 fraction=0 pktcount=0 octcount=0 maxseq=13 badseq=12 cycles=0 baseseq=13 probation=0 received=1 expectedprior=0 receivedprior=0 transit=0 jitter=0 lastts=None lastntp=None rtcpdelay=None&gt;
+        '''</span>
+        udelta = seq - self.maxseq
+        <span class="p_word">if</span> self.probation &gt; <span class="p_number">0</span>:
+            <span class="p_word">if</span> seq == self.maxseq+<span class="p_number">1</span>:
+                self.probation, self.maxseq = self.probation - <span class="p_number">1</span>, seq
+                <span class="p_word">if</span> self.probation == <span class="p_number">0</span>:
+                    self.initseq(seq)
+                    self.received = self.received + <span class="p_number">1</span>
+                    <span class="p_word">return</span> self <span class="p_commentline"># True</span>
+            <span class="p_word">else</span>:
+                self.probation, self.maxseq = MIN_SEQUENTIAL-<span class="p_number">1</span>, seq <span class="p_commentline"># at least next one packet should be in sequence</span>
+            <span class="p_word">return</span> self <span class="p_commentline"># False</span>
+        <span class="p_word">elif</span> udelta &lt; MAX_DROPOUT: <span class="p_commentline"># in order, with permissible gap</span>
+            <span class="p_word">if</span> seq &lt; self.maxseq: self.cycles += RTP_SEQ_MOD
+            self.maxseq = seq
+        <span class="p_word">elif</span> udelta &lt;= RTP_SEQ_MOD - MAX_MISORDER: <span class="p_commentline"># the seq made a very large jump</span>
+            <span class="p_word">if</span> seq == self.badseq: self.initseq(seq) <span class="p_commentline"># probably the other side reset the seq</span>
+            <span class="p_word">else</span>: 
+                self.badseq = (seq + <span class="p_number">1</span>) &amp; (RTP_SEQ_MOD-<span class="p_number">1</span>)
+                <span class="p_word">return</span> self <span class="p_commentline"># False</span>
+        self.received = self.received + <span class="p_number">1</span>
+        <span class="p_word">return</span> self <span class="p_commentline"># True</span>
+
+
+</PRE><DIV class="commentbox">From RFC3550 p.94<pre>A.8 Estimating the Interarrival Jitter
+
+   The code fragments below implement the algorithm given in Section
+   6.4.1 for calculating an estimate of the statistical variance of the
+   RTP data interarrival time to be inserted in the interarrival jitter
+   field of reception reports.  The inputs are r-&amp;gt;ts, the timestamp from
+   the incoming packet, and arrival, the current time in the same units.
+   Here s points to state for the source; s-&amp;gt;transit holds the relative
+   transit time for the previous packet, and s-&amp;gt;jitter holds the
+   estimated jitter.  The jitter field of the reception report is
+   measured in timestamp units and expressed as an unsigned integer, but
+   the jitter estimate is kept in a floating point.  As each data packet
+   arrives, the jitter estimate is updated:
+
+      int transit = arrival - r-&amp;gt;ts;
+      int d = transit - s-&amp;gt;transit;
+      s-&amp;gt;transit = transit;
+      if (d &amp;lt; 0) d = -d;
+      s-&amp;gt;jitter += (1./16.) * ((double)d - s-&amp;gt;jitter);
+
+   When a reception report block (to which rr points) is generated for
+   this member, the current jitter estimate is returned:
+
+      rr-&amp;gt;jitter = (u_int32) s-&amp;gt;jitter;
+
+   Alternatively, the jitter estimate can be kept as an integer, but
+   scaled to reduce round-off error.  The calculation is the same except
+   for the last line:
+
+      s-&amp;gt;jitter += d - ((s-&amp;gt;jitter + 8) &amp;gt;&amp;gt; 4);
+
+   In this case, the estimate is sampled for the reception report as:
+
+      rr-&amp;gt;jitter = s-&amp;gt;jitter &amp;gt;&amp;gt; 4;</pre></DIV><PRE>
+    <span class="p_word">def</span> updatejitter(self, ts, arrival):
+        <span class="p_triple">'''Update the jitter based on ts and arrival (in ts units). 
+        &gt;&gt;&gt; s = Source(1).newfound(10).updatejitter(1000, 0).updatejitter(1160, 160).updatejitter(1330, 320)
+        &gt;&gt;&gt; print s.transit, int(s.jitter)
+        -1010 55
+        '''</span>
+        transit = int(arrival - ts)
+        d, self.transit = int(math.fabs(transit - self.transit)), transit
+        self.jitter += (<span class="p_number">1</span>/<span class="p_number">16.</span>) * (d-self.jitter)
+        <span class="p_word">return</span> self
+    
+
+</PRE><DIV class="commentbox">From RFC3550 p.83<pre>A.3 Determining Number of Packets Expected and Lost
+
+   In order to compute packet loss rates, the number of RTP packets
+   expected and actually received from each source needs to be known,
+   using per-source state information defined in struct source
+   referenced via pointer s in the code below.  The number of packets
+   received is simply the count of packets as they arrive, including any
+   late or duplicate packets.  The number of packets expected can be
+   computed by the receiver as the difference between the highest
+   sequence number received (s-&amp;gt;max_seq) and the first sequence number
+   received (s-&amp;gt;base_seq).  Since the sequence number is only 16 bits
+   and will wrap around, it is necessary to extend the highest sequence
+   number with the (shifted) count of sequence number wraparounds
+   (s-&amp;gt;cycles).  Both the received packet count and the count of cycles
+   are maintained the RTP header validity check routine in Appendix A.1.
+
+      extended_max = s-&amp;gt;cycles + s-&amp;gt;max_seq;
+      expected = extended_max - s-&amp;gt;base_seq + 1;
+
+   The number of packets lost is defined to be the number of packets
+   expected less the number of packets actually received:
+
+      lost = expected - s-&amp;gt;received;
+
+   Since this signed number is carried in 24 bits, it should be clamped
+   at 0x7fffff for positive loss or 0x800000 for negative loss rather
+   than wrapping around.
+
+   The fraction of packets lost during the last reporting interval
+   (since the previous SR or RR packet was sent) is calculated from
+   differences in the expected and received packet counts across the
+   interval, where expected_prior and received_prior are the values
+   saved when the previous reception report was generated:
+
+      expected_interval = expected - s-&amp;gt;expected_prior;
+      s-&amp;gt;expected_prior = expected;
+      received_interval = s-&amp;gt;received - s-&amp;gt;received_prior;
+      s-&amp;gt;received_prior = s-&amp;gt;received;
+      lost_interval = expected_interval - received_interval;
+      if (expected_interval == 0 || lost_interval &amp;lt;= 0) fraction = 0;
+      else fraction = (lost_interval &amp;lt;&amp;lt; 8) / expected_interval;
+
+   The resulting fraction is an 8-bit fixed point number with the binary
+   point at the left edge.</pre></DIV><PRE>
+    <span class="p_word">def</span> updatelostandexpected(self):
+        <span class="p_triple">'''Update the number of packets expected and lost.
+        &gt;&gt;&gt; s = Source(1).newfound(10).updateseq(11).updateseq(12).updateseq(14).updatelostandexpected() # similar loss of 13
+        &gt;&gt;&gt; print s.lost, s.fraction, s.expectedprior, s.receivedprior
+        1 85 3 2
+        '''</span>
+        extendedmax = self.cycles + self.maxseq
+        expected = extendedmax - self.baseseq + <span class="p_number">1</span>
+        self.lost = expected - self.received
+        expectedinterval = expected - self.expectedprior
+        self.expectedprior = expected
+        receivedinterval = self.received - self.receivedprior
+        self.receivedprior = self.received
+        lostinterval = expectedinterval - receivedinterval
+        <span class="p_word">if</span> expectedinterval == <span class="p_number">0</span> <span class="p_word">or</span> lostinterval &lt;= <span class="p_number">0</span>: self.fraction = <span class="p_number">0</span>
+        <span class="p_word">else</span>: self.fraction = (lostinterval &lt;&lt; <span class="p_number">8</span>) / expectedinterval
+        <span class="p_word">return</span> self
+    
+    <span class="p_word">def</span> storereport(self, fraction, lost, jitter, delay):
+        self.fraction, self.lost, self.jitter, self.rtcpdelay = fraction, lost, jitter, delay
+        <span class="p_word">return</span> self
+        
+
+<span class="p_word">def</span> time2ntp(value):
+    <span class="p_triple">'''Convert from time.time() output to NTP (sec, frac).
+    &gt;&gt;&gt; print time2ntp(0.5)
+    (2208988800L, 2147483648L)
+    '''</span>
+    value = value + <span class="p_number">2208988800</span>
+    <span class="p_word">return</span> (int(value), int((value-int(value)) * <span class="p_number">4294967296.</span>))
+
+<span class="p_word">def</span> ntp2time(value):
+    <span class="p_triple">'''Convert from NTP (sec, frac) to time similar to time.time() output.
+    &gt;&gt;&gt; print ntp2time(time2ntp(10.5))
+    10.5
+    '''</span>
+    <span class="p_word">return</span> (value[<span class="p_number">0</span>] + value[<span class="p_number">1</span>] / <span class="p_number">4294967296.</span>) - <span class="p_number">2208988800</span>
+    
+
+</PRE><DIV class="commentbox">From RFC3550 p.9<pre>   RTP session: An association among a set of participants
+      communicating with RTP.  A participant may be involved in multiple
+      RTP sessions at the same time.  In a multimedia session, each
+      medium is typically carried in a separate RTP session with its own
+      RTCP packets unless the the encoding itself multiplexes multiple
+      media into a single data stream.  A participant distinguishes
+      multiple RTP sessions by reception of different sessions using
+      different pairs of destination transport addresses, where a pair
+      of transport addresses comprises one network address plus a pair
+      of ports for RTP and RTCP.  All participants in an RTP session may
+      share a common destination transport address pair, as in the case
+      of IP multicast, or the pairs may be different for each
+      participant, as in the case of individual unicast network
+      addresses and port pairs.  In the unicast case, a participant may
+      receive from all other participants in the session using the same
+      pair of ports, or may use a distinct pair of ports for each.
+
+
+      The distinguishing feature of an RTP session is that each
+      maintains a full, separate space of SSRC identifiers (defined
+      next).  The set of participants included in one RTP session
+      consists of those that can receive an SSRC identifier transmitted
+      by any one of the participants either in RTP as the SSRC or a CSRC
+      (also defined below) or in RTCP.  For example, consider a three-
+      party conference implemented using unicast UDP with each
+      participant receiving from the other two on separate port pairs.
+      If each participant sends RTCP feedback about data received from
+      one other participant only back to that participant, then the
+      conference is composed of three separate point-to-point RTP
+      sessions.  If each participant provides RTCP feedback about its
+      reception of one other participant to both of the other
+      participants, then the conference is composed of one multi-party
+      RTP session.  The latter case simulates the behavior that would
+      occur with IP multicast communication among the three
+      participants.
+
+      The RTP framework allows the variations defined here, but a
+      particular control protocol or application design will usually
+      impose constraints on these variations.</pre></DIV><PRE>
+<span class="p_word">class</span> Session(object):
+    <span class="p_triple">'''A RTP session.'''</span>
+    <span class="p_word">def</span> __init__(self, app, **kwargs):
+        <span class="p_triple">'''Start an RTP session for the given network with additional optional keyword
+        arguments such as pt, rate, bandwidth, fraction, member, ssrc, cname, seq0, ts0.
+        
+        @param pt: the optional payload type, default 96.
+        @param rate: the optional sampling rate, default 8000.
+        @param bandwidth: the optional total session bandwidth, default 64000.
+        @param fraction: the optional fraction to use for RTCP, default 0.05.
+        @param member: the optional Source object for this member, default constructs a new.
+        @param ssrc: if member is absent, then optional SSRC for Source, default a random number.
+        @param cname: if member is absent, then optional CNAME for Source, default is ssrc@hostname.
+        @param seq0: the optional initial sequence number, default a random number.
+        @param ts0: the optional initial timestamp, default a random number.
+        '''</span>
+        self.app, self.pt, self.rate, self.bandwidth, self.fraction, self.member    = \
+          app, kwargs.get(<span class="p_string">'pt'</span>, <span class="p_number">96</span>), kwargs.get(<span class="p_string">'rate'</span>, <span class="p_number">8000</span>), kwargs.get(<span class="p_string">'bandwidth'</span>, <span class="p_number">64000</span>), kwargs.get(<span class="p_string">'fraction'</span>, <span class="p_number">0.05</span>), kwargs.get(<span class="p_string">'member'</span>, <span class="p_word">None</span>)
+        <span class="p_word">if</span> <span class="p_word">not</span> self.member:
+            ssrc  = kwargs.get(<span class="p_string">'ssrc'</span>, random.randint(<span class="p_number">0</span>, <span class="p_number">2</span>**<span class="p_number">32</span>))
+            cname = kwargs.get(<span class="p_string">'cname'</span>, <span class="p_string">'%d@%s'</span>%(ssrc, getlocaladdr()))
+            self.member = Source(ssrc=ssrc, items=[(RTCP.CNAME, cname)])
+        self.seq0, self.ts0 = kwargs.get(<span class="p_string">'seq0'</span>, self.randint(<span class="p_number">0</span>, <span class="p_number">2</span>**<span class="p_number">16</span>)), kwargs.get(<span class="p_string">'ts0'</span>, self.randint(<span class="p_number">0</span>, <span class="p_number">2</span>**<span class="p_number">32</span>))
+        self.seq = self.ts = self.ts1 = <span class="p_number">0</span> <span class="p_commentline"># recent seq and ts. ts1 is base time.</span>
+        self.ntp = self.ntp1 = self.tc    <span class="p_commentline"># recent NTP time and base time.</span>
+        
+        self.rtpsent = self.rtcpsent = self.byesent = self.running = False
+        
+
+</PRE><DIV class="commentbox">From RFC3550 p.29<pre>   To execute these rules, a session participant must maintain several
+   pieces of state:
+
+   tp: the last time an RTCP packet was transmitted;
+
+   tc: the current time;
+
+   tn: the next scheduled transmission time of an RTCP packet;
+
+   pmembers: the estimated number of session members at the time tn
+      was last recomputed;
+
+   members: the most current estimate for the number of session
+      members;
+
+   senders: the most current estimate for the number of senders in
+      the session;
+
+   rtcp_bw: The target RTCP bandwidth, i.e., the total bandwidth
+      that will be used for RTCP packets by all members of this session,
+      in octets per second.  This will be a specified fraction of the
+      "session bandwidth" parameter supplied to the application at
+      startup.
+
+   we_sent: Flag that is true if the application has sent data
+      since the 2nd previous RTCP report was transmitted.
+
+   avg_rtcp_size: The average compound RTCP packet size, in octets,
+      over all RTCP packets sent and received by this participant.  The
+      size includes lower-layer transport and network protocol headers
+      (e.g., UDP and IP) as explained in Section 6.2.
+
+   initial: Flag that is true if the application has not yet sent
+      an RTCP packet.</pre></DIV><PRE>
+        self.tp = self.tn = <span class="p_number">0</span> <span class="p_commentline"># tp=last RTCP transmit time, tc=current time, tn=next RTCP scheduled time</span>
+        self.members, self.senders = dict(), dict()  <span class="p_commentline"># TODO: this should be a smart set+map data structure</span>
+        self.pmembers = <span class="p_number">0</span>
+        self.rtcpbw = self.bandwidth*self.fraction
+        self.wesent, self.initial, self.avgrtcpsize = False, True, <span class="p_number">200</span>
+        
+    <span class="p_word">def</span> randint(self, low=<span class="p_number">0</span>, high=<span class="p_number">0x100000000</span>):
+        <span class="p_triple">'''Return a random number between [low, high).'''</span>
+        <span class="p_word">return</span> random.randint(low, high) <span class="p_commentline"># TODO: use the algorithm defined in RFC to implement this instead of using random</span>
+    
+    @property
+    <span class="p_word">def</span> tc(self):
+        <span class="p_triple">'''The current time property in double.'''</span>
+        <span class="p_word">return</span> time.time()
+    
+    @property
+    <span class="p_word">def</span> tsnow(self):
+        <span class="p_triple">'''The current RTP timestamp in ts unit based on current time.'''</span>
+        <span class="p_word">return</span> int(self.ts + (self.tc - self.ntp)*((self.ts - self.ts1) / (self.ntp - self.ntp1))) &amp; <span class="p_number">0xffffffff</span>
+        
+    <span class="p_word">def</span> start(self):  
+        <span class="p_triple">'''Start the session, starts sending RTCP and RTP, as well as receiving them.'''</span>
+        <span class="p_word">if</span> self.running: <span class="p_word">return</span> <span class="p_commentline"># already running, don't run again.</span>
+        
+        self.senders.clear(); self.members.clear(); <span class="p_commentline"># add ourself in members.</span>
+        self.pmembers = <span class="p_number">1</span>
+        self.members[self.member.ssrc] = self.member
+        self.wesent = self.rtcpsent = False
+
+        delay = self.rtcpinterval(True) <span class="p_commentline"># compute first RTCP interval</span>
+        self.tp, self.tn = self.tc, self.tc + delay
+        
+        self.timer = timer = self.app.createTimer(self) <span class="p_commentline"># schedule a timer to send RTCP</span>
+        timer.start(delay*<span class="p_number">1000</span>)
+        
+        self.running = True
+        self.app.starting(self)
+        
+    <span class="p_word">def</span> stop(self, reason=<span class="p_string">''</span>):
+        <span class="p_triple">'''Stop or close the session, hence stops sending or receiving packets.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.running: <span class="p_word">return</span> <span class="p_commentline"># not running already. Don't bother.</span>
+        sendBye(reason=reason)
+        self.members.clear()
+        self.senders.clear()
+        self.pmembers = <span class="p_number">0</span>
+        <span class="p_word">if</span> self.timer: 
+            self.timer.stop()
+            self.timer = <span class="p_word">None</span>
+        self.running = False
+        self.app.stopping(self)
+    
+    <span class="p_word">def</span> send(self, payload=<span class="p_string">''</span>, ts=<span class="p_number">0</span>, marker=False, pt=<span class="p_word">None</span>):
+        <span class="p_triple">'''Send a RTP packet using the given payload, timestamp and marker.'''</span>
+        member = self.member
+        member.pktcount = member.pktcount + <span class="p_number">1</span>
+        member.octcount = member.octcount + len(payload)
+        self.ts, self.ntp = ts, self.tc
+        <span class="p_word">if</span> self.ts1 == <span class="p_number">0</span>: self.ts1 = ts
+        self.rtpsent = self.wesent = True
+
+        <span class="p_word">if</span> pt <span class="p_word">is</span> <span class="p_word">None</span>: pt = self.pt
+        pkt = RTP(pt=pt, marker=marker, seq=self.seq0+self.seq, ts=self.ts0+ts, ssrc=member.ssrc, payload=payload)
+        self.app.sendRTP(pkt)
+
+        self.seq = self.seq + <span class="p_number">1</span>
+        
+    <span class="p_word">def</span> receivedRTP(self, data, src, dest):
+        <span class="p_triple">'''Received an RTP packet on the network. Process it and invoke app.received() callback'''</span>
+        p = RTP(data)
+
+</PRE><DIV class="commentbox">From RFC3550 p.31<pre>6.3.3 Receiving an RTP or Non-BYE RTCP Packet
+
+   When an RTP or RTCP packet is received from a participant whose SSRC
+   is not in the member table, the SSRC is added to the table, and the
+   value for members is updated once the participant has been validated
+   as described in Section 6.2.1.  The same processing occurs for each
+   CSRC in a validated RTP packet.
+
+   When an RTP packet is received from a participant whose SSRC is not
+   in the sender table, the SSRC is added to the table, and the value
+   for senders is updated.
+
+   For each compound RTCP packet received, the value of avg_rtcp_size is
+   updated:
+
+      avg_rtcp_size = (1/16) * packet_size + (15/16) * avg_rtcp_size
+
+   where packet_size is the size of the RTCP packet just received.</pre></DIV><PRE>
+        member = <span class="p_word">None</span>
+        <span class="p_word">if</span> p.ssrc <span class="p_word">not</span> <span class="p_word">in</span> self.members <span class="p_word">and</span> self.running:  
+            member = self.members[p.ssrc] = Source(ssrc=p.ssrc).newfound(p.seq)
+        <span class="p_word">elif</span> self.running: 
+            member = self.members[p.ssrc]
+        <span class="p_word">if</span> p.ssrc <span class="p_word">not</span> <span class="p_word">in</span> self.senders <span class="p_word">and</span> self.running:
+            self.senders[p.ssrc] = self.members[p.ssrc]
+        <span class="p_word">if</span> member:
+            member.received = member.received + <span class="p_number">1</span>
+            member.timeout = <span class="p_number">0</span>
+            member.address = src
+            member.updateseq(p.seq)
+            member.updatejitter(p.ts, self.tsnow)
+            self.app.received(member, p)
+        
+    <span class="p_word">def</span> receivedRTCP(self, data, src, dest):
+        <span class="p_triple">'''Received an RTCP packet on network. Process it locally.'''</span>
+        <span class="p_word">for</span> p <span class="p_word">in</span> RTCP(data):  <span class="p_commentline"># for each individual packet</span>
+
+</PRE><DIV class="commentbox">From RFC3550 p.92<pre>   void OnReceive(packet p,
+                  event e,
+                  int *members,
+                  int *pmembers,
+                  int *senders,
+                  double *avg_rtcp_size,
+                  double *tp,
+                  double tc,
+                  double tn)
+   {
+       /* What we do depends on whether we have left the group, and are
+        * waiting to send a BYE (TypeOfEvent(e) == EVENT_BYE) or an RTCP
+        * report.  p represents the packet that was just received.  */
+
+       if (PacketType(p) == PACKET_RTCP_REPORT) {
+           if (NewMember(p) &amp;&amp; (TypeOfEvent(e) == EVENT_REPORT)) {
+               AddMember(p);
+               *members += 1;
+           }
+           *avg_rtcp_size = (1./16.)*ReceivedPacketSize(p) +
+               (15./16.)*(*avg_rtcp_size);
+       } else if (PacketType(p) == PACKET_RTP) {
+           if (NewMember(p) &amp;&amp; (TypeOfEvent(e) == EVENT_REPORT)) {
+               AddMember(p);
+               *members += 1;
+           }
+           if (NewSender(p) &amp;&amp; (TypeOfEvent(e) == EVENT_REPORT)) {
+               AddSender(p);
+               *senders += 1;
+           }
+       } else if (PacketType(p) == PACKET_BYE) {
+           *avg_rtcp_size = (1./16.)*ReceivedPacketSize(p) +
+               (15./16.)*(*avg_rtcp_size);
+
+           if (TypeOfEvent(e) == EVENT_REPORT) {
+               if (NewSender(p) == FALSE) {
+                   RemoveSender(p);
+                   *senders -= 1;
+               }
+
+               if (NewMember(p) == FALSE) {
+                   RemoveMember(p);
+                   *members -= 1;
+               }
+
+               if (*members &amp;lt; *pmembers) {
+                   tn = tc +
+                       (((double) *members)/(*pmembers))*(tn - tc);
+                   *tp = tc -
+                       (((double) *members)/(*pmembers))*(tc - *tp);
+
+                   /* Reschedule the next report for time tn */
+
+                   Reschedule(tn, e);
+                   *pmembers = *members;
+               }
+
+           } else if (TypeOfEvent(e) == EVENT_BYE) {
+               *members += 1;
+           }
+       }
+   }</pre></DIV><PRE>
+            <span class="p_word">if</span> p.pt == RTCP.SR <span class="p_word">or</span> p.pt == RTCP.RR:
+                <span class="p_word">if</span> p.ssrc <span class="p_word">not</span> <span class="p_word">in</span> self.members <span class="p_word">and</span> self.running:
+                    self.members[p.ssrc] = Source(ssrc=p.ssrc)
+                member = self.members[p.ssrc] <span class="p_commentline"># identify the member</span>
+                <span class="p_word">if</span> p.pt == RTCP.SR: 
+                    member.lastts  = p.ts
+                    member.lastntp = p.ntp
+                member.timeout = <span class="p_number">0</span>
+                <span class="p_word">for</span> r <span class="p_word">in</span> p.reports:
+                    <span class="p_word">if</span> r.ssrc == self.member.ssrc:
+                        self.member.storereport(r.flost, r.clost, r.jitter, r.dlsr/<span class="p_number">65536.</span>)
+                        <span class="p_word">break</span>
+            <span class="p_word">elif</span> p.pt == RTCP.SDES:
+                <span class="p_word">for</span> ssrc,items <span class="p_word">in</span> p.items:
+                    <span class="p_word">if</span> ssrc <span class="p_word">not</span> <span class="p_word">in</span> self.members:
+                        member = self.members[ssrc] = Source(ssrc=ssrc)
+                    <span class="p_word">else</span>:
+                        member = self.members[ssrc]
+                    member.items = items <span class="p_commentline"># override previous items list</span>
+
+</PRE><DIV class="commentbox">From RFC3550 p.31<pre>6.3.4 Receiving an RTCP BYE Packet
+
+   Except as described in Section 6.3.7 for the case when an RTCP BYE is
+   to be transmitted, if the received packet is an RTCP BYE packet, the
+   SSRC is checked against the member table.  If present, the entry is
+   removed from the table, and the value for members is updated.  The
+   SSRC is then checked against the sender table.  If present, the entry
+   is removed from the table, and the value for senders is updated.
+
+   Furthermore, to make the transmission rate of RTCP packets more
+   adaptive to changes in group membership, the following "reverse
+   reconsideration" algorithm SHOULD be executed when a BYE packet is
+   received that reduces members to a value less than pmembers:
+
+   o  The value for tn is updated according to the following formula:
+
+         tn = tc + (members/pmembers) * (tn - tc)
+
+   o  The value for tp is updated according the following formula:
+
+         tp = tc - (members/pmembers) * (tc - tp).
+
+
+   o  The next RTCP packet is rescheduled for transmission at time tn,
+      which is now earlier.
+
+   o  The value of pmembers is set equal to members.
+
+   This algorithm does not prevent the group size estimate from
+   incorrectly dropping to zero for a short time due to premature
+   timeouts when most participants of a large session leave at once but
+   some remain.  The algorithm does make the estimate return to the
+   correct value more rapidly.  This situation is unusual enough and the
+   consequences are sufficiently harmless that this problem is deemed
+   only a secondary concern.</pre></DIV><PRE>
+            <span class="p_word">elif</span> p.pt == RTCP.BYE:
+                <span class="p_word">for</span> ssrc <span class="p_word">in</span> p.ssrcs:
+                    <span class="p_word">if</span> ssrc <span class="p_word">in</span> self.members:
+                        <span class="p_word">del</span> self.members[ssrc]
+                    <span class="p_word">if</span> ssrc <span class="p_word">in</span> self.senders:
+                        <span class="p_word">del</span> self.senders[ssrc]
+                    <span class="p_word">if</span> self.running:
+                        self.timer.stop()
+                        self.tn = self.tc + (len(self.members)/self.pmembers) * (self.tn-self.tc)
+                        self.tp = self.tc - (len(self.members)/self.pmembers) * (self.tc-self.tp)
+                        self.timer.start((self.tn - self.tc) * <span class="p_number">1000</span>)
+                        self.pmembers = len(self.pmembers)
+                    
+
+</PRE><DIV class="commentbox">From RFC3550 p.31<pre>   For each compound RTCP packet received, the value of avg_rtcp_size is
+   updated:
+
+      avg_rtcp_size = (1/16) * packet_size + (15/16) * avg_rtcp_size
+
+   where packet_size is the size of the RTCP packet just received.</pre></DIV><PRE>
+        self.avgrtcpsize = (<span class="p_number">1</span>/<span class="p_number">16.</span>)*len(data) + (<span class="p_number">15</span>/<span class="p_number">16.</span>)*self.avgrtcpsize
+        
+
+</PRE><DIV class="commentbox">From RFC3550 p.29<pre>6.3.1 Computing the RTCP Transmission Interval
+
+   To maintain scalability, the average interval between packets from a
+   session participant should scale with the group size.  This interval
+   is called the calculated interval.  It is obtained by combining a
+   number of the pieces of state described above.  The calculated
+   interval T is then determined as follows:
+
+
+   1. If the number of senders is less than or equal to 25% of the
+      membership (members), the interval depends on whether the
+      participant is a sender or not (based on the value of we_sent).
+      If the participant is a sender (we_sent true), the constant C is
+      set to the average RTCP packet size (avg_rtcp_size) divided by 25%
+      of the RTCP bandwidth (rtcp_bw), and the constant n is set to the
+      number of senders.  If we_sent is not true, the constant C is set
+      to the average RTCP packet size divided by 75% of the RTCP
+      bandwidth.  The constant n is set to the number of receivers
+      (members - senders).  If the number of senders is greater than
+      25%, senders and receivers are treated together.  The constant C
+      is set to the average RTCP packet size divided by the total RTCP
+      bandwidth and n is set to the total number of members.  As stated
+      in Section 6.2, an RTP profile MAY specify that the RTCP bandwidth
+      may be explicitly defined by two separate parameters (call them S
+      and R) for those participants which are senders and those which
+      are not.  In that case, the 25% fraction becomes S/(S+R) and the
+      75% fraction becomes R/(S+R).  Note that if R is zero, the
+      percentage of senders is never greater than S/(S+R), and the
+      implementation must avoid division by zero.
+
+   2. If the participant has not yet sent an RTCP packet (the variable
+      initial is true), the constant Tmin is set to 2.5 seconds, else it
+      is set to 5 seconds.
+
+   3. The deterministic calculated interval Td is set to max(Tmin, n*C).
+
+   4. The calculated interval T is set to a number uniformly distributed
+      between 0.5 and 1.5 times the deterministic calculated interval.
+
+   5. The resulting value of T is divided by e-3/2=1.21828 to compensate
+      for the fact that the timer reconsideration algorithm converges to
+      a value of the RTCP bandwidth below the intended average.
+
+   This procedure results in an interval which is random, but which, on
+   average, gives at least 25% of the RTCP bandwidth to senders and the
+   rest to receivers.  If the senders constitute more than one quarter
+   of the membership, this procedure splits the bandwidth equally among
+   all participants, on average.</pre></DIV><PRE>
+    <span class="p_word">def</span> rtcpinterval(self, initial=False):
+        <span class="p_word">if</span> len(self.senders) &lt; <span class="p_number">0.25</span>*len(self.members): 
+            <span class="p_word">if</span> self.wesent: C, n = self.avgrtcpsize / (<span class="p_number">0.25</span>*self.rtcpbw), len(self.senders)
+            <span class="p_word">else</span>: C, n = self.avgrtcpsize / (<span class="p_number">0.75</span>*self.rtcpbw), len(self.members) - len(self.senders)
+        <span class="p_word">else</span>: C, n = self.avgrtcpsize / self.rtcpbw, len(self.members)
+        <span class="p_word">return</span> (min(initial <span class="p_word">and</span> <span class="p_number">2.5</span> <span class="p_word">or</span> <span class="p_number">5.0</span>, n*C)) * (random.random() + <span class="p_number">0.5</span>) / <span class="p_number">1.21828</span>
+
+
+</PRE><DIV class="commentbox">From RFC3550 p.90<pre>   void OnExpire(event e,
+                 int    members,
+                 int    senders,
+                 double rtcp_bw,
+                 int    we_sent,
+                 double *avg_rtcp_size,
+                 int    *initial,
+                 time_tp   tc,
+                 time_tp   *tp,
+                 int    *pmembers)
+   {
+       /* This function is responsible for deciding whether to send an
+        * RTCP report or BYE packet now, or to reschedule transmission.
+        * It is also responsible for updating the pmembers, initial, tp,
+        * and avg_rtcp_size state variables.  This function should be
+        * called upon expiration of the event timer used by Schedule().
+        */
+
+       double t;     /* Interval */
+       double tn;    /* Next transmit time */
+
+       /* In the case of a BYE, we use "timer reconsideration" to
+        * reschedule the transmission of the BYE if necessary */
+
+       if (TypeOfEvent(e) == EVENT_BYE) {
+           t = rtcp_interval(members,
+                             senders,
+                             rtcp_bw,
+                             we_sent,
+                             *avg_rtcp_size,
+                             *initial);
+           tn = *tp + t;
+           if (tn &amp;lt;= tc) {
+               SendBYEPacket(e);
+               exit(1);
+           } else {
+               Schedule(tn, e);
+           }
+
+       } else if (TypeOfEvent(e) == EVENT_REPORT) {
+           t = rtcp_interval(members,
+                             senders,
+                             rtcp_bw,
+                             we_sent,
+                             *avg_rtcp_size,
+                             *initial);
+           tn = *tp + t;
+           if (tn &amp;lt;= tc) {
+               SendRTCPReport(e);
+               *avg_rtcp_size = (1./16.)*SentPacketSize(e) +
+                   (15./16.)*(*avg_rtcp_size);
+               *tp = tc;
+
+               /* We must redraw the interval.  Don't reuse the
+                  one computed above, since its not actually
+                  distributed the same, as we are conditioned
+                  on it being small enough to cause a packet to
+                  be sent */
+
+               t = rtcp_interval(members,
+                                 senders,
+                                 rtcp_bw,
+                                 we_sent,
+                                 *avg_rtcp_size,
+                                 *initial);
+
+               Schedule(t+tc,e);
+               *initial = 0;
+           } else {
+               Schedule(tn, e);
+           }
+           *pmembers = members;
+       }
+   }</pre></DIV><PRE>
+    <span class="p_word">def</span> timedout(self, timer):
+        <span class="p_triple">'''Timeout invoked to send out an RTCP.'''</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> self.running: <span class="p_commentline"># need to send BYE</span>
+            delay = self.rtcpinterval()
+            self.tn = self.tp + delay
+            <span class="p_word">if</span> self.tn &lt;= self.tc:
+                self.sendBYE()
+            <span class="p_word">else</span>:
+                self.timer.start((self.tn - self.tc) * <span class="p_number">1000</span>)
+        <span class="p_word">else</span>: <span class="p_commentline"># need to send report</span>
+            delay = self.rtcpinterval()
+            self.tn = self.tp + delay
+            <span class="p_word">if</span> self.tn &lt;= self.tc:
+                size = self.sendRTCP()
+                self.avgrtcpsize = (<span class="p_number">1</span>/<span class="p_number">16.</span>)*size + (<span class="p_number">15</span>/<span class="p_number">16.</span>)*self.avgrtcpsize
+                self.tp = self.tc
+                delay = self.rtcpinterval()
+                self.initial = False
+            <span class="p_word">else</span>:
+                delay = self.tn - self.tc
+            self.pmembers = len(self.members)
+            self.timer.start(delay*<span class="p_number">1000</span>) <span class="p_commentline"># restart the timer</span>
+             
+    <span class="p_word">def</span> sendBYE(self, reason=<span class="p_string">''</span>):    
+        <span class="p_word">if</span> self.rtpsent <span class="p_word">and</span> self.rtcpsent:
+            sendRTCP(True)
+            
+    <span class="p_word">def</span> sendRTCP(self, sendbye=False):
+        <span class="p_triple">'''Send a RTCP packet with SR or RR and SDES, and optionally BYE if sendbye is True.
+        It returns the size of the packet sent.'''</span>
+        reports = []
+        toremove = []
+        <span class="p_word">for</span> member <span class="p_word">in</span> self.members.values():
+            <span class="p_word">if</span> member.received &gt; <span class="p_number">0</span>:
+                ntp1, ntp2 = time2ntp(member.lastntp)
+                lsr  = ((ntp1 &amp; <span class="p_number">0x0ffff</span>) &lt;&lt; <span class="p_number">16</span>) | ((ntp2 &gt;&gt; <span class="p_number">16</span>) &amp; <span class="p_number">0x0ffff</span>)
+                dlsr = int((self.tc - member.lastntp)*<span class="p_number">65536</span>)
+                member.updatelostandexpected()
+                report = RTCP.packet(ssrc=member.ssrc, flost=member.fraction, clost=member.lost, hseq=member.cycles+member.maxseq, jitter=int(member.jitter), lsr=lsr, dlsr=dlsr)
+                reports.append(report)
+                member.received = <span class="p_number">0</span>
+            <span class="p_word">if</span> member.timeout == <span class="p_number">5</span>: <span class="p_commentline"># if no packet within five RTCP intervals</span>
+                toremove.append(member.ssrc) <span class="p_commentline"># schedule it to be removed</span>
+            <span class="p_word">else</span>:
+                member.timeout = member.timeout + <span class="p_number">1</span>
+        <span class="p_word">if</span> toremove: <span class="p_commentline"># remove all timedout members</span>
+            <span class="p_word">for</span> ssrc <span class="p_word">in</span> toremove: <span class="p_word">del</span> self.members[ssrc]
+
+        packet = RTCP()
+        <span class="p_word">if</span> self.wesent: <span class="p_commentline"># add a sender report</span>
+            p = RTCP.packet(pt=RTCP.SR, ntp=self.tc, ts=self.tsnow+self.ts0, pktcount=self.member.pktcount, octcount=self.member.octcount, reports=reports[:<span class="p_number">32</span>])
+            self.wesent = False
+        <span class="p_word">else</span>:
+            p = RTCP.packet(pt=RTCP.RR, reports=reports[:<span class="p_number">32</span>])
+        packet.append(p)
+        
+        <span class="p_word">if</span> len(reports)&gt;=<span class="p_number">32</span>: <span class="p_commentline"># add additional RR if needed</span>
+            reports = reports[<span class="p_number">32</span>:]
+            <span class="p_word">while</span> reports:
+                p, reports = RTCP.packet(pt=RTCP.RR, reports=reports[:<span class="p_number">32</span>]), reports[<span class="p_number">32</span>:]
+                packet.append(p)
+        
+        p = RTCP.packet(pt=RTCP.SDES, items=self.member.items) <span class="p_commentline"># add SDES. Should add items only every few packets, except for CNAME which is added in every.</span>
+        packet.append(p)
+        
+        <span class="p_word">if</span> sendbye: <span class="p_commentline"># add a BYE packet as well</span>
+            p = RTCP.packet(pt=RTCP.BYE, ssrcs=[self.member.ssrc]) <span class="p_commentline"># Need to add a reason as well</span>
+            packet.append(p)
+            
+        data = str(packet) <span class="p_commentline"># format for network data</span>
+        self.app.sendRTCP(data) <span class="p_commentline"># invoke app to send the packet</span>
+        self.rtcpsent = True
+        <span class="p_word">return</span> len(data)
+        
+<span class="p_word">class</span> Network(object):
+    <span class="p_triple">'''A network interface that can be implemented by the application for the session,
+    in case of a simple consecutive (even,odd) UDP ports of RTP and RTCP. The useful properties
+    are src and dest, which are tuple ('ip', port) representing source and destination
+    addresses. There are also srcRTCP and destRTCP properties that explicitly allow
+    setting RTCP ports different from RTP. Once created the src property can not be changed.'''</span>
+    <span class="p_word">def</span> __init__(self, app, **kwargs):
+        <span class="p_triple">'''Initialize the network.'''</span>
+        self.app    = app
+        self.src    = kwargs.get(<span class="p_string">'src'</span>, (<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>))
+        self.dest   = kwargs.get(<span class="p_string">'dest'</span>, <span class="p_word">None</span>)
+        self.srcRTCP= kwargs.get(<span class="p_string">'srcRTCP'</span>, (self.src[<span class="p_number">0</span>], self.src[<span class="p_number">1</span>] <span class="p_word">and</span> self.src[<span class="p_number">1</span>]+<span class="p_number">1</span> <span class="p_word">or</span> <span class="p_number">0</span>))
+        self.destRTCP=kwargs.get(<span class="p_string">'destRTCP'</span>, <span class="p_word">None</span>)
+        self.maxsize = kwargs.get(<span class="p_string">'maxsize'</span>, <span class="p_number">1500</span>)
+        
+        <span class="p_word">if</span> self.src[<span class="p_number">1</span>] != <span class="p_number">0</span>:  <span class="p_commentline"># specified port</span>
+            <span class="p_word">try</span>:
+                s1 = socket.socket(type=socket.SOCK_DGRAM)
+                s2 = socket.socket(type=socket.SOCK_DGRAM)
+                s1.bind(self.src)
+                s2.bind(self.srcRTCP)
+            <span class="p_word">except</span>:
+                s1.close(); s2.close();
+                s1 = s2 = <span class="p_word">None</span>
+        <span class="p_word">else</span>:
+            retry = kwargs.get(<span class="p_string">'retry'</span>, <span class="p_number">20</span>)   <span class="p_commentline"># number of retries to do</span>
+            low   = kwargs.get(<span class="p_string">'low'</span>, <span class="p_number">10000</span>)  <span class="p_commentline"># the range low-high for picking port number</span>
+            high  = kwargs.get(<span class="p_string">'high'</span>, <span class="p_number">65535</span>)
+            even  = kwargs.get(<span class="p_string">'even'</span>, True)  <span class="p_commentline"># means by default use even port for RTP</span>
+            <span class="p_word">while</span> retry&gt;<span class="p_number">0</span>:
+                s1 = socket.socket(type=socket.SOCK_DGRAM)
+                s2 = socket.socket(type=socket.SOCK_DGRAM)
+                <span class="p_commentline"># don't bind to any (port=0) to avoid collision in RTCP, where some OS will allocate same port for RTP for retries</span>
+                <span class="p_word">if</span> even:
+                    port = random.randint(low, high) &amp; <span class="p_number">0x0fffe</span> <span class="p_commentline"># should not use high+1?</span>
+                <span class="p_word">else</span>: 
+                    port = random.randint(low, high) | <span class="p_number">0x00001</span>
+                <span class="p_word">try</span>:
+                    s1.bind((self.src[<span class="p_number">0</span>], port))
+                    s2.bind((self.src[<span class="p_number">0</span>], port+<span class="p_number">1</span>))
+                    self.src, self.srcRTCP = s1.getsockname(), s2.getsockname()
+                <span class="p_word">except</span>:
+                    s1.close(); s2.close();
+                    s1 = s2 = <span class="p_word">None</span>
+                retry = retry - <span class="p_number">1</span>
+        <span class="p_word">if</span> s1 <span class="p_word">and</span> s2:
+            self.rtp, self.rtcp = s1, s2
+            multitask.add(self.receiveRTP(s1))
+            multitask.add(self.receiveRTCP(s2))
+        <span class="p_word">else</span>:
+            <span class="p_word">raise</span> ValueError, <span class="p_string">'cannot allocate sockets'</span>
+
+    <span class="p_word">def</span> __del__(self):
+        <span class="p_word">if</span> self.rtp: self.rtp.close(); self.rtp = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.rtcp: self.rtcp.close(); self.rtcp = <span class="p_word">None</span>
+        <span class="p_word">if</span> self.app: self.app = <span class="p_word">None</span>
+        
+    <span class="p_word">def</span> receiveRTP(self, sock):
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> True:
+                data, remote = <span class="p_word">yield</span> multitask.recvfrom(sock, self.maxsize)
+                <span class="p_word">if</span> self.app: self.app.receivedRTP(data, remote, self.src)
+        <span class="p_word">except</span>: <span class="p_word">pass</span>
+        
+    <span class="p_word">def</span> receiveRTCP(self, sock):
+        <span class="p_word">try</span>:
+            <span class="p_word">while</span> True:
+                data, remote = <span class="p_word">yield</span> multitask.recvfrom(sock, self.maxsize)
+                <span class="p_word">if</span> self.app: self.app.receivedRTCP(data, remote, self.src)
+        <span class="p_word">except</span>: <span class="p_word">pass</span>
+        
+    <span class="p_word">def</span> sendRTP(self, data, dest=<span class="p_word">None</span>):
+        <span class="p_word">if</span> self.rtp:
+            <span class="p_word">yield</span> multitask.sendto(self.rtp, data, dest <span class="p_word">or</span> self.dest)
+        
+    <span class="p_word">def</span> sendRTCP(self, data, dest=<span class="p_word">None</span>):
+        <span class="p_word">if</span> self.rtcp:
+            <span class="p_word">yield</span> multitask.sendto(self.rtcp, data, dest <span class="p_word">or</span> self.dest)
+        
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()
+
+
+  </PRE></BODY>
+</HTML>

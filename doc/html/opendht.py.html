@@ -1,0 +1,82 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+<span class="p_triple">'''
+OpenDHT API borrowed from <a href="http://www.opendht.org.">http://www.opendht.org.</a>
+The put, get and remove functions are generators so that we don't block the
+main multitask thread while doing XML-RPC.
+'''</span>
+<span class="p_word">import</span> hashlib, multitask
+<span class="p_word">from</span> xmlrpclib <span class="p_word">import</span> ServerProxy, Binary
+
+_gateway = <span class="p_string">'<a href="http://opendht.nyuld.net:5851/">http://opendht.nyuld.net:5851/</a>'</span>
+<span class="p_commentline">#_gateway = '<a href="http://planetlab3.ucsd.edu:5851/">http://planetlab3.ucsd.edu:5851/</a>' # an alternative gateway</span>
+
+<span class="p_word">def</span> put(key, value, secret=<span class="p_string">''</span>, ttl=<span class="p_number">180</span>, gateway=_gateway):
+    <span class="p_triple">'''Invoke XML-RPC put(H(key), value, H(secret), ttl) on the OpenDHT gateway.
+    Return True on success and False otherwise.'''</span>
+    pxy = ServerProxy(gateway)
+    key = Binary(hashlib.sha1(key).digest())
+    value = Binary(value)
+    shash = Binary(hashlib.sha1(secret).digest())
+    <span class="p_word">if</span> <span class="p_word">not</span> secret:
+        result = pxy.put(key, value, ttl, <span class="p_string">'put.py'</span>) 
+    <span class="p_word">else</span>:
+        result = pxy.put_removable(key, value, <span class="p_string">'SHA'</span>, shash, ttl, <span class="p_string">'put.py'</span>)
+    <span class="p_word">return</span> (result == <span class="p_number">0</span>)
+
+<span class="p_word">def</span> remove(key, value, secret, ttl=<span class="p_number">180</span>, gateway=_gateway):
+    <span class="p_triple">'''Invoke XML-RPC rm(H(key), H(value), secret, ttl) on the OpenDHT gateway.
+    Return True on success and False otherwise.'''</span>
+    pxy = ServerProxy(gateway)
+    key = Binary(hashlib.sha1(key).digest())
+    valueHash = Binary(hashlib.sha1(value).digest())
+    secret = Binary(secret)
+    <span class="p_word">return</span> (pxy.rm(key, valueHash, <span class="p_string">'SHA'</span>, secret, ttl, <span class="p_string">'rm.py'</span>) != <span class="p_number">0</span>)
+
+<span class="p_word">def</span> get(key, maxvals=<span class="p_number">10</span>, gateway=_gateway):
+    <span class="p_triple">'''Invoke XML-RPC get_details(H(key), maxvals) on the OpenDHT gateway.
+    Return a list of tuple(value, remaining-ttl, hash-algorithm, H(secret))
+    where remaining-ttl is int, hash-algorithm is string and H(secret) is lower-case
+    hex of hash of secret starting with 0x.'''</span>
+    pxy = ServerProxy(gateway)
+    pm = Binary(<span class="p_string">''</span>)
+    key = Binary(hashlib.sha1(key).digest())
+    result = []
+    <span class="p_word">while</span> True:
+        vals, pm = pxy.get_details(key, maxvals, pm, <span class="p_string">'get.py'</span>)
+        <span class="p_word">for</span> v <span class="p_word">in</span> vals:
+            <span class="p_commentline"># hex = '0x' + ''.join(['%02x'%ord(x) for x in v[3].data[:4]])</span>
+            result.append([v[<span class="p_number">0</span>].data, v[<span class="p_number">1</span>], v[<span class="p_number">2</span>], v[<span class="p_number">3</span>].data])
+        <span class="p_word">if</span> <span class="p_word">not</span> pm.data: <span class="p_word">break</span>
+    <span class="p_word">return</span> result
+
+<span class="p_word">def</span> lookup(service, maxvals=<span class="p_number">10</span>, gateway=_gateway):
+    <span class="p_triple">'''TODO: Need to implement the ReDiR interface, but for now use get.'''</span>
+    <span class="p_word">return</span> get(service, maxvals, gateway)
+
+<span class="p_word">def</span> advertise(key, value, ttl=<span class="p_number">180</span>, gateway=_gateway):
+    <span class="p_triple">'''TODO: Need to implement the ReDiR interface, but for now use put.'''</span>
+    <span class="p_word">return</span> put(key, value, secret=<span class="p_string">''</span>, ttl=ttl, gateway=gateway)
+
+<span class="p_word">class</span> Connector(object):
+    <span class="p_triple">'''A Connector object implements the put, get and remove methods
+    and also provides failover by connecting to multiple gateways.'''</span>
+    <span class="p_commentline"># TODO: implement this for robustness.</span>
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">print</span> put(<span class="p_string">'kundan'</span>, <span class="p_string">'Kundan Singh'</span>)
+    <span class="p_word">print</span> get(<span class="p_string">'kundan'</span>)
+    <span class="p_word">print</span> put(<span class="p_string">'kundan'</span>, <span class="p_string">'Munna'</span>, <span class="p_string">'donttell'</span>)
+    <span class="p_word">print</span> get(<span class="p_string">'kundan'</span>)
+    <span class="p_word">print</span> remove(<span class="p_string">'kundan'</span>, <span class="p_string">'Munna'</span>, <span class="p_string">'donttell'</span>)
+    <span class="p_word">print</span> get(<span class="p_string">'kundan'</span>)
+
+
+  </PRE></BODY>
+</HTML>

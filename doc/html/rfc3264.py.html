@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_commentline"># Copyright (c) 2007, Kundan Singh. All rights reserved. See LICENSING for details.</span>
+
+</PRE><DIV class="commentbox"><b>This file implements RFC3264 (offer-answer)</b></DIV><PRE>
+<span class="p_commentline"># implements only for unicast</span>
+
+<span class="p_triple">'''
+The SDP offer/answer model for unicast sessions.
+
+Suppose the offerer wants to support PCMU and PCMA audio and H261 video, it can
+use the following code to generate the offer SDP.
+
+from std.rfc4566 import SDP, attrs as format
+from std.rfc3264 import createOffer, createAnswer
+
+&gt;&gt;&gt; audio = SDP.media(media='audio', port='9000')
+&gt;&gt;&gt; audio.fmt = [format(pt=0, name='PCMU', rate=8000), format(pt=8, name='PCMA', rate=8000)]
+&gt;&gt;&gt; video = SDP.media(media='video', port='9002')
+&gt;&gt;&gt; video.fmt = [format(pt=31, name='H261', rate=90000)] 
+&gt;&gt;&gt; offer = createOffer([audio, video])
+&gt;&gt;&gt;
+&gt;&gt;&gt; offer.o.sessionid = offer.o.version = 1192000146 # so that testing doesn't depend on time
+&gt;&gt;&gt; offer.o.host = '192.168.1.66'                    # or IP address
+&gt;&gt;&gt; print str(offer).replace('\\r', '\\\\r').replace('\\n', '\\\\n')
+v=0\\r\\no=- 1192000146 1192000146 IN IP4 192.168.1.66\\r\\ns=-\\r\\nt=0 0\\r\\nm=audio 9000 RTP/AVP 0 8\\r\\na=rtpmap:0 PCMU/8000\\r\\na=rtpmap:8 PCMA/8000\\r\\nm=video 9002 RTP/AVP 31\\r\\na=rtpmap:31 H261/90000\\r\\n
+
+When the offer is received by the answerer, it can use the following code to generate
+the answer. Suppose the answerer wants to support PCMU and GSM audio and no video.
+
+from std.rfc4566 import SDP, attrs as format
+from std.rfc3264 import createAnswer
+&gt;&gt;&gt; audio = SDP.media(media='audio', port='8020')
+&gt;&gt;&gt; audio.fmt = [format(pt=0), format(pt=3)]  # for known payload types, description is optional
+&gt;&gt;&gt; answer = createAnswer([audio], offer)
+&gt;&gt;&gt;
+&gt;&gt;&gt; answer.o.sessionid = answer.o.version = 1192000146 
+&gt;&gt;&gt; answer.o.host = '192.168.1.66'
+&gt;&gt;&gt; print str(answer).replace('\\r', '\\\\r').replace('\\n', '\\\\n')
+v=0\\r\\no=- 1192000146 1192000146 IN IP4 192.168.1.66\\r\\ns=-\\r\\nt=0 0\\r\\nm=audio 8020 RTP/AVP 0\\r\\na=rtpmap:0 PCMU/8000\\r\\nm=video 0 RTP/AVP 31\\r\\na=rtpmap:31 H261/90000\\r\\n
+
+Suppose the offerer wants to change the offer (e.g., using SIP re-INVITE) by removing
+video from the offer; it should reuse the previous offer as follows:
+
+newOffer = createOffer([audio], offer)
+'''</span>
+
+
+</PRE><DIV class="commentbox">From RFC3264 p.1<pre>   This document defines a mechanism by which two entities can make use
+   of the Session Description Protocol (SDP) to arrive at a common view
+   of a multimedia session between them.  In the model, one participant
+   offers the other a description of the desired session from their
+   perspective, and the other participant answers with the desired
+   session from their perspective.  This offer/answer model is most
+   useful in unicast sessions where information from both participants
+   is needed for the complete view of the session.  The offer/answer
+   model is used by protocols like the Session Initiation Protocol
+   (SIP).</pre></DIV><PRE>
+</PRE><DIV class="commentbox">From RFC3264 p.3<pre>   The means by which the offers and answers are conveyed are outside
+   the scope of this document.  The offer/answer model defined here is
+   the mandatory baseline mechanism used by the Session Initiation
+   Protocol (SIP) [7].</pre></DIV><PRE>
+
+<span class="p_word">from</span> std.rfc4566 <span class="p_word">import</span> SDP, attrs as format  <span class="p_commentline"># although <a href="http://www.rfc-editor.org/rfc/rfc3264.txt">RFC 3264</a> used old <a href="http://www.rfc-editor.org/rfc/rfc2327.txt">RFC 2327</a> for SDP definition, we use new <a href="http://www.rfc-editor.org/rfc/rfc4566.txt">RFC 4566</a></span>
+<span class="p_word">import</span> socket
+
+_debug = True
+
+
+</PRE><DIV class="commentbox">From RFC3264 p.4<pre>      Media Stream: From RTSP [8], a media stream is a single media
+         instance, e.g., an audio stream or a video stream as well as a
+         single whiteboard or shared application group.  In SDP, a media
+         stream is described by an "m=" line and its associated
+         attributes.</pre></DIV><PRE>
+<span class="p_commentline"># A media stream is implemented by SDP.media class of std.rfc4566 module</span>
+
+
+</PRE><DIV class="commentbox">From RFC3264 p.5<pre>5 Generating the Initial Offer
+
+   The offer (and answer) MUST be a valid SDP message, as defined by RFC
+   2327 [1], with one exception.  RFC 2327 mandates that either an e or
+   a p line is present in the SDP message.  This specification relaxes
+   that constraint; an SDP formulated for an offer/answer application
+   MAY omit both the e and p lines.  The numeric value of the session id
+   and version in the o line MUST be representable with a 64 bit signed
+   integer.  The initial value of the version MUST be less than
+   (2**62)-1, to avoid rollovers.  Although the SDP specification allows
+   for multiple session descriptions to be concatenated together into a
+   large SDP message, an SDP message used in the offer/answer model MUST
+   contain exactly one session description.
+
+   The SDP "s=" line conveys the subject of the session, which is
+   reasonably defined for multicast, but ill defined for unicast.  For
+   unicast sessions, it is RECOMMENDED that it consist of a single space
+   character (0x20) or a dash (-).
+
+      Unfortunately, SDP does not allow the "s=" line to be empty.
+
+   The SDP "t=" line conveys the time of the session.  Generally,
+   streams for unicast sessions are created and destroyed through
+   external signaling means, such as SIP.  In that case, the "t=" line
+   SHOULD have a value of "0 0".
+
+   The offer will contain zero or more media streams (each media stream
+   is described by an "m=" line and its associated attributes).  Zero
+   media streams implies that the offerer wishes to communicate, but
+   that the streams for the session will be added at a later time
+   through a modified offer.  The streams MAY be for a mix of unicast
+   and multicast; the latter obviously implies a multicast address in
+   the relevant "c=" line(s).
+
+   Construction of each offered stream depends on whether the stream is
+   multicast or unicast.</pre></DIV><PRE>
+<span class="p_word">def</span> createOffer(streams, previous=<span class="p_word">None</span>, **kwargs):
+    <span class="p_triple">'''Create an offer SDP using local (streams) list of media Stream objects.
+    If a previous offer/answer SDP is specified then it creates a modified offer.
+    Additionally, the optional keyword arguments such as e and p can be specified.'''</span>
+    s = SDP()
+    s.v = <span class="p_string">'0'</span>
+    <span class="p_word">for</span> a <span class="p_word">in</span> <span class="p_string">"iep"</span>: <span class="p_commentline"># add optioanl e and p headers if present</span>
+        <span class="p_word">if</span> a <span class="p_word">in</span> kwargs: s[a] = kwargs[a]
+    s.o = SDP.originator(previous <span class="p_word">and</span> str(previous.o) <span class="p_word">or</span> <span class="p_word">None</span>)
+    <span class="p_word">if</span> previous: s.o.version = s.o.version + <span class="p_number">1</span>
+    s.s = <span class="p_string">'-'</span>
+    s.t = [<span class="p_string">'0 0'</span>] <span class="p_commentline"># because t= can appear multiple times, it is a list.</span>
+    s.m = streams
+    <span class="p_word">return</span> s
+
+<span class="p_word">def</span> createAnswer(streams, offer, **kwargs):
+    <span class="p_triple">'''Create an answer SDP for the remote offer SDP using local (streams) list of 
+    media Stream objects.'''</span>
+    s = SDP()
+    s.v = <span class="p_string">'0'</span>
+    <span class="p_word">for</span> a <span class="p_word">in</span> <span class="p_string">"iep"</span>: 
+        <span class="p_word">if</span> a <span class="p_word">in</span> kwargs: s[a] = kwargs[a]
+    s.o = SDP.originator()
+    s.s = <span class="p_string">'-'</span>
+    s.t = offer.t
+    s.m = []
+    streams = list(streams) <span class="p_commentline"># so that original stream is not modified</span>
+    <span class="p_word">for</span> your <span class="p_word">in</span> offer.m: <span class="p_commentline"># for each m= line in offer</span>
+        my   = <span class="p_word">None</span>      <span class="p_commentline"># answered stream</span>
+        <span class="p_word">for</span> i <span class="p_word">in</span> range(<span class="p_number">0</span>, len(streams)):
+            <span class="p_word">if</span> streams[i].media == your.media: <span class="p_commentline"># match the first stream in streams</span>
+                my = SDP.media(str(streams[i])) <span class="p_commentline"># found, hence</span>
+                <span class="p_word">del</span> streams[i]  <span class="p_commentline">#  remove from streams so that we don't match again for another m=</span>
+                found = []
+                <span class="p_word">for</span> fy <span class="p_word">in</span> your.fmt:  <span class="p_commentline"># all offered formats, find the matching pairs</span>
+                    <span class="p_word">for</span> fm <span class="p_word">in</span> my.fmt:<span class="p_commentline"># the preference order is from offer, hence do for fy, then for fm.</span>
+                        <span class="p_word">try</span>: fmpt, fypt = int(fm.pt), int(fy.pt) <span class="p_commentline"># try using numeric payload type</span>
+                        <span class="p_word">except</span>: fmpt = fypt = -<span class="p_number">1</span>
+                        <span class="p_word">if</span> <span class="p_number">0</span>&lt;=fmpt&lt;<span class="p_number">32</span> <span class="p_word">and</span> <span class="p_number">0</span>&lt;=fypt&lt;<span class="p_number">32</span> <span class="p_word">and</span> fmpt == fypt \
+                        <span class="p_word">or</span> fmpt&lt;<span class="p_number">0</span> <span class="p_word">and</span> fypt&lt;<span class="p_number">0</span> <span class="p_word">and</span> fm.pt == fy.pt \
+                        <span class="p_word">or</span> fm.name == fy.name <span class="p_word">and</span> fm.rate == fy.rate <span class="p_word">and</span> fm.count == fy.count: <span class="p_commentline"># we don't match the params</span>
+                            found.append((fy, fm)); <span class="p_word">break</span>
+                <span class="p_word">if</span> found: <span class="p_commentline"># we found some matching formats, put them in </span>
+                    my.fmt = map(<span class="p_word">lambda</span> x: x[<span class="p_number">0</span>], found) <span class="p_commentline"># use remote's fy including fy.pt</span>
+                <span class="p_word">else</span>:
+                    my.fmt = [format(pt=<span class="p_number">0</span>)] <span class="p_commentline"># no match in formats, but matched media, must put a format with payload type 0</span>
+                    my.port = <span class="p_number">0</span>             <span class="p_commentline">#   and reset the port.</span>
+        <span class="p_word">if</span> <span class="p_word">not</span> my: <span class="p_commentline"># did not match the stream, must put a stream with port = 0</span>
+            my = SDP.media(str(your))
+            my.port = <span class="p_number">0</span>
+        s.m.append(my) <span class="p_commentline"># append it to our media</span>
+
+    valid = False
+    <span class="p_word">for</span> my <span class="p_word">in</span> s.m: <span class="p_commentline"># check if any valid matching stream is present with valid port</span>
+        <span class="p_word">if</span> my.port != <span class="p_number">0</span>:
+            valid = True
+            <span class="p_word">break</span>
+        
+    <span class="p_word">return</span> valid <span class="p_word">and</span> s <span class="p_word">or</span> <span class="p_word">None</span>  <span class="p_commentline"># if no valid matching stream found, return None</span>
+
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_word">import</span> doctest
+    doctest.testmod()
+
+
+  </PRE></BODY>
+</HTML>

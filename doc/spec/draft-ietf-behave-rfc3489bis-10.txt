@@ -1,0 +1,2256 @@
+P1L1	BEHAVE Working Group                                        J. Rosenberg
+P1L2	Internet-Draft                                                     Cisco
+P1L3	Obsoletes: 3489 (if approved)                                 C. Huitema
+P1L4	Intended status: Standards Track                               Microsoft
+P1L5	Expires: March 16, 2008                                          R. Mahy
+P1L6	                                                             Plantronics
+P1L7	                                                             P. Matthews
+P1L8	                                                                   Avaya
+P1L9	                                                                 D. Wing
+P1L10	                                                                   Cisco
+P1L11	                                                      September 13, 2007
+P1L12	
+P1L13	
+P1L14	              Session Traversal Utilities for (NAT) (STUN)
+P1L15	                    draft-ietf-behave-rfc3489bis-10
+P1L16	
+P1L17	Status of this Memo
+P1L18	
+P1L19	   By submitting this Internet-Draft, each author represents that any
+P1L20	   applicable patent or other IPR claims of which he or she is aware
+P1L21	   have been or will be disclosed, and any of which he or she becomes
+P1L22	   aware will be disclosed, in accordance with Section 6 of BCP 79.
+P1L23	
+P1L24	   Internet-Drafts are working documents of the Internet Engineering
+P1L25	   Task Force (IETF), its areas, and its working groups.  Note that
+P1L26	   other groups may also distribute working documents as Internet-
+P1L27	   Drafts.
+P1L28	
+P1L29	   Internet-Drafts are draft documents valid for a maximum of six months
+P1L30	   and may be updated, replaced, or obsoleted by other documents at any
+P1L31	   time.  It is inappropriate to use Internet-Drafts as reference
+P1L32	   material or to cite them other than as "work in progress."
+P1L33	
+P1L34	   The list of current Internet-Drafts can be accessed at
+P1L35	   http://www.ietf.org/ietf/1id-abstracts.txt.
+P1L36	
+P1L37	   The list of Internet-Draft Shadow Directories can be accessed at
+P1L38	   http://www.ietf.org/shadow.html.
+P1L39	
+P1L40	   This Internet-Draft will expire on March 16, 2008.
+P1L41	
+P1L42	Copyright Notice
+P1L43	
+P1L44	   Copyright (C) The IETF Trust (2007).
+P1L45	
+P1L46	Abstract
+P1L47	
+P1L48	   Session Traversal Utilities for NAT (STUN) is a protocol that serves
+P2L1	   as a tool for other protocols in dealing with NAT traversal.  It can
+P2L2	   be used by an endpoint to determine the IP address and port allocated
+P2L3	   to it by a NAT.  It can also be used to check connectivity between
+P2L4	   two endpoints, and as a keep-alive protocol to maintain NAT bindings.
+P2L5	   STUN works with many existing NATs, and does not require any special
+P2L6	   behavior from them.
+P2L7	
+P2L8	   STUN is not a NAT traversal solution by itself.  Rather, it is a tool
+P2L9	   to be used in the context of a NAT traversal solution.  This is an
+P2L10	   important change from the previous version of this specification (RFC
+P2L11	   3489), which presented STUN as a complete solution.
+P2L12	
+P2L13	   This document obsoletes RFC 3489.
+P2L14	
+P2L15	
+P2L16	Table of Contents
+P2L17	
+P2L18	   1.  Introduction . . . . . . . . . . . . . . . . . . . . . . . . .  4
+P2L19	   2.  Evolution from RFC 3489  . . . . . . . . . . . . . . . . . . .  4
+P2L20	   3.  Overview of Operation  . . . . . . . . . . . . . . . . . . . .  5
+P2L21	   4.  Terminology  . . . . . . . . . . . . . . . . . . . . . . . . .  8
+P2L22	   5.  Definitions  . . . . . . . . . . . . . . . . . . . . . . . . .  8
+P2L23	   6.  STUN Message Structure . . . . . . . . . . . . . . . . . . . .  9
+P2L24	   7.  Base Protocol Procedures . . . . . . . . . . . . . . . . . . . 12
+P2L25	     7.1.   Forming a Request or an Indication  . . . . . . . . . . . 12
+P2L26	     7.2.   Sending the Request or Indication . . . . . . . . . . . . 12
+P2L27	       7.2.1.  Sending over UDP . . . . . . . . . . . . . . . . . . . 13
+P2L28	       7.2.2.  Sending over TCP or TLS-over-TCP . . . . . . . . . . . 13
+P2L29	     7.3.   Receiving a STUN Message  . . . . . . . . . . . . . . . . 15
+P2L30	       7.3.1.  Processing a Request . . . . . . . . . . . . . . . . . 16
+P2L31	         7.3.1.1.  Forming a Success or Error Response  . . . . . . . 16
+P2L32	         7.3.1.2.  Sending the Success or Error Response  . . . . . . 17
+P2L33	       7.3.2.  Processing an Indication . . . . . . . . . . . . . . . 17
+P2L34	       7.3.3.  Processing a Success Response  . . . . . . . . . . . . 18
+P2L35	       7.3.4.  Processing an Error Response . . . . . . . . . . . . . 18
+P2L36	   8.  FINGERPRINT Mechanism  . . . . . . . . . . . . . . . . . . . . 19
+P2L37	   9.  DNS Discovery of a Server  . . . . . . . . . . . . . . . . . . 19
+P2L38	   10. Authentication and Message-Integrity Mechanisms  . . . . . . . 20
+P2L39	     10.1.  Short-Term Credential Mechanism . . . . . . . . . . . . . 21
+P2L40	       10.1.1. Forming a Request or Indication  . . . . . . . . . . . 21
+P2L41	       10.1.2. Receiving a Request or Indication  . . . . . . . . . . 21
+P2L42	       10.1.3. Receiving a Response . . . . . . . . . . . . . . . . . 22
+P2L43	     10.2.  Long-term Credential Mechanism  . . . . . . . . . . . . . 22
+P2L44	       10.2.1. Forming a Request  . . . . . . . . . . . . . . . . . . 24
+P2L45	         10.2.1.1. First Request  . . . . . . . . . . . . . . . . . . 24
+P2L46	         10.2.1.2. Subsequent Requests  . . . . . . . . . . . . . . . 24
+P2L47	       10.2.2. Receiving a Request  . . . . . . . . . . . . . . . . . 24
+P2L48	       10.2.3. Receiving a Response . . . . . . . . . . . . . . . . . 25
+P3L1	   11. ALTERNATE-SERVER Mechanism . . . . . . . . . . . . . . . . . . 26
+P3L2	   12. Backwards Compatibility with RFC 3489  . . . . . . . . . . . . 26
+P3L3	     12.1.  Changes to Client Processing  . . . . . . . . . . . . . . 27
+P3L4	     12.2.  Changes to Server Processing  . . . . . . . . . . . . . . 27
+P3L5	   13. STUN Usages  . . . . . . . . . . . . . . . . . . . . . . . . . 28
+P3L6	   14. STUN Attributes  . . . . . . . . . . . . . . . . . . . . . . . 29
+P3L7	     14.1.  MAPPED-ADDRESS  . . . . . . . . . . . . . . . . . . . . . 30
+P3L8	     14.2.  XOR-MAPPED-ADDRESS  . . . . . . . . . . . . . . . . . . . 31
+P3L9	     14.3.  USERNAME  . . . . . . . . . . . . . . . . . . . . . . . . 32
+P3L10	     14.4.  MESSAGE-INTEGRITY . . . . . . . . . . . . . . . . . . . . 32
+P3L11	     14.5.  FINGERPRINT . . . . . . . . . . . . . . . . . . . . . . . 33
+P3L12	     14.6.  ERROR-CODE  . . . . . . . . . . . . . . . . . . . . . . . 33
+P3L13	     14.7.  REALM . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+P3L14	     14.8.  NONCE . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+P3L15	     14.9.  UNKNOWN-ATTRIBUTES  . . . . . . . . . . . . . . . . . . . 35
+P3L16	     14.10. SERVER  . . . . . . . . . . . . . . . . . . . . . . . . . 36
+P3L17	     14.11. ALTERNATE-SERVER  . . . . . . . . . . . . . . . . . . . . 36
+P3L18	   15. Security Considerations  . . . . . . . . . . . . . . . . . . . 36
+P3L19	     15.1.  Attacks against the Protocol  . . . . . . . . . . . . . . 36
+P3L20	       15.1.1. Outside Attacks  . . . . . . . . . . . . . . . . . . . 36
+P3L21	       15.1.2. Inside Attacks . . . . . . . . . . . . . . . . . . . . 37
+P3L22	     15.2.  Attacks Affecting the Usage . . . . . . . . . . . . . . . 37
+P3L23	       15.2.1. Attack I: DDoS Against a Target  . . . . . . . . . . . 37
+P3L24	       15.2.2. Attack II: Silencing a Client  . . . . . . . . . . . . 38
+P3L25	       15.2.3. Attack III: Assuming the Identity of a Client  . . . . 38
+P3L26	       15.2.4. Attack IV: Eavesdropping . . . . . . . . . . . . . . . 38
+P3L27	     15.3.  Hash Agility Plan . . . . . . . . . . . . . . . . . . . . 38
+P3L28	   16. IAB Considerations . . . . . . . . . . . . . . . . . . . . . . 39
+P3L29	   17. IANA Considerations  . . . . . . . . . . . . . . . . . . . . . 39
+P3L30	     17.1.  STUN Methods Registry . . . . . . . . . . . . . . . . . . 39
+P3L31	     17.2.  STUN Attribute Registry . . . . . . . . . . . . . . . . . 40
+P3L32	     17.3.  STUN Error Code Registry  . . . . . . . . . . . . . . . . 40
+P3L33	   18. Changes Since RFC 3489 . . . . . . . . . . . . . . . . . . . . 41
+P3L34	   19. Acknowledgements . . . . . . . . . . . . . . . . . . . . . . . 42
+P3L35	   20. References . . . . . . . . . . . . . . . . . . . . . . . . . . 42
+P3L36	     20.1.  Normative References  . . . . . . . . . . . . . . . . . . 42
+P3L37	     20.2.  Informational References  . . . . . . . . . . . . . . . . 43
+P3L38	   Appendix A.  C Snippet to Determine STUN Message Types . . . . . . 44
+P3L39	   Authors' Addresses . . . . . . . . . . . . . . . . . . . . . . . . 45
+P3L40	   Intellectual Property and Copyright Statements . . . . . . . . . . 47
+P3L41	
+P3L42	
+P3L43	
+P3L44	
+P3L45	
+P3L46	
+P3L47	
+P3L48	
+P4L1	1.  Introduction
+P4L2	
+P4L3	   The protocol defined in this specification, Session Traversal
+P4L4	   Utilities for NAT, provides a tool for dealing with NATs.  It
+P4L5	   provides a means for an endpoint to determine the IP address and port
+P4L6	   allocated by a NAT that corresponds to its private IP address and
+P4L7	   port.  It also provides a way for an endpoint to keep a NAT binding
+P4L8	   alive.  With some extensions, the protocol can be used to do
+P4L9	   connectivity checks between two endpoints [I-D.ietf-mmusic-ice], or
+P4L10	   to relay packets between two endpoints [I-D.ietf-behave-turn].
+P4L11	
+P4L12	   In keeping with its tool nature, this specification defines an
+P4L13	   extensible packet format, defines operation over several transport
+P4L14	   protocols, and provides for two forms of authentication.
+P4L15	
+P4L16	   STUN is intended to be used in context of one or more NAT traversal
+P4L17	   solutions.  These solutions are known as STUN usages.  Each usage
+P4L18	   describes how STUN is utilized to achieve the NAT traversal solution.
+P4L19	   Typically, a usage indicates when STUN messages get sent, which
+P4L20	   optional attributes to include, what server is used, and what
+P4L21	   authentication mechanism is to be used.  Interactive Connectivity
+P4L22	   Establishment (ICE) [I-D.ietf-mmusic-ice] is one usage of STUN.  SIP
+P4L23	   Outbound [I-D.ietf-sip-outbound] is another usage of STUN.  In some
+P4L24	   cases, a usage will require extensions to STUN.  A STUN extension can
+P4L25	   be in the form of new methods, attributes, or error response codes.
+P4L26	   More information on STUN usages can be found in Section 13.
+P4L27	
+P4L28	
+P4L29	2.  Evolution from RFC 3489
+P4L30	
+P4L31	   STUN was originally defined in RFC 3489 [RFC3489].  That
+P4L32	   specification, sometimes referred to as "classic STUN", represented
+P4L33	   itself as a complete solution to the NAT traversal problem.  In that
+P4L34	   solution, a client would discover whether it was behind a NAT,
+P4L35	   determine its NAT type, discover its IP address and port on the
+P4L36	   public side of the outermost NAT, and then utilize that IP address
+P4L37	   and port within the body of protocols, such as the Session Initiation
+P4L38	   Protocol (SIP) [RFC3261].  However, experience since the publication
+P4L39	   of RFC 3489 has found that classic STUN simply does not work
+P4L40	   sufficiently well to be a deployable solution.  The address and port
+P4L41	   learned through classic STUN are sometimes usable for communications
+P4L42	   with a peer, and sometimes not.  Classic STUN provided no way to
+P4L43	   discover whether it would, in fact, work or not, and it provided no
+P4L44	   remedy in cases where it did not.  Furthermore, classic STUN's
+P4L45	   algorithm for classification of NAT types was found to be faulty, as
+P4L46	   many NATs did not fit cleanly into the types defined there.  Classic
+P4L47	   STUN also had security vulnerabilities which required an extremely
+P4L48	   complicated mechanism to address, and despite the complexity of the
+P5L1	   mechanism, were not fully remedied.
+P5L2	
+P5L3	   For these reasons, this specification obsoletes RFC 3489, and instead
+P5L4	   describes STUN as a tool that is utilized as part of a complete NAT
+P5L5	   traversal solution.  ICE is a complete NAT traversal solution for
+P5L6	   protocols based on the offer/answer [RFC3264] methodology, such as
+P5L7	   SIP.  SIP Outbound is a complete solution for traversal of SIP
+P5L8	   signaling, and it uses STUN in a very different way.  Though it is
+P5L9	   possible that a protocol may be able to use STUN by itself (classic
+P5L10	   STUN) as a traversal solution, such usage is not described here and
+P5L11	   is strongly discouraged for the reasons described above.
+P5L12	
+P5L13	   The on-the-wire protocol described here is changed only slightly from
+P5L14	   classic STUN.  The protocol now runs over TCP in addition to UDP.
+P5L15	   Extensibility was added to the protocol in a more structured way.  A
+P5L16	   magic-cookie mechanism for demultiplexing STUN with application
+P5L17	   protocols was added by stealing 32 bits from the 128 bit transaction
+P5L18	   ID defined in RFC 3489, allowing the change to be backwards
+P5L19	   compatible.  Mapped addresses are encoded using a new exclusive-or
+P5L20	   format.  There are other, more minor changes.  See Section 18 for a
+P5L21	   more complete listing.
+P5L22	
+P5L23	   Due to the change in scope, STUN has also been renamed from "Simple
+P5L24	   Traversal of UDP Through NAT" to "Session Traversal Utilities for
+P5L25	   NAT".  The acronym remains STUN, which is all anyone ever remembers
+P5L26	   anyway.
+P5L27	
+P5L28	
+P5L29	3.  Overview of Operation
+P5L30	
+P5L31	   This section is descriptive only.
+P5L32	
+P5L33	
+P5L34	
+P5L35	
+P5L36	
+P5L37	
+P5L38	
+P5L39	
+P5L40	
+P5L41	
+P5L42	
+P5L43	
+P5L44	
+P5L45	
+P5L46	
+P5L47	
+P5L48	
+P6L1	                                /--------\
+P6L2	                              //  STUN    \\
+P6L3	                             |    Agent    |
+P6L4	                              \\ (server) //
+P6L5	                                \--------/
+P6L6	
+P6L7	
+P6L8	                           +----------------+           Public Internet
+P6L9	           ................|      NAT 2     |.......................
+P6L10	                           +----------------+
+P6L11	
+P6L12	
+P6L13	                           +----------------+           Private NET 2
+P6L14	           ................|      NAT 1     |.......................
+P6L15	                           +----------------+
+P6L16	
+P6L17	                                /--------\
+P6L18	                              //  STUN    \\
+P6L19	                             |    Agent    |
+P6L20	                              \\ (client) //             Private NET 1
+P6L21	                                \--------/
+P6L22	
+P6L23	
+P6L24	                 Figure 1: One possible STUN Configuration
+P6L25	
+P6L26	   One possible STUN configuration is shown in Figure 1.  In this
+P6L27	   configuration, there are two entities (called STUN agents) that
+P6L28	   implement the STUN protocol.  The lower agent in the figure is
+P6L29	   connected to private network 1.  This network connects to private
+P6L30	   network 2 through NAT 1.  Private network 2 connects to the public
+P6L31	   Internet through NAT 2.  The upper agent in the figure resides on the
+P6L32	   public Internet.
+P6L33	
+P6L34	   STUN is a client-server protocol.  It supports two types of
+P6L35	   transactions.  One is a request/response transaction in which a
+P6L36	   client sends a request to a server, and the server returns a
+P6L37	   response.  The second is an indication transaction in which a client
+P6L38	   sends an indication to the server and the server does not respond.
+P6L39	   Both types of transactions include a transaction ID, which is a
+P6L40	   randomly selected 96-bit number.  For request/response transactions,
+P6L41	   this transaction ID allows the client to associate the response with
+P6L42	   the request that generated it; for indications, this simply serves as
+P6L43	   a debugging aid.
+P6L44	
+P6L45	   All STUN messages start with a fixed header that includes a method, a
+P6L46	   class, and the transaction ID.  The method indicates which of the
+P6L47	   various requests or indications this is; this specification defines
+P6L48	   just one method, Binding, but other methods are expected to be
+P7L1	   defined in other documents.  The class indicates whether this is a
+P7L2	   request, a success response, an error response, or an indication.
+P7L3	   Following the fixed header comes zero or more attributes, which are
+P7L4	   type-length-value extensions that convey additional information for
+P7L5	   the specific message.
+P7L6	
+P7L7	   This document defines a single method called Binding.  The Binding
+P7L8	   method can be used either in request/response transactions or in
+P7L9	   indication transactions.  When used in request/response transactions,
+P7L10	   the Binding method can be used to determine the particular "binding"
+P7L11	   a NAT has allocated to a STUN client.  When used in either request/
+P7L12	   response or in indication transactions, the Binding method can also
+P7L13	   be used to keep these "bindings" alive.
+P7L14	
+P7L15	   In the Binding request/response transaction, a Binding Request is
+P7L16	   sent from a STUN client to a STUN server.  When the Binding Request
+P7L17	   arrives at the STUN server, it may have passed through one or more
+P7L18	   NATs between the STUN client and the STUN server (in Figure 1, there
+P7L19	   were two such NATs).  As the Binding Request message passes through a
+P7L20	   NAT, the NAT will modify the source transport address (that is, the
+P7L21	   source IP address and the source port) of the packet.  As a result,
+P7L22	   the source transport address of the request received by the server
+P7L23	   will be the public IP address and port created by the NAT closest to
+P7L24	   the server.  This is called a reflexive transport address.  The STUN
+P7L25	   server copies that source transport address into an XOR-MAPPED-
+P7L26	   ADDRESS attribute in the STUN Binding Response and sends the Binding
+P7L27	   Response back to the the STUN client.  As this packet passes back
+P7L28	   through a NAT, the NAT will modify the destination transport address
+P7L29	   in the IP header, but the transport address in the XOR-MAPPED-ADDRESS
+P7L30	   attribute within the body of the STUN response will remain untouched.
+P7L31	   In this way, the client can learn its reflexive transport address
+P7L32	   allocated by the outermost NAT with respect to the STUN server.
+P7L33	
+P7L34	   In some usages, STUN must be multiplexed with other protocols (e.g.,
+P7L35	   [I-D.ietf-mmusic-ice], [I-D.ietf-sip-outbound]).  In these usages,
+P7L36	   there must be a way to inspect a packet and determine if it is a STUN
+P7L37	   packet or not.  STUN provides three fields in the STUN header with
+P7L38	   fixed values that can be used for this purpose.  If this is not
+P7L39	   sufficient, then STUN packets can also contain a FINGERPRINT value
+P7L40	   which can further be used to distinguish the packets.
+P7L41	
+P7L42	   STUN defines a set of optional procedures that a usage can decide to
+P7L43	   use, called mechanisms.  These mechanisms include DNS discovery, a
+P7L44	   redirection technique to an alternate server, a fingerprint attribute
+P7L45	   for demultiplexing, and two authentication and message integrity
+P7L46	   exchanges.  The authentication mechanisms revolve around the use of a
+P7L47	   username, password, and message-integrity value.  Two authentication
+P7L48	   mechanisms, the long-term credential mechanism and the short-term
+P8L1	   credential mechanism, are defined in this specification.  Each usage
+P8L2	   specifies the mechanisms allowed with that usage.
+P8L3	
+P8L4	   In the long-term credential mechanism, the client and server share a
+P8L5	   pre-provisioned username and password and perform a digest challenge/
+P8L6	   response exchange inspired by (but differing in details) to the one
+P8L7	   defined for HTTP [RFC2617].  In the short-term credential mechanism,
+P8L8	   the client and the server exchange a username and password through
+P8L9	   some out-of-band method prior to the STUN exchange.  For example, in
+P8L10	   the ICE usage [I-D.ietf-mmusic-ice] the two endpoints use out-of-band
+P8L11	   signaling to exchange a username and password.  These are used to
+P8L12	   integrity protect and authenticate the request and response.  There
+P8L13	   is no challenge or nonce used.
+P8L14	
+P8L15	
+P8L16	4.  Terminology
+P8L17	
+P8L18	   In this document, the key words "MUST", "MUST NOT", "REQUIRED",
+P8L19	   "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY",
+P8L20	   and "OPTIONAL" are to be interpreted as described in BCP 14, RFC 2119
+P8L21	   [RFC2119] and indicate requirement levels for compliant STUN
+P8L22	   implementations.
+P8L23	
+P8L24	
+P8L25	5.  Definitions
+P8L26	
+P8L27	   STUN Agent:  An entity that implements the STUN protocol.  Agents can
+P8L28	      act as STUN clients for some transactions and as STUN servers for
+P8L29	      other transactions.
+P8L30	
+P8L31	   STUN Client:  A logical role in the STUN protocol.  A STUN client
+P8L32	      sends STUN requests or STUN indications, and receives STUN
+P8L33	      responses.  The term "STUN client" is also used colloquially to
+P8L34	      refer to a STUN agent that only acts as a STUN client.
+P8L35	
+P8L36	   STUN Server:  A logical role in the STUN protocol.  A STUN server
+P8L37	      receives STUN requests or STUN indications and sends STUN
+P8L38	      responses.  The term "STUN server" is also used colloquially to
+P8L39	      refer to a STUN agent that only acts as a STUN server.
+P8L40	
+P8L41	   Transport Address:  The combination of an IP address and port number
+P8L42	      (such as a UDP or TCP port number).
+P8L43	
+P8L44	   Reflexive Transport Address:  A transport address learned by a client
+P8L45	      that identifies that client as seen by another host on an IP
+P8L46	      network, typically a STUN server.  When there is an intervening
+P8L47	      NAT between the client and the other host, the reflexive transport
+P8L48	      address represents the mapped address allocated to the client on
+P9L1	      the public side of the NAT.  Reflexive transport addresses are
+P9L2	      learned from the mapped address attribute (MAPPED-ADDRESS or XOR-
+P9L3	      MAPPED-ADDRESS) in STUN responses.
+P9L4	
+P9L5	   Mapped Address:  Same meaning as Reflexive Address.  This term is
+P9L6	      retained only for for historic reasons and due to the naming of
+P9L7	      the MAPPED-ADDRESS and XOR-MAPPED-ADDRESS attributes.
+P9L8	
+P9L9	   Long Term Credential:  A username and associated password that
+P9L10	      represent a shared secret between client and server.  Long term
+P9L11	      credentials are generally granted to the client when a subscriber
+P9L12	      enrolls in a service and persist until the subscriber leaves the
+P9L13	      service or explicitly changes the credential.
+P9L14	
+P9L15	   Long Term Password:  The password from a long term credential.
+P9L16	
+P9L17	   Short Term Credential:  A temporary username and associated password
+P9L18	      which represent a shared secret between client and server.  Short
+P9L19	      term credentials are obtained through some kind of protocol
+P9L20	      mechanism between the client server, preceding the STUN exchange.
+P9L21	      A short term credential has an explicit temporal scope, which may
+P9L22	      be based on a specific amount of time (such as 5 minutes) or on an
+P9L23	      event (such as termination of a SIP dialog).  The specific scope
+P9L24	      of a short term credential is defined by the application usage.
+P9L25	
+P9L26	   Short Term Password:  The password component of a short term
+P9L27	      credential.
+P9L28	
+P9L29	   STUN Indication:  A STUN message that does not receive a response
+P9L30	
+P9L31	   Attribute:  The STUN term for a Type-Length-Value (TLV) object that
+P9L32	      can be added to a STUN message.  Attributes are divided into two
+P9L33	      types: comprehension-required and comprehension-optional.  STUN
+P9L34	      agents can safely ignore comprehension-optional attributes they
+P9L35	      don't understand, but cannot successfully process a message if it
+P9L36	      contains comprehension-required attributes that are not
+P9L37	      understood.
+P9L38	
+P9L39	   RTO:  Retransmission TimeOut
+P9L40	
+P9L41	
+P9L42	6.  STUN Message Structure
+P9L43	
+P9L44	   STUN messages are encoded in binary using network-oriented format
+P9L45	   (most significant byte or octet first, also commonly known as big-
+P9L46	   endian).  The transmission order is described in detail in Appendix B
+P9L47	   of RFC791 [RFC0791].  Unless otherwise noted, numeric constants are
+P9L48	   in decimal (base 10).
+P10L1	   All STUN messages MUST start with a 20-byte header followed by zero
+P10L2	   or more Attributes.  The STUN header contains a STUN message type,
+P10L3	   magic cookie, transaction ID, and message length.
+P10L4	
+P10L5	        0                   1                   2                   3
+P10L6	        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P10L7	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L8	       |0 0|     STUN Message Type     |         Message Length        |
+P10L9	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L10	       |                         Magic Cookie                          |
+P10L11	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L12	       |                                                               |
+P10L13	       |                     Transaction ID (96 bits)                  |
+P10L14	       |                                                               |
+P10L15	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L16	
+P10L17	                  Figure 2: Format of STUN Message Header
+P10L18	
+P10L19	   The most significant two bits of every STUN message MUST be zeroes.
+P10L20	   This can be used to differentiate STUN packets from other protocols
+P10L21	   when STUN is multiplexed with other protocols on the same port.
+P10L22	
+P10L23	   The message type defines the message class (request, success
+P10L24	   response, failure response, or indication) and the message method
+P10L25	   (the primary function) of the STUN message.  Although there are four
+P10L26	   message classes, there are only two types of transactions in STUN:
+P10L27	   request/response transactions (which consist of a request message and
+P10L28	   a response message), and indication transactions (which consists a
+P10L29	   single indication message).  Response classes are split into error
+P10L30	   and success responses to aid in quickly processing the STUN message.
+P10L31	
+P10L32	   The message type field is decomposed further into the following
+P10L33	   structure:
+P10L34	
+P10L35	                        +--+--+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L36	                        |M |M |M|M|M|C|M|M|M|C|M|M|M|M|
+P10L37	                        |11|10|9|8|7|1|6|5|4|0|3|2|1|0|
+P10L38	                        +--+--+-+-+-+-+-+-+-+-+-+-+-+-+
+P10L39	
+P10L40	                Figure 3: Format of STUN Message Type Field
+P10L41	
+P10L42	   Here the bits in the message type field are shown as most-significant
+P10L43	   (M11) through least-significant (M0).  M11 through M0 represent a 12-
+P10L44	   bit encoding of the method.  C1 and C0 represent a 2 bit encoding of
+P10L45	   the class.  A class of 0b00 is a Request, a class of 0b01 is an
+P10L46	   indication, a class of 0b10 is a success response, and a class of
+P10L47	   0b11 is an error response.  This specification defines a single
+P10L48	   method, Binding.  The method and class are orthogonal, so that four
+P11L1	   each method, a request, success response, error response and
+P11L2	   indication are defined for that method.
+P11L3	
+P11L4	   For example, a Binding Request has class=0b00 (request) and
+P11L5	   method=0b000000000001 (Binding), and is encoded into the first 16
+P11L6	   bits as 0x0001.  A Binding response has class=0b10 (success response)
+P11L7	   and method=0b000000000001, and is encoded into the first 16 bits as
+P11L8	   0x0101.
+P11L9	
+P11L10	      Note: This unfortunate encoding is due to assignment of values in
+P11L11	      [RFC3489] which did not consider encoding Indications, Success,
+P11L12	      and Errors using bit fields.
+P11L13	
+P11L14	   The magic cookie field MUST contain the fixed value 0x2112A442 in
+P11L15	   network byte order.  In RFC 3489 [RFC3489], this field was part of
+P11L16	   the transaction ID; placing the magic cookie in this location allows
+P11L17	   a server to detect if the client will understand certain attributes
+P11L18	   that were added in this revised specification.  In addition, it aids
+P11L19	   in distinguishing STUN packets from packets of other protocols when
+P11L20	   STUN is multiplexed with those other protocols on the same port.
+P11L21	
+P11L22	   The transaction ID is a 96 bit identifier, used to uniquely identify
+P11L23	   STUN transactions.  The transaction ID is chosen by the STUN client.
+P11L24	   It primarily serves to correlate requests with responses, though it
+P11L25	   also plays a small role in helping to prevent certain types of
+P11L26	   attacks.  As such, the transaction ID MUST be uniformly and randomly
+P11L27	   chosen from the interval 0 .. 2**96-1.  Resends of the same request
+P11L28	   reuse the same transaction ID, but the client MUST choose a new
+P11L29	   transaction ID for new transactions unless the new request is bit-
+P11L30	   wise identical to the previous request and sent from the same
+P11L31	   transport address to the same IP address.  Success and error
+P11L32	   responses MUST carry the same transaction ID as their corresponding
+P11L33	   request.  When an agent is acting as a STUN server and STUN client on
+P11L34	   the same port, the transaction IDs in requests sent by the agent have
+P11L35	   no relationship to the transaction IDs in requests received by the
+P11L36	   agent.
+P11L37	
+P11L38	   The message length MUST contain the size, in bytes, of the message
+P11L39	   not including the 20 byte STUN header.  Since all STUN attributes are
+P11L40	   padded to a multiple of four bytes, the last two bits of this field
+P11L41	   are always zero.  This provides another way to distinguish STUN
+P11L42	   packets from packets of other protocols.
+P11L43	
+P11L44	   Following the STUN fixed portion of the header are zero or more
+P11L45	   attributes.  Each attribute is TLV (type-length-value) encoded.  The
+P11L46	   details of the encoding, and of the attributes themselves is given in
+P11L47	   Section 14.
+P11L48	
+P12L1	7.  Base Protocol Procedures
+P12L2	
+P12L3	   This section defines the base procedures of the STUN protocol.  It
+P12L4	   describes how messages are formed, how they are sent, and how they
+P12L5	   are processed when they are received.  It also defines the detailed
+P12L6	   processing of the Binding method.  Other sections in this document
+P12L7	   describe optional procedures that a usage may elect to use in certain
+P12L8	   situations.  Other documents may define other extensions to STUN, by
+P12L9	   adding new methods, new attributes, or new error response codes.
+P12L10	
+P12L11	7.1.  Forming a Request or an Indication
+P12L12	
+P12L13	   When formulating a request or indication message, the client MUST
+P12L14	   follow the rules in Section 6 when creating the header.  In addition,
+P12L15	   the message class MUST be either "Request" or "Indication" (as
+P12L16	   appropriate), and the method must be either Binding or some method
+P12L17	   defined in another document.
+P12L18	
+P12L19	   The client then adds any attributes specified by the method or the
+P12L20	   usage.  For example, some usages may specify that the client use an
+P12L21	   authentication method (Section 10) or the FINGERPRINT attribute
+P12L22	   (Section 8).
+P12L23	
+P12L24	   For the Binding method with no authentication, no attributes are
+P12L25	   required unless the usage specifies otherwise.
+P12L26	
+P12L27	   All STUN requests (and responses) sent over UDP MUST be less than the
+P12L28	   path MTU, or 1500 bytes if the MTU is not known.
+P12L29	
+P12L30	7.2.  Sending the Request or Indication
+P12L31	
+P12L32	   The client then sends the request to the server.  This document
+P12L33	   specifies how to send STUN messages over UDP, TCP, or TLS-over-TCP;
+P12L34	   other transport protocols may be added in the future.  The STUN usage
+P12L35	   must specify which transport protocol is used, and how the client
+P12L36	   determines the IP address and port of the server.  Section 9
+P12L37	   describes a DNS-based method of determining the IP address and port
+P12L38	   of a server which a usage may elect to use.  STUN may be used with
+P12L39	   anycast addresses, but only with UDP and in usages where
+P12L40	   authentication is not used.
+P12L41	
+P12L42	   At any time, a client MAY have multiple outstanding STUN requests
+P12L43	   with the same STUN server (that is, multiple transactions in
+P12L44	   progress, with different transaction ids).
+P12L45	
+P12L46	
+P12L47	
+P12L48	
+P13L1	7.2.1.  Sending over UDP
+P13L2	
+P13L3	   When running STUN over UDP it is possible that the STUN message might
+P13L4	   be dropped by the network.  Reliability of STUN request/response
+P13L5	   transactions is accomplished through retransmissions of the request
+P13L6	   message by the client application itself.  STUN indications are not
+P13L7	   retransmitted; thus indication transactions over UDP are not
+P13L8	   reliable.
+P13L9	
+P13L10	   A client SHOULD retransmit a STUN request message starting with an
+P13L11	   interval of RTO ("Retransmission TimeOut"), doubling after each
+P13L12	   retransmission.  The RTO is an estimate of the round-trip-time, and
+P13L13	   is computed as described in RFC 2988 [RFC2988], with two exceptions.
+P13L14	   First, the initial value for RTO SHOULD be configurable (rather than
+P13L15	   the 3s recommended in RFC 2988) and SHOULD be greater than 100ms.  In
+P13L16	   fixed- line access links, a value of 100ms is RECOMMENDED.  Secondly,
+P13L17	   the value of RTO MUST NOT be rounded up to the nearest second.
+P13L18	   Rather, a 1ms accuracy MUST be maintained.  As with TCP, the usage of
+P13L19	   Karn's algorithm is RECOMMENDED.  When applied to STUN, it means that
+P13L20	   RTT estimates SHOULD NOT be computed from STUN transactions which
+P13L21	   result in the retransmission of a request.
+P13L22	
+P13L23	   The value for RTO SHOULD be cached by an client after the completion
+P13L24	   of the transaction, and used as the starting value for RTO for the
+P13L25	   next transaction to the same server (based on equality of IP
+P13L26	   address).  The value SHOULD be considered stale and discarded after
+P13L27	   10 minutes.
+P13L28	
+P13L29	   Retransmissions continue until a response is received, or until a
+P13L30	   total of 7 requests have been sent.  If, after the last request, a
+P13L31	   duration equal to 16 times the RTO has passed without a response, the
+P13L32	   client SHOULD consider the transaction to have failed.  A STUN
+P13L33	   transaction over UDP is also considered failed if there has been a
+P13L34	   transport failure of some sort, such as a fatal ICMP error.  For
+P13L35	   example, assuming an RTO of 100ms, requests would be sent at times
+P13L36	   0ms, 100ms, 300ms, 700ms, 1500ms, 3100ms, and 6300ms.  If the client
+P13L37	   has not received a response after 7900ms, the client will consider
+P13L38	   the transaction to have timed out.
+P13L39	
+P13L40	7.2.2.  Sending over TCP or TLS-over-TCP
+P13L41	
+P13L42	   For TCP and TLS-over-TCP, the client opens a TCP connection to the
+P13L43	   server.
+P13L44	
+P13L45	   In some usage of STUN, STUN is sent as the only protocol over the TCP
+P13L46	   connection.  In this case, it can be sent without the aid of any
+P13L47	   additional framing or demultiplexing.  In other usages, or with other
+P13L48	   extensions, it may be multiplexed with other data over a TCP
+P14L1	   connection.  In that case, STUN MUST be run on top of some kind of
+P14L2	   framing protocol, specified by the usage or extension, which allows
+P14L3	   for the agent to extract complete STUN messages and complete
+P14L4	   application layer messages.
+P14L5	
+P14L6	   For TLS-over-TCP, the TLS_RSA_WITH_AES_128_CBC_SHA ciphersuite MUST
+P14L7	   be supported at a minimum.  Implementations MAY also support any
+P14L8	   other ciphersuite.  When it receives the TLS Certificate message, the
+P14L9	   client SHOULD verify the certificate and inspect the site identified
+P14L10	   by the certificate.  If the certificate is invalid, revoked, or if it
+P14L11	   does not identify the appropriate party, the client MUST NOT send the
+P14L12	   STUN message or otherwise proceed with the STUN transaction.  The
+P14L13	   client MUST verify the identity of the server.  To do that, it
+P14L14	   follows the identification procedures defined in Section 3.1 of RFC
+P14L15	   2818 [RFC2818].  Those procedures assume the client is dereferencing
+P14L16	   a URI.  For purposes of usage with this specification, the client
+P14L17	   treats the domain name or IP address used in Section 8.1 as the host
+P14L18	   portion of the URI that has been dereferenced.  If DNS was not used,
+P14L19	   the client MUST be configured with a set of authorized domains whose
+P14L20	   certificates will be accepted.
+P14L21	
+P14L22	   Reliability of STUN over TCP and TLS-over-TCP is handled by TCP
+P14L23	   itself, and there are no retransmissions at the STUN protocol level.
+P14L24	   However, for a request/response transaction, if the client has not
+P14L25	   received a response 7900ms after it sent the SYN to establish the
+P14L26	   connection, it considers the transaction to have timed out.  This
+P14L27	   value has been chosen to equalize the TCP and UDP timeouts for the
+P14L28	   default initial RTO.
+P14L29	
+P14L30	   In addition, if the client is unable to establish the TCP connection,
+P14L31	   or the TCP connection is reset or fails before a response is
+P14L32	   received, any request/response transaction in progress is considered
+P14L33	   to have failed
+P14L34	
+P14L35	   The client MAY send multiple transactions over a single TCP (or TLS-
+P14L36	   over-TCP) connection, and it MAY send another request before
+P14L37	   receiving a response to the previous.  The client SHOULD keep the
+P14L38	   connection open until it
+P14L39	
+P14L40	   o  has no further STUN requests or indications to send over that
+P14L41	      connection, and;
+P14L42	
+P14L43	   o  has no plans to use any resources (such as a mapped address
+P14L44	      (MAPPED-ADDRESS or XOR-MAPPED-ADDRESS) or relayed address
+P14L45	      [I-D.ietf-behave-turn]) that were learned though STUN requests
+P14L46	      sent over that connection, and;
+P14L47	
+P14L48	
+P15L1	   o  if multiplexing other application protocols over that port, has
+P15L2	      finished using that other application, and;
+P15L3	
+P15L4	   o  if using that learned port with a remote peer, has established
+P15L5	      communications with that remote peer, as is required by some TCP
+P15L6	      NAT traversal techniques (e.g., [I-D.ietf-mmusic-ice-tcp]).
+P15L7	
+P15L8	   At the server end, the server SHOULD keep the connection open, and
+P15L9	   let the client close it.  If a server becomes overloaded and needs to
+P15L10	   close connections to free up resources, it SHOULD close an existing
+P15L11	   connection rather than reject new connection requests.  The server
+P15L12	   SHOULD NOT close a connection if a request was received over that
+P15L13	   connection for which a response was not sent.  A server MUST NOT ever
+P15L14	   open a connection back towards the client in order to send a
+P15L15	   response.
+P15L16	
+P15L17	7.3.  Receiving a STUN Message
+P15L18	
+P15L19	   This section specifies the processing of a STUN message.  The
+P15L20	   processing specified here is for STUN messages as defined in this
+P15L21	   specification; additional rules for backwards compatibility are
+P15L22	   defined in in Section 12.  Those additional procedures are optional,
+P15L23	   and usages can elect to utilize them.  First, a set of processing
+P15L24	   operations are applied that are independent of the class.  This is
+P15L25	   followed by class-specific processing, described in the subsections
+P15L26	   which follow.
+P15L27	
+P15L28	   When a STUN agent receives a STUN message, it first checks that the
+P15L29	   message obeys the rules of Section 6.  It checks that the first two
+P15L30	   bits are 0, that the magic cookie field has the correct value, that
+P15L31	   the message length is sensible, and that the method value is a
+P15L32	   supported method.  If the message-class is Success Response or Error
+P15L33	   Response, the agent checks that the transaction ID matches a
+P15L34	   transaction that is still in progress.  If the FINGERPRINT extension
+P15L35	   is being used, the agent checks that the FINGERPRINT attribute is
+P15L36	   present and contains the correct value.  If any errors are detected,
+P15L37	   the message is silently discarded.  In the case when STUN is being
+P15L38	   multiplexed with another protocol, an error may indicate that this is
+P15L39	   not really a STUN message; in this case, the agent should try to
+P15L40	   parse the message as a different protocol.
+P15L41	
+P15L42	   The STUN agent then does any checks that are required by a
+P15L43	   authentication mechanism that the usage has specified (see
+P15L44	   Section 10.
+P15L45	
+P15L46	   Once the authentication checks are done, the STUN agent checks for
+P15L47	   unknown attributes and known-but-unexpected attributes in the
+P15L48	   message.  Unknown comprehension-optional attributes MUST be ignored
+P16L1	   by the agent.  Known-but-unexpected attributes SHOULD be ignored by
+P16L2	   the agent.  Unknown comprehension-required attributes cause
+P16L3	   processing that depends on the message-class and is described below.
+P16L4	
+P16L5	   At this point, further processing depends on the message class of the
+P16L6	   request.
+P16L7	
+P16L8	7.3.1.  Processing a Request
+P16L9	
+P16L10	   If the request contains one or more unknown comprehension-required
+P16L11	   attributes, the server replies with an error response with an error
+P16L12	   code of 420 (Unknown Attribute), and includes an UNKNOWN-ATTRIBUTES
+P16L13	   attribute in the response that lists the unknown comprehension-
+P16L14	   required attributes.
+P16L15	
+P16L16	   The server then does any additional checking that the method or the
+P16L17	   specific usage requires.  If all the checks succeed, the server
+P16L18	   formulates a success response as described below.
+P16L19	
+P16L20	   If the request uses UDP transport and is a retransmission of a
+P16L21	   request for which the server has already generated a success response
+P16L22	   within the last 10 seconds, the server MUST retransmit the same
+P16L23	   success response.  One way for a server to do this is to remember all
+P16L24	   transaction IDs received over UDP and their corresponding responses
+P16L25	   in the last 10 seconds.  Another way is to reprocess the request and
+P16L26	   recompute the response.  The latter technique MUST only be applied to
+P16L27	   requests which are idempotent and result in the same success response
+P16L28	   for the same request.  The Binding method is considered to idempotent
+P16L29	   in this way (even though certain rare network events could cause the
+P16L30	   reflexive transport address value to change).  Extensions to STUN
+P16L31	   SHOULD state whether their request types have this property or not.
+P16L32	
+P16L33	7.3.1.1.  Forming a Success or Error Response
+P16L34	
+P16L35	   When forming the response (success or error), the server follows the
+P16L36	   rules of section 6.  The method of the response is the same as that
+P16L37	   of the request, and the message class is either "Success Response" or
+P16L38	   "Error Response".
+P16L39	
+P16L40	   For an error response, the server MUST add an ERROR-CODE attribute
+P16L41	   containing the error code specified in the processing above.  The
+P16L42	   reason phrase is not fixed, but SHOULD be something suitable for the
+P16L43	   error code.  For certain errors, additional attributes are added to
+P16L44	   the message.  These attributes are spelled out in the description
+P16L45	   where the error code is specified.  For example, for an error code of
+P16L46	   420 (Unknown Attribute), the server MUST include an UNKNOWN-
+P16L47	   ATTRIBUTES attribute.  Certain authentication errors also cause
+P16L48	   attributes to be added (see Section 10).  Extensions may define other
+P17L1	   errors and/or additional attributes to add in error cases.
+P17L2	
+P17L3	   If the server authenticated the request using an authentication
+P17L4	   mechanism, then the server SHOULD add the appropriate authentication
+P17L5	   attributes to the response (see Section 10).
+P17L6	
+P17L7	   The server also adds any attributes required by the specific method
+P17L8	   or usage.  In addition, the server SHOULD add a SERVER attribute to
+P17L9	   the message.
+P17L10	
+P17L11	   For the Binding method, no additional checking is required unless the
+P17L12	   usage specifies otherwise.  When forming the success response, the
+P17L13	   server adds a XOR-MAPPED-ADDRESS attribute to the response, where the
+P17L14	   contents of the attribute are the source transport address of the
+P17L15	   request message.  For UDP, this is the source IP address and source
+P17L16	   UDP port of the request message.  For TCP and TLS-over-TCP, this is
+P17L17	   the source IP address and source TCP port of the TCP connection as
+P17L18	   seen by the server.
+P17L19	
+P17L20	7.3.1.2.  Sending the Success or Error Response
+P17L21	
+P17L22	   The response (success or error) is sent over the same transport as
+P17L23	   the request was received on.  If the request was received over UDP,
+P17L24	   the destination IP address and port of the response is the source IP
+P17L25	   address and port of the received request message, and the source IP
+P17L26	   address and port of the response is equal to the destination IP
+P17L27	   address and port of the received request message.  If the request was
+P17L28	   received over TCP or TLS-over-TCP, the response is sent back on the
+P17L29	   same TCP connection as the request was received on.
+P17L30	
+P17L31	7.3.2.  Processing an Indication
+P17L32	
+P17L33	   If the indication contains unknown comprehension-required attributes,
+P17L34	   the indication is discarded and processing ceases.
+P17L35	
+P17L36	   The server then does any additional checking that the method or the
+P17L37	   specific usage requires.  If all the checks succeed, the server then
+P17L38	   processes the indication.  No response is generated for an
+P17L39	   indication.
+P17L40	
+P17L41	   For the Binding method, no additional checking or processing is
+P17L42	   required, unless the usage specifies otherwise.  The mere receipt of
+P17L43	   the message by the server has refreshed the "bindings" in the
+P17L44	   intervening NATs.
+P17L45	
+P17L46	   Since indications are not re-transmitted over UDP (unlike requests),
+P17L47	   there is no need to handle re-transmissions of indications at the
+P17L48	   server.
+P18L1	7.3.3.  Processing a Success Response
+P18L2	
+P18L3	   If the success response contains unknown comprehension-required
+P18L4	   attributes, the response is discarded and the transaction is
+P18L5	   considered to have failed.
+P18L6	
+P18L7	   The client then does any additional checking that the method or the
+P18L8	   specific usage requires.  If all the checks succeed, the client then
+P18L9	   processes the success response.
+P18L10	
+P18L11	   For the Binding method, the client checks that the XOR-MAPPED-ADDRESS
+P18L12	   attribute is present in the response.  The client checks the address
+P18L13	   family specified.  If it is an unsupported address family, the
+P18L14	   attribute SHOULD be ignored.  If it is an unexpected but supported
+P18L15	   address family (for example, the Binding transaction was sent over
+P18L16	   IPv4, but the address family specified is IPv6), then the client MAY
+P18L17	   accept and use the value.
+P18L18	
+P18L19	7.3.4.  Processing an Error Response
+P18L20	
+P18L21	   If the error response contains unknown comprehension-required
+P18L22	   attributes, or if the error response does not contain an ERROR-CODE
+P18L23	   attribute, then the transaction is simply considered to have failed.
+P18L24	
+P18L25	   The client then does any processing specified by the authentication
+P18L26	   mechanism (see Section 10).  This may result in a new transaction
+P18L27	   attempt.
+P18L28	
+P18L29	   The processing at this point depends on the error-code, the method,
+P18L30	   and the usage; the following are the default rules:
+P18L31	
+P18L32	   o  If the error code is 300 through 399, the client SHOULD consider
+P18L33	      the transaction as failed unless the ALTERNATE-SERVER extension is
+P18L34	      being used.  See Section 11.
+P18L35	
+P18L36	   o  If the error code is 400 through 499, the client declares the
+P18L37	      transaction failed; in the case of 420 (Unknown Attribute), the
+P18L38	      response should contain a UNKNOWN-ATTRIBUTES attribute that gives
+P18L39	      additional information.
+P18L40	
+P18L41	   o  If the error code is 500 through 599, the client MAY resend the
+P18L42	      request; clients that do so MUST limit the number of times they do
+P18L43	      this.
+P18L44	
+P18L45	   Any other error code causes the client to consider the transaction
+P18L46	   failed.
+P18L47	
+P18L48	
+P19L1	8.  FINGERPRINT Mechanism
+P19L2	
+P19L3	   This section describes an optional mechanism for STUN that aids in
+P19L4	   distinguishing STUN messages from packets of other protocols when the
+P19L5	   two are multiplexed on the same transport address.  This mechanism is
+P19L6	   optional, and a STUN usage must describe if and when it is used.
+P19L7	
+P19L8	   In some usages, STUN messages are multiplexed on the same transport
+P19L9	   address as other protocols, such as RTP.  In order to apply the
+P19L10	   processing described in Section 7, STUN messages must first be
+P19L11	   separated from the application packets.  Section 6 describes three
+P19L12	   fixed fields in the STUN header that can be used for this purpose.
+P19L13	   However, in some cases, these three fixed fields may not be
+P19L14	   sufficient.
+P19L15	
+P19L16	   When the FINGERPRINT extension is used, an agent includes the
+P19L17	   FINGERPRINT attribute in messages it sends to another agent.
+P19L18	   Section 14.5 describes the placement and value of this attribute.
+P19L19	   When the agent receives what it believes is a STUN message, then, in
+P19L20	   addition to other basic checks, the agent also checks that the
+P19L21	   message contains a FINGERPRINT attribute and that the attribute
+P19L22	   contains the correct value (see Section 7.3.  This additional check
+P19L23	   helps the agent detect messages of other protocols that might
+P19L24	   otherwise seem to be STUN messages.
+P19L25	
+P19L26	
+P19L27	9.  DNS Discovery of a Server
+P19L28	
+P19L29	   This section describes an optional procedure for STUN that allows a
+P19L30	   client to use DNS to determine the IP address and port of a server.
+P19L31	   A STUN usage must describe if and when this extension is used.  To
+P19L32	   use this procedure, the client must have a domain name and a service
+P19L33	   name; the usage must also describe how the client obtains these.
+P19L34	
+P19L35	   When a client wishes to locate a STUN server in the public Internet
+P19L36	   that accepts Binding Request/Response transactions, the SRV service
+P19L37	   name is "stun".  STUN usages MAY define additional DNS SRV service
+P19L38	   names.
+P19L39	
+P19L40	   The domain name is resolved to a transport address using the SRV
+P19L41	   procedures specified in [RFC2782].  The DNS SRV service name is the
+P19L42	   service name provided as input to this procedure.  The protocol in
+P19L43	   the SRV lookup is the transport protocol the client will run STUN
+P19L44	   over: "udp" for UDP, "tcp" for TCP, and "tls" for TLS-over-TCP.  If,
+P19L45	   in the future, additional SRV records are defined for TLS over other
+P19L46	   transport protocols, those will need to utilize an SRV transport
+P19L47	   token of the form "tls-foo" for transport protocol "foo".
+P19L48	
+P20L1	   The procedures of RFC 2782 are followed to determine the server to
+P20L2	   contact.  RFC 2782 spells out the details of how a set of SRV records
+P20L3	   are sorted and then tried.  However, RFC2782 only states that the
+P20L4	   client should "try to connect to the (protocol, address, service)"
+P20L5	   without giving any details on what happens in the event of failure.
+P20L6	   When following these procedures, if the STUN transaction times out
+P20L7	   without receipt of a response, the client SHOULD retry the request to
+P20L8	   the next server in the list of servers from the DNS SRV response.
+P20L9	   Such a retry is only possible for request/response transmissions,
+P20L10	   since indication transactions generate no response or timeout.
+P20L11	
+P20L12	   The default port for STUN requests is 3478, for both TCP and UDP.
+P20L13	   Administrators SHOULD use this port in their SRV records for UDP and
+P20L14	   TCP, but MAY use others.  There is no default port for STUN over TLS,
+P20L15	   however a STUN server SHOULD use a port number for TLS different from
+P20L16	   3478 so that the server can determine whether the first message it
+P20L17	   will receive after the TCP connection is set up, is a STUN message or
+P20L18	   a TLS message.
+P20L19	
+P20L20	   If no SRV records were found, the client performs an A or AAAA record
+P20L21	   lookup of the domain name.  The result will be a list of IP
+P20L22	   addresses, each of which can be contacted at the default port using
+P20L23	   UDP or TCP, independent of the STUN usage.  For usages that require
+P20L24	   TLS, lack of SRV records is equivalent to a failure of the
+P20L25	   transaction, since the request or indication MUST NOT be sent unless
+P20L26	   SRV records provided a transport address specifically for TLS.
+P20L27	
+P20L28	
+P20L29	10.  Authentication and Message-Integrity Mechanisms
+P20L30	
+P20L31	   This section defines two mechanisms for STUN that a client and server
+P20L32	   can use to provide authentication and message-integrity; these two
+P20L33	   mechanisms are known as the short-term credential mechanism and the
+P20L34	   long-term credential mechanism.  These two mechanisms are optional,
+P20L35	   and each usage must specify if and when these mechanisms are used.
+P20L36	   Consequently, both clients and servers will know which mechanism (if
+P20L37	   any) to follow based on knowledge of which usage applies.  For
+P20L38	   example, a STUN server on the public Internet supporting ICE would
+P20L39	   have no authentication, whereas the STUN server functionality in an
+P20L40	   agent supporting connectivity checks would utilize short term
+P20L41	   credentials.  An overview of these two mechanisms is given in
+P20L42	   Section 3.
+P20L43	
+P20L44	   Each mechanism specifies the additional processing required to use
+P20L45	   that mechanism, extending the processing specified in Section 7.  The
+P20L46	   additional processing occurs in three different places: when forming
+P20L47	   a message; when receiving a message immediately after the the basic
+P20L48	   checks have been performed; and when doing the detailed processing of
+P21L1	   error responses.
+P21L2	
+P21L3	10.1.  Short-Term Credential Mechanism
+P21L4	
+P21L5	   The short-term credential mechanism assumes that, prior to the STUN
+P21L6	   transaction, the client and server have used some other protocol to
+P21L7	   exchange a credential in the form of a username and password.  This
+P21L8	   credential is time-limited.  The time-limit is defined by the usage.
+P21L9	   As an example, in the ICE usage [I-D.ietf-mmusic-ice], the two
+P21L10	   endpoints use out-of-band signaling to agree on a username and
+P21L11	   password, and this username and password is applicable for the
+P21L12	   duration of the media session.
+P21L13	
+P21L14	   This credential is used to form a message integrity check in each
+P21L15	   request and in many responses.  There is no challenge and response as
+P21L16	   in the long term mechanism; consequently, replay is prevented by
+P21L17	   virtue of the time-limited nature of the credential.
+P21L18	
+P21L19	10.1.1.  Forming a Request or Indication
+P21L20	
+P21L21	   For a request or indication message, the agent MUST include the
+P21L22	   USERNAME and MESSAGE-INTEGRITY attributes in the message.  The HMAC
+P21L23	   for the MESSAGE-INTEGRITY attribute is computed as described in
+P21L24	   Section 14.4.  The key for the HMAC is the password.  Note that the
+P21L25	   password is never included in the request or indication.
+P21L26	
+P21L27	10.1.2.  Receiving a Request or Indication
+P21L28	
+P21L29	   After the agent has done the basic processing of a message, the agent
+P21L30	   performs the checks listed below in order specified:
+P21L31	
+P21L32	   o  If the message does not contain both a MESSAGE-INTEGRITY and a
+P21L33	      USERNAME attribute:
+P21L34	
+P21L35	      *  If the message is a request, the server MUST reject the request
+P21L36	         with an error response.  This response MUST use an error code
+P21L37	         of 400 (Bad Request).
+P21L38	
+P21L39	      *  If the message is an indication, the server MUST silently
+P21L40	         discard the indication.
+P21L41	
+P21L42	   o  If the USERNAME does not contain a username value currently valid
+P21L43	      within the server:
+P21L44	
+P21L45	      *  If the message is a request, the server MUST reject the request
+P21L46	         with an error response.  This response MUST use an error code
+P21L47	         of 401 (Unauthorized).
+P21L48	
+P22L1	      *  If the message is an indication, the server MUST silently
+P22L2	         discard the indication.
+P22L3	
+P22L4	   o  Using the password associated with the username, compute the value
+P22L5	      for the message-integrity as described in Section 14.4.  If the
+P22L6	      resulting value does not match the contents of the MESSAGE-
+P22L7	      INTEGRITY attribute:
+P22L8	
+P22L9	      *  If the message is a request, the server MUST reject the request
+P22L10	         with an error response.  This response MUST use an error code
+P22L11	         of 401 (Unauthorized).
+P22L12	
+P22L13	      *  If the message is an indication, the server MUST silently
+P22L14	         discard the indication.
+P22L15	
+P22L16	   If these checks pass, the server continues to process the request or
+P22L17	   indication.  Any response generated by the server MUST include the
+P22L18	   MESSAGE-INTEGRITY attribute, computed using the password utilized to
+P22L19	   authenticate the request.  The response MUST NOT contain the USERNAME
+P22L20	   attribute.
+P22L21	
+P22L22	   If any of the checks fail, the server MUST NOT include a MESSAGE-
+P22L23	   INTEGRITY or USERNAME attribute in the error response.  This is
+P22L24	   because, in these failure cases, the server cannot determine the
+P22L25	   shared secret necessary to compute MESSAGE-INTEGRITY.
+P22L26	
+P22L27	10.1.3.  Receiving a Response
+P22L28	
+P22L29	   The client looks for the MESSAGE-INTEGRITY attribute in the response.
+P22L30	   If present, the client computes the message integrity over the
+P22L31	   response as defined in Section 14.4, using the same password it
+P22L32	   utilized for the request.  If the resulting value matches the
+P22L33	   contents of the MESSAGE-INTEGRITY attribute, the response is
+P22L34	   considered authenticated.  If the value does not match, or if
+P22L35	   MESSAGE-INTEGRITY was absent, the response MUST be discarded, as if
+P22L36	   it was never received.  This means that retransmits, if applicable,
+P22L37	   will continue.
+P22L38	
+P22L39	10.2.  Long-term Credential Mechanism
+P22L40	
+P22L41	   The long-term credential mechanism relies on a long term credential,
+P22L42	   in the form of a username and password, that are shared between
+P22L43	   client and server.  The credential is considered long-term since it
+P22L44	   is assumed that it is provisioned for a user, and remains in effect
+P22L45	   until the user is no longer a subscriber of the system, or is
+P22L46	   changed.  This is basically a traditional "log-in" username and
+P22L47	   password given to users.
+P22L48	
+P23L1	   Because these usernames and passwords are expected to be valid for
+P23L2	   extended periods of time, replay prevention is provided in the form
+P23L3	   of a digest challenge.  In this mechanism, the client initially sends
+P23L4	   a request, without offering any credentials or any integrity checks.
+P23L5	   The server rejects this request, providing the user a realm (used to
+P23L6	   guide the user or agent in selection of a username and password) and
+P23L7	   a nonce.  The nonce provides the replay protection.  It is a cookie,
+P23L8	   selected by the server, and encoded in such a way as to indicate a
+P23L9	   duration of validity or client identity from which it is valid.  The
+P23L10	   client retries the request, this time including its username, the
+P23L11	   realm, and echoing the nonce provided by the server.  The client also
+P23L12	   includes a message-integrity, which provides an HMAC over the entire
+P23L13	   request, including the nonce.  The server validates the nonce, and
+P23L14	   checks the message-integrity.  If they match, the request is
+P23L15	   authenticated.  If the nonce is no longer valid, it is considered
+P23L16	   "stale", and the server rejects the request, providing a new nonce.
+P23L17	
+P23L18	   In subsequent requests to the same server, the client reuses the
+P23L19	   nonce, username, realm and password it used previously.  In this way,
+P23L20	   subsequent requests are not rejected until the nonce becomes invalid
+P23L21	   by the server, in which case the rejection provides a new nonce to
+P23L22	   the client.
+P23L23	
+P23L24	   Note that the long-term credential mechanism cannot be used to
+P23L25	   protect indications, since indications cannot be challenged.  Usages
+P23L26	   utilizing indications must either use a short-term credential, or
+P23L27	   omit authentication and message integrity for them.
+P23L28	
+P23L29	   Since the long-term credential mechanism is susceptible to offline
+P23L30	   dictionary attacks, deployments SHOULD utilize strong passwords.
+P23L31	
+P23L32	   For STUN servers used in conjunction with SIP servers, it is
+P23L33	   desirable to use the same credentials for authentication to the SIP
+P23L34	   server and STUN server.  Typically, SIP systems utilizing SIP's
+P23L35	   digest authentication mechanism do not actually store the password in
+P23L36	   the database.  Rather, they store a value called H(A1), which is
+P23L37	   computed as:
+P23L38	
+P23L39	                H(A1) = MD5(username ":" realm ":" password)
+P23L40	
+P23L41	   If a system wishes to utilize this credential, the STUN password
+P23L42	   would be computed by taking the user-entered username and password,
+P23L43	   and using H(A1) as the STUN password.  It is RECOMMENDED that clients
+P23L44	   utilize this construction for the STUN password.
+P23L45	
+P23L46	
+P23L47	
+P23L48	
+P24L1	10.2.1.  Forming a Request
+P24L2	
+P24L3	   There are two cases when forming a request.  In the first case, this
+P24L4	   is the first request from the client to the server (as identified by
+P24L5	   its IP address and port).  In the second case, the client is
+P24L6	   submitting a subsequent request once a previous request/response
+P24L7	   transaction has completed successfully.  Forming a request as a
+P24L8	   consequence of a 401 or 438 error response is covered in
+P24L9	   Section 10.2.3 and is not considered a "subsequent request" and thus
+P24L10	   does not utilize the rules described in Section 10.2.1.2.
+P24L11	
+P24L12	10.2.1.1.  First Request
+P24L13	
+P24L14	   If the client has not completed a successful request/response
+P24L15	   transaction with the server (as identified by hostname, if the DNS
+P24L16	   procedures of Section 9 are used, else IP address if not), it SHOULD
+P24L17	   omit the USERNAME, MESSAGE-INTEGRITY, REALM, and NONCE attributes.
+P24L18	   In other words, the very first request is sent as if there were no
+P24L19	   authentication or message integrity applied.  The exception to this
+P24L20	   rule are requests sent to another server as a consequence of the
+P24L21	   ALTERNATE-SERVER mechanism described in Section 11.  Those requests
+P24L22	   do include the USERNAME, REALM and NONCE from the original request,
+P24L23	   along with a newly computed MESSAGE-INTEGRITY based on them.
+P24L24	
+P24L25	10.2.1.2.  Subsequent Requests
+P24L26	
+P24L27	   Once a request/response transaction has completed successfully, the
+P24L28	   client will have been been presented a realm and nonce by the server,
+P24L29	   and selected a username and password with which it authenticated.
+P24L30	   The client SHOULD cache the username, password, realm, and nonce for
+P24L31	   subsequent communications with the server.  When the client sends a
+P24L32	   subsequent request, it SHOULD include the USERNAME, REALM, and NONCE
+P24L33	   attributes with these cached values.  It SHOULD include a MESSAGE-
+P24L34	   INTEGRITY attributed, computed as described in Section 14.4 using the
+P24L35	   cached password as the key.
+P24L36	
+P24L37	10.2.2.  Receiving a Request
+P24L38	
+P24L39	   After the server has done the basic processing of a request, it
+P24L40	   performs the checks listed below in the order specified:
+P24L41	
+P24L42	   o  If the message does not contain a MESSAGE-INTEGRITY attribute, the
+P24L43	      server MUST generate an error response with an error code of 401
+P24L44	      (Unauthorized).  This response MUST include a REALM value.  It is
+P24L45	      RECOMMENDED that the REALM value be the domain name of the
+P24L46	      provider of the STUN server.  The response MUST include a NONCE,
+P24L47	      selected by the server.  The response SHOULD NOT contain a
+P24L48	      USERNAME or MESSAGE-INTEGRITY attribute.
+P25L1	   o  If the message contains a MESSAGE-INTEGRITY attribute, but is
+P25L2	      missing the USERNAME, REALM or NONCE attributes, the server MUST
+P25L3	      generate an error response with an error code of 400 (Bad
+P25L4	      Request).  This response SHOULD NOT include a USERNAME, NONCE,
+P25L5	      REALM or MESSAGE-INTEGRITY attribute.
+P25L6	
+P25L7	   o  If the NONCE is no longer valid, the server MUST generate an error
+P25L8	      response with an error code of 438 (Stale Nonce).  This response
+P25L9	      MUST include a NONCE and REALM attribute and SHOULD NOT incude the
+P25L10	      USERNAME or MESSAGE-INTEGRITY attribute.
+P25L11	
+P25L12	   o  If the username in the USERNAME attribute is not valid, the server
+P25L13	      MUST generate an error response with an error code of 401
+P25L14	      (Unauthorized).  This response MUST include a REALM value.  It is
+P25L15	      RECOMMENDED that the REALM value be the domain name of the
+P25L16	      provider of the STUN server.  The response MUST include a NONCE,
+P25L17	      selected by the server.  The response SHOULD NOT contain a
+P25L18	      USERNAME or MESSAGE-INTEGRITY attribute.
+P25L19	
+P25L20	   o  Using the password associated with the username in the USERNAME
+P25L21	      attribute, compute the value for the message-integrity as
+P25L22	      described in Section 14.4.  If the resulting value does not match
+P25L23	      the contents of the MESSAGE-INTEGRITY attribute, the server MUST
+P25L24	      reject the request with an error response.  This response MUST use
+P25L25	      an error code of 401 (Unauthorized).  It MUST include a REALM and
+P25L26	      NONCE attribute and SHOULD NOT include the USERNAME or MESSAGE-
+P25L27	      INTEGRITY attribute.
+P25L28	
+P25L29	   If these checks pass, the server continues to process the request.
+P25L30	   Any response generated by the server (excepting the cases described
+P25L31	   above) MUST include the MESSAGE-INTEGRITY attribute, computed using
+P25L32	   the username and password utilized to authenticate the request.  The
+P25L33	   REALM, NONCE, and USERNAME attributes SHOULD NOT be included.
+P25L34	
+P25L35	10.2.3.  Receiving a Response
+P25L36	
+P25L37	   If the response is an error response, with an error code of 401
+P25L38	   (Unauthorized), the client SHOULD retry the request with a new
+P25L39	   transaction.  This request MUST contain a USERNAME, determined by the
+P25L40	   client as the appropriate username for the REALM from the error
+P25L41	   response.  The request MUST contain the REALM, copied from the error
+P25L42	   response.  The request MUST contain the NONCE, copied from the error
+P25L43	   response.  The request MUST contain the MESSAGE-INTEGRITY attribute,
+P25L44	   computed using the password associated with the username in the
+P25L45	   USERNAME attribute.  The client MUST NOT perform this retry if it is
+P25L46	   not changing the USERNAME or REALM or its associated password, from
+P25L47	   the previous attempt.
+P25L48	
+P26L1	   If the response is an error response with an error code of 438 (Stale
+P26L2	   Nonce), the client MUST retry the request, using the new NONCE
+P26L3	   supplied in the 438 (Stale Nonce) response.  This retry MUST also
+P26L4	   include the USERNAME, REALM and MESSAGE-INTEGRITY.
+P26L5	
+P26L6	   The client looks for the MESSAGE-INTEGRITY attribute in the response
+P26L7	   (either success or failure).  If present, the client computes the
+P26L8	   message integrity over the response as defined in Section 14.4, using
+P26L9	   the same password it utilized for the request.  If the resulting
+P26L10	   value matches the contents of the MESSAGE-INTEGRITY attribute, the
+P26L11	   response is considered authenticated.  If the value does not match,
+P26L12	   or if MESSAGE-INTEGRITY was absent, the response MUST be discarded,
+P26L13	   as if it was never received.  This means that retransmits, if
+P26L14	   applicable, will continue.
+P26L15	
+P26L16	
+P26L17	11.  ALTERNATE-SERVER Mechanism
+P26L18	
+P26L19	   This section describes a mechanism in STUN that allows a server to
+P26L20	   redirect a client to another server.  This extension is optional, and
+P26L21	   a usage must define if and when this extension is used.  To prevent
+P26L22	   denial-of-service attacks, this extension MUST only be used in
+P26L23	   situations where the client and server are using an authentication
+P26L24	   and message-integrity mechanism.
+P26L25	
+P26L26	   A server using this extension redirects a client to another server by
+P26L27	   replying to a request message with an error response message with an
+P26L28	   error code of 300 (Try Alternate).  The server MUST include a
+P26L29	   ALTERNATE-SERVER attribute in the error response.  The error response
+P26L30	   message MUST be authenticated, which in practice means the request
+P26L31	   message must have passed the authentication checks.
+P26L32	
+P26L33	   A client using this extension handles a 300 (Try Alternate) error
+P26L34	   code as follows.  If the error response has passed the authentication
+P26L35	   checks, then the client looks for a ALTERNATE-SERVER attribute in the
+P26L36	   error response.  If one is found, then the client considers the
+P26L37	   current transaction as failed, and re-attempts the request with the
+P26L38	   server specified in the attribute.  The client SHOULD reuse any
+P26L39	   authentication credentials from the old request in the new
+P26L40	   transaction.
+P26L41	
+P26L42	
+P26L43	12.  Backwards Compatibility with RFC 3489
+P26L44	
+P26L45	   This section define procedures that allow a degree of backwards
+P26L46	   compatible with the original protocol defined in RFC 3489 [RFC3489].
+P26L47	   This mechanism is optional, meant to be utilized only in cases where
+P26L48	   a new client can connect to an old server, or vice-a-versa.  A usage
+P27L1	   must define if and when this procedure is used.
+P27L2	
+P27L3	   Section 18 lists all the changes between this specification and RFC
+P27L4	   3489 [RFC3489].  However, not all of these differences are important,
+P27L5	   because "classic STUN" was only used in a few specific ways.  For the
+P27L6	   purposes of this extension, the important changes are the following.
+P27L7	   In RFC 3489:
+P27L8	
+P27L9	   o  UDP was the only supported transport;
+P27L10	
+P27L11	   o  The field that is now the Magic Cookie field was a part of the
+P27L12	      transaction id field, and transaction ids were 128 bits long;
+P27L13	
+P27L14	   o  The XOR-MAPPED-ADDRESS attribute did not exist, and the Binding
+P27L15	      method used the MAPPED-ADDRESS attribute instead;
+P27L16	
+P27L17	   o  There were two comprehension-required attributes, RESPONSE-ADDRESS
+P27L18	      and CHANGE-REQUEST, that have been removed from this
+P27L19	      specification;
+P27L20	
+P27L21	      *  These attributes are now part of the NAT Behavior Discovery
+P27L22	         usage.
+P27L23	
+P27L24	12.1.  Changes to Client Processing
+P27L25	
+P27L26	   A client that wants to interoperate with a [RFC3489] server SHOULD
+P27L27	   send a request message that uses the Binding method, contains no
+P27L28	   attributes, and uses UDP as the transport protocol to the server.  If
+P27L29	   successful, the success response received from the server will
+P27L30	   contain a MAPPED-ADDRESS attribute rather than an XOR-MAPPED-ADDRESS
+P27L31	   attribute; other than this change, the processing of the response is
+P27L32	   identical to the procedures described above.
+P27L33	
+P27L34	12.2.  Changes to Server Processing
+P27L35	
+P27L36	   A STUN server can detect when a given Binding Request message was
+P27L37	   sent from an RFC 3489 [RFC3489] client by the absence of the correct
+P27L38	   value in the Magic Cookie field.  When the server detects an RFC 3489
+P27L39	   client, it SHOULD copy the value seen in the Magic Cookie field in
+P27L40	   the Binding Request to the Magic Cookie field in the Binding Response
+P27L41	   message, and insert a MAPPED-ADDRESS attribute instead of an XOR-
+P27L42	   MAPPED-ADDRESS attribute.
+P27L43	
+P27L44	   The client might, in rare situations, include either the RESPONSE-
+P27L45	   ADDRESS or CHANGE-REQUEST attributes.  In these situations, the
+P27L46	   server will view these as unknown comprehension-required attributes
+P27L47	   and reply with an error response.  Since the mechanisms utilizing
+P27L48	   those attributes are no longer supported, this behavior is
+P28L1	   acceptable.
+P28L2	
+P28L3	
+P28L4	13.  STUN Usages
+P28L5	
+P28L6	   STUN by itself is not a solution to the NAT traversal problem.
+P28L7	   Rather, STUN defines a tool that can be used inside a larger
+P28L8	   solution.  The term "STUN Usage" is used for any solution that uses
+P28L9	   STUN as a component.
+P28L10	
+P28L11	   At the time of writing, three STUN usages are defined: Interactive
+P28L12	   Connectivity Establishment (ICE) [I-D.ietf-mmusic-ice], Client-
+P28L13	   initiated connections for SIP [I-D.ietf-sip-outbound], and NAT
+P28L14	   Behavior Discovery [I-D.ietf-behave-nat-behavior-discovery].  Other
+P28L15	   STUN usages may be defined in the future.
+P28L16	
+P28L17	   A STUN usage defines how STUN is actually utilized - when to send
+P28L18	   requests, what to do with the responses, and which optional
+P28L19	   procedures defined here (or in an extension to STUN) are to be used.
+P28L20	   A usage would also define:
+P28L21	
+P28L22	   o  Which STUN methods are used;
+P28L23	
+P28L24	   o  What authentication and message integrity mechanisms are used;
+P28L25	
+P28L26	   o  What mechanisms are used to distinguish STUN messages from other
+P28L27	      messages.  When STUN is run over TCP, a framing mechanism may be
+P28L28	      required;
+P28L29	
+P28L30	   o  How a STUN client determines the IP address and port of the STUN
+P28L31	      server;
+P28L32	
+P28L33	   o  Whether backwards compatibility to RFC 3489 is required;
+P28L34	
+P28L35	   o  What optional attributes defined here (such as FINGERPRINT and
+P28L36	      ALTERNATE-SERVER) or in other extensions are required.
+P28L37	
+P28L38	   In addition, any STUN usage must consider the security implications
+P28L39	   of using STUN in that usage.  A number of attacks against STUN are
+P28L40	   known (see the Security Considerations section in this document) and
+P28L41	   any usage must consider how these attacks can be thwarted or
+P28L42	   mitigated.
+P28L43	
+P28L44	   Finally, a usage must consider whether its usage of STUN is an
+P28L45	   example of the Unilateral Self-Address Fixing approach to NAT
+P28L46	   traversal, and if so, address the questions raised in RFC 3424.
+P28L47	
+P28L48	
+P29L1	14.  STUN Attributes
+P29L2	
+P29L3	   After the STUN header are zero or more attributes.  Each attribute
+P29L4	   MUST be TLV encoded, with a 16 bit type, 16 bit length, and value.
+P29L5	   Each STUN attribute MUST end on a 32 bit boundary.  As mentioned
+P29L6	   above, all fields in an attribute are transmitted most significant
+P29L7	   bit first.
+P29L8	
+P29L9	        0                   1                   2                   3
+P29L10	        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P29L11	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P29L12	       |         Type                  |            Length             |
+P29L13	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P29L14	       |                         Value (variable)                ....
+P29L15	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P29L16	
+P29L17	                    Figure 5: Format of STUN Attributes
+P29L18	
+P29L19	   The value in the Length field MUST contain the length of the Value
+P29L20	   part of the attribute, prior to padding, measured in bytes.  Since
+P29L21	   STUN aligns attributes on 32 bit boundaries, attributes whose content
+P29L22	   is not a multiple of 4 bytes are padded with 1, 2 or 3 bytes of
+P29L23	   padding so that its value contains a multiple of 4 bytes.  The
+P29L24	   padding bits are ignored, and may be any value.
+P29L25	
+P29L26	   Any attribute type MAY appear more than once in a STUN message.
+P29L27	   Unless specified otherwise, the order of appearance is significant:
+P29L28	   only the first occurance needs to be processed by a receiver, and any
+P29L29	   duplicates MAY be ignored by a receiver.
+P29L30	
+P29L31	   To allow future revisions of this specification to add new attributes
+P29L32	   if needed, the attribute space is divided into two ranges.
+P29L33	   Attributes with type values between 0x0000 and 0x7FFF are
+P29L34	   comprehension-required attributes, which means that the STUN agent
+P29L35	   cannot successfully process the message unless it understands the
+P29L36	   attribute.  Attributes with type values between 0x8000 and 0xFFFF are
+P29L37	   comprehension-optional attributes, which means that those attributes
+P29L38	   can be ignored by the STUN agent if it does not understand them.
+P29L39	
+P29L40	
+P29L41	
+P29L42	
+P29L43	
+P29L44	
+P29L45	
+P29L46	
+P29L47	
+P29L48	
+P30L1	   The STUN Attribute types defined by this specification are:
+P30L2	
+P30L3	     Comprehension-required range (0x0000-0x7FFF):
+P30L4	       0x0000: (Reserved)
+P30L5	       0x0001: MAPPED-ADDRESS
+P30L6	       0x0006: USERNAME
+P30L7	       0x0007: (Reserved; was PASSWORD)
+P30L8	       0x0008: MESSAGE-INTEGRITY
+P30L9	       0x0009: ERROR-CODE
+P30L10	       0x000A: UNKNOWN-ATTRIBUTES
+P30L11	       0x0014: REALM
+P30L12	       0x0015: NONCE
+P30L13	       0x0020: XOR-MAPPED-ADDRESS
+P30L14	
+P30L15	     Comprehension-optional range (0x8000-0xFFFF)
+P30L16	       0x8022: SERVER
+P30L17	       0x8023: ALTERNATE-SERVER
+P30L18	       0x8028: FINGERPRINT
+P30L19	
+P30L20	   The rest of this section describes the format of the various
+P30L21	   attributes defined in this specification.
+P30L22	
+P30L23	14.1.  MAPPED-ADDRESS
+P30L24	
+P30L25	   The MAPPED-ADDRESS attribute indicates a reflexive transport address
+P30L26	   of the client.  It consists of an eight bit address family, and a
+P30L27	   sixteen bit port, followed by a fixed length value representing the
+P30L28	   IP address.  If the address family is IPv4, the address MUST be 32
+P30L29	   bits.  If the address family is IPv6, the address MUST be 128 bits.
+P30L30	   All fields must be in network byte order.
+P30L31	
+P30L32	   The format of the MAPPED-ADDRESS attribute is:
+P30L33	
+P30L34	        0                   1                   2                   3
+P30L35	        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P30L36	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P30L37	       |0 0 0 0 0 0 0 0|    Family     |           Port                |
+P30L38	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P30L39	       |                                                               |
+P30L40	       |                 Address (32 bits or 128 bits)                 |
+P30L41	       |                                                               |
+P30L42	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P30L43	
+P30L44	               Figure 7: Format of MAPPED-ADDRESS attribute
+P30L45	
+P30L46	
+P30L47	
+P30L48	
+P31L1	   The address family can take on the following values:
+P31L2	
+P31L3	     0x01:IPv4
+P31L4	     0x02:IPv6
+P31L5	
+P31L6	   The first 8 bits of the MAPPED-ADDRESS MUST be set to 0 and MUST be
+P31L7	   ignored by receivers.  These bits are present for aligning parameters
+P31L8	   on natural 32 bit boundaries.
+P31L9	
+P31L10	   This attribute is used only by servers for achieving backwards
+P31L11	   compatibility with RFC 3489 [RFC3489] clients.
+P31L12	
+P31L13	14.2.  XOR-MAPPED-ADDRESS
+P31L14	
+P31L15	   The XOR-MAPPED-ADDRESS attribute is identical to the MAPPED-ADDRESS
+P31L16	   attribute, except that the reflexive transport address is obfuscated
+P31L17	   through the XOR function.
+P31L18	
+P31L19	   The format of the XOR-MAPPED-ADDRESS is:
+P31L20	
+P31L21	        0                   1                   2                   3
+P31L22	        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P31L23	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P31L24	       |x x x x x x x x|    Family     |         X-Port                |
+P31L25	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P31L26	       |                X-Address (Variable)
+P31L27	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P31L28	
+P31L29	             Figure 9: Format of XOR-MAPPED-ADDRESS Attribute
+P31L30	
+P31L31	   The Family represents the IP address family, and is encoded
+P31L32	   identically to the Family in MAPPED-ADDRESS.
+P31L33	
+P31L34	   X-Port is computed by taking the mapped port in host byte order,
+P31L35	   XOR'ing it with the most significant 16 bits of the magic cookie, and
+P31L36	   then the converting the result to network byte order.  If the IP
+P31L37	   address family is IPv4, X-Address is computed by taking the mapped IP
+P31L38	   address in host byte order, XOR'ing it with the magic cookie, and
+P31L39	   converting the result to network byte order.  If the IP address
+P31L40	   family is IPv6, X-Address is computed by taking the mapped IP address
+P31L41	   in host byte order, XOR'ing it with the magic cookie and the 96-bit
+P31L42	   transaction ID, and converting the result to network byte order.
+P31L43	
+P31L44	   The rules for encoding and processing the first 8 bits of the
+P31L45	   attribute's value, the rules for handling multiple occurrences of the
+P31L46	   attribute, and the rules for processing addresses families are the
+P31L47	   same as for MAPPED-ADDRESS.
+P31L48	
+P32L1	   NOTE: XOR-MAPPED-ADDRESS and MAPPED-ADDRESS differ only in their
+P32L2	   encoding of the transport address.  The former encodes the transport
+P32L3	   address by exclusive-or'ing it with the magic cookie.  The latter
+P32L4	   encodes it directly in binary.  RFC 3489 originally specified only
+P32L5	   MAPPED-ADDRESS.  However, deployment experience found that some NATs
+P32L6	   rewrite the 32-bit binary payloads containing the NAT's public IP
+P32L7	   address, such as STUN's MAPPED-ADDRESS attribute, in the well-meaning
+P32L8	   but misguided attempt at providing a generic ALG function.  Such
+P32L9	   behavior interferes with the operation of STUN and also causes
+P32L10	   failure of STUN's message integrity checking.
+P32L11	
+P32L12	14.3.  USERNAME
+P32L13	
+P32L14	   The USERNAME attribute is used for message integrity.  It identifies
+P32L15	   the username and password combination used in the message integrity
+P32L16	   check.
+P32L17	
+P32L18	   The value of USERNAME is a variable length value.  It MUST contain a
+P32L19	   UTF-8 encoded sequence of less than 513 bytes.
+P32L20	
+P32L21	14.4.  MESSAGE-INTEGRITY
+P32L22	
+P32L23	   The MESSAGE-INTEGRITY attribute contains an HMAC-SHA1 [RFC2104] of
+P32L24	   the STUN message.  The MESSAGE-INTEGRITY attribute can be present in
+P32L25	   any STUN message type.  Since it uses the SHA1 hash, the HMAC will be
+P32L26	   20 bytes.  The text used as input to HMAC is the STUN message,
+P32L27	   including the header, up to and including the attribute preceding the
+P32L28	   MESSAGE-INTEGRITY attribute.  With the exception of the FINGERPRINT
+P32L29	   attribute, which appears after MESSAGE-INTEGRITY, agents MUST ignore
+P32L30	   all other attributes that follow MESSAGE-INTEGRITY.
+P32L31	
+P32L32	   The key used as input to HMAC is the password.
+P32L33	
+P32L34	   Based on the rules above, the hash includes the length field from the
+P32L35	   STUN message header.  This length indicates the length of the entire
+P32L36	   message, including the MESSAGE-INTEGRITY attribute itself.
+P32L37	   Consequently, the MESSAGE-INTEGRITY attribute MUST be inserted into
+P32L38	   the message (with dummy content) prior to the computation of the
+P32L39	   integrity check.  Once the computation is performed, the value of the
+P32L40	   attribute can be filled in.  This ensures the length has the correct
+P32L41	   value when the hash is performed.  Similarly, when validating the
+P32L42	   MESSAGE-INTEGRITY, the length field should be adjusted to point to
+P32L43	   the end of the MESSAGE-INTEGRITY attribute prior to calculating the
+P32L44	   HMAC.  Such adjustment is necessary when attributes, such as
+P32L45	   FINGERPRINT, appear after MESSAGE-INTEGRITY.
+P32L46	
+P32L47	
+P32L48	
+P33L1	14.5.  FINGERPRINT
+P33L2	
+P33L3	   The FINGERPRINT attribute may be present in all STUN messages.  The
+P33L4	   value of the attribute is computed as the CRC-32 of the STUN message
+P33L5	   up to (but excluding) the FINGERPRINT attribute itself, xor-d with
+P33L6	   the 32 bit value 0x5354554e (the XOR helps in cases where an
+P33L7	   application packet is also using CRC-32 in it).  The 32 bit CRC is
+P33L8	   the one defined in ITU V.42 [ITU.V42.1994], which has a generator
+P33L9	   polynomial of x32+x26+x23+x22+x16+x12+x11+x10+x8+x7+x5+x4+x2+x+1.
+P33L10	   When present, the FINGERPRINT attribute MUST be the last attribute in
+P33L11	   the message, and thus will appear after MESSAGE-INTEGRITY.
+P33L12	
+P33L13	   The FINGERPRINT attribute can aid in distinguishing STUN packets from
+P33L14	   packets of other protocols.  See Section 8.
+P33L15	
+P33L16	   As with MESSAGE-INTEGRITY, the CRC used in the FINGERPRINT attribute
+P33L17	   covers the length field from the STUN message header.  Therefore,
+P33L18	   this value must be correct, and include the CRC attribute as part of
+P33L19	   the message length, prior to computation of the CRC.  When using the
+P33L20	   FINGERPRINT attribute in a message, the attribute is first placed
+P33L21	   into the message with a dummy value, then the CRC is computed, and
+P33L22	   then the value of the attribute is updated.  If the MESSAGE-INTEGRITY
+P33L23	   attribute is also present, then it must be present with the correct
+P33L24	   message-integrity value before the CRC is computed, since the CRC is
+P33L25	   done over the value of the MESSAGE-INTEGRITY attribute as well.
+P33L26	
+P33L27	14.6.  ERROR-CODE
+P33L28	
+P33L29	   The ERROR-CODE attribute is used in Error Response messages.  It
+P33L30	   contains a numeric error code value in the range of 300 to 699 plus a
+P33L31	   textual reason phrase encoded in UTF-8, and is consistent in its code
+P33L32	   assignments and semantics with SIP [RFC3261] and HTTP [RFC2616].  The
+P33L33	   reason phrase is meant for user consumption, and can be anything
+P33L34	   appropriate for the error code.  Recommended reason phrases for the
+P33L35	   defined error codes are presented below.  The reason phrase MUST be a
+P33L36	   UTF-8 encoded sequence of less than 128 characters (which can be as
+P33L37	   long as 763 bytes).
+P33L38	
+P33L39	
+P33L40	
+P33L41	
+P33L42	
+P33L43	
+P33L44	
+P33L45	
+P33L46	
+P33L47	
+P33L48	
+P34L1	   To facilitate processing, the class of the error code (the hundreds
+P34L2	   digit) is encoded separately from the rest of the code.
+P34L3	
+P34L4	        0                   1                   2                   3
+P34L5	        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P34L6	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P34L7	       |           Reserved, should be 0         |Class|     Number    |
+P34L8	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P34L9	       |      Reason Phrase (variable)                                ..
+P34L10	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P34L11	
+P34L12	   The Reserved bits SHOULD be 0, and are for alignment on 32-bit
+P34L13	   boundaries.  Receivers MUST ignore these bits.  The Class represents
+P34L14	   the hundreds digit of the error code.  The value MUST be between 3
+P34L15	   and 6.  The number represents the error code modulo 100, and its
+P34L16	   value MUST be between 0 and 99.
+P34L17	
+P34L18	   The following error codes, along with their recommended reason
+P34L19	   phrases (in brackets) are defined:
+P34L20	
+P34L21	   300  Try Alternate: The client should contact an alternate server for
+P34L22	        this request.  This error response MUST only be sent if the
+P34L23	        request included a USERNAME attribute and a valid MESSAGE-
+P34L24	        INTEGRITY attribute; otherwise it MUST NOT be sent and error
+P34L25	        code 400 (Bad Request) is suggested.  This error response MUST
+P34L26	        be protected with the MESSAGE-INTEGRITY attribute, and receivers
+P34L27	        MUST validate the MESSAGE-INTEGRITY of this response before
+P34L28	        redirecting themselves to an alternate server.
+P34L29	
+P34L30	             Note: failure to generate and validate message-integrity
+P34L31	             for a 300 response allows an on-path attacker to falsify a
+P34L32	             300 response thus causing subsequent STUN messages to be
+P34L33	             sent to a victim.
+P34L34	
+P34L35	   400  Bad Request: The request was malformed.  The client SHOULD NOT
+P34L36	        retry the request without modification from the previous
+P34L37	        attempt.  The server may not be able to generate a valid
+P34L38	        MESSAGE-INTEGRITY for this error, so the client MUST NOT expect
+P34L39	        a valid MESSAGE-INTEGRITY attribute on this response.
+P34L40	
+P34L41	   401  Unauthorized: The request did not contain the expected MESSAGE-
+P34L42	        INTEGRITY attribute.  The server MAY include the MESSAGE-
+P34L43	        INTEGRITY attribute in its error response.
+P34L44	
+P34L45	   420  Unknown Attribute: The server received STUN packet containing a
+P34L46	        comprehension-required attribute which it did not understand.
+P34L47	        The server MUST put this unknown attribute in the UNKNOWN-
+P34L48	        ATTRIBUTE attribute of its error response.
+P35L1	   438  Stale Nonce: The NONCE used by the client was no longer valid.
+P35L2	        The client should retry, using the NONCE provided in the
+P35L3	        response.
+P35L4	
+P35L5	   500  Server Error: The server has suffered a temporary error.  The
+P35L6	        client should try again.
+P35L7	
+P35L8	14.7.  REALM
+P35L9	
+P35L10	   The REALM attribute may be present in requests and responses.  It
+P35L11	   contains text which meets the grammar for "realm-value" as described
+P35L12	   in RFC 3261 [RFC3261] but without the double quotes and their
+P35L13	   surrounding whitespace.  That is, it is an unquoted realm-value.  It
+P35L14	   MUST be a UTF-8 encoded sequence of less than 128 characters (which
+P35L15	   can be as long as 763 bytes).
+P35L16	
+P35L17	   Presence of the REALM attribute in a request indicates that long-term
+P35L18	   credentials are being used for authentication.  Presence in certain
+P35L19	   error responses indicates that the server wishes the client to use a
+P35L20	   long-term credential for authentication.
+P35L21	
+P35L22	14.8.  NONCE
+P35L23	
+P35L24	   The NONCE attribute may be present in requests and responses.  It
+P35L25	   contains a sequence of qdtext or quoted-pair, which are defined in
+P35L26	   RFC 3261 [RFC3261].  See RFC 2617 [RFC2617], Section 4.3, for
+P35L27	   guidance on selection of nonce values in a server.  It MUST be less
+P35L28	   than 128 characters (which can be as long as 763 bytes).
+P35L29	
+P35L30	14.9.  UNKNOWN-ATTRIBUTES
+P35L31	
+P35L32	   The UNKNOWN-ATTRIBUTES attribute is present only in an error response
+P35L33	   when the response code in the ERROR-CODE attribute is 420.
+P35L34	
+P35L35	   The attribute contains a list of 16 bit values, each of which
+P35L36	   represents an attribute type that was not understood by the server.
+P35L37	
+P35L38	        0                   1                   2                   3
+P35L39	        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+P35L40	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P35L41	       |      Attribute 1 Type           |     Attribute 2 Type        |
+P35L42	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P35L43	       |      Attribute 3 Type           |     Attribute 4 Type    ...
+P35L44	       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+P35L45	
+P35L46	
+P35L47	             Figure 11: Format of UNKNOWN-ATTRIBUTES attribute
+P35L48	
+P36L1	      Note: In [RFC3489], this field was padded to 32 by duplicating the
+P36L2	      last attribute.  In this version of the specification, the normal
+P36L3	      padding rules for attributes are used instead.
+P36L4	
+P36L5	14.10.  SERVER
+P36L6	
+P36L7	   The server attribute contains a textual description of the software
+P36L8	   being used by the server, including manufacturer and version number.
+P36L9	   The attribute has no impact on operation of the protocol, and serves
+P36L10	   only as a tool for diagnostic and debugging purposes.  The value of
+P36L11	   SERVER is variable length.  It MUST be a UTF-8 encoded sequence of
+P36L12	   less than 128 characters (which can be as long as 763 bytes).
+P36L13	
+P36L14	14.11.  ALTERNATE-SERVER
+P36L15	
+P36L16	   The alternate server represents an alternate transport address
+P36L17	   identifying a different STUN server which the STUN client should try.
+P36L18	
+P36L19	   It is encoded in the same way as MAPPED-ADDRESS, and thus refers to a
+P36L20	   single server by IP address.  The IP address family MUST be identical
+P36L21	   to that of the source IP address of the request.
+P36L22	
+P36L23	   This attribute MUST only appear in an error response that contains a
+P36L24	   MESSAGE-INTEGRITY attribute.  This prevents it from being used in
+P36L25	   denial-of-service attacks.
+P36L26	
+P36L27	
+P36L28	15.  Security Considerations
+P36L29	
+P36L30	15.1.  Attacks against the Protocol
+P36L31	
+P36L32	15.1.1.  Outside Attacks
+P36L33	
+P36L34	   An attacker can try to modify STUN messages in transit, in order to
+P36L35	   cause a failure in STUN operation.  These attacks are detected for
+P36L36	   both requests and responses through the message integrity mechanism,
+P36L37	   using either a short term or long term credential.  Of course, once
+P36L38	   detected, the manipulated packets will be dropped, causing the STUN
+P36L39	   transaction to effectively fail.  This attack is possible only by an
+P36L40	   on-path attacker.
+P36L41	
+P36L42	   An attacker that can observe, but not modify STUN messages in-transit
+P36L43	   (for example, an attacker present on a shared access medium, such as
+P36L44	   Wi-Fi), can see a STUN request, and then immediately send a STUN
+P36L45	   response, typically an error response, in order to disrupt STUN
+P36L46	   processing.  This attack is also prevented for messages that utilize
+P36L47	   MESSAGE-INTEGRITY.  However, some error responses, those related to
+P36L48	   authentication in particular, cannot be protected by MESSAGE-
+P37L1	   INTEGRITY.  When STUN itself is run over a secure transport protocol
+P37L2	   (e.g., TLS), these attacks are completely mitigated.
+P37L3	
+P37L4	15.1.2.  Inside Attacks
+P37L5	
+P37L6	   A rogue client may try to launch a DoS attack against a server by
+P37L7	   sending it a large number of STUN requests.  Fortunately, STUN
+P37L8	   requests can be processed statelessly by a server, making such
+P37L9	   attacks hard to launch.
+P37L10	
+P37L11	   A rogue client may use a STUN server as a reflector, sending it
+P37L12	   requests with a falsified source IP address and port.  In such a
+P37L13	   case, the response would be delivered to that source IP and port.
+P37L14	   There is no amplification with this attack, and it is mitigated by
+P37L15	   ingress source address filtering.
+P37L16	
+P37L17	15.2.  Attacks Affecting the Usage
+P37L18	
+P37L19	   This section lists attacks that might be launched against a usage of
+P37L20	   STUN.  Each STUN usage must consider whether these attacks are
+P37L21	   applicable to it, and if so, discuss counter-measures.
+P37L22	
+P37L23	   Most of the attacks in this section revolve around an attacker
+P37L24	   modifying the reflexive address learned by a STUN client through a
+P37L25	   Binding Request/Binding Response transaction.  Since the usage of the
+P37L26	   reflexive address is a function of the usage, the applicability and
+P37L27	   remediation of these attacks is usage-specific.  In common
+P37L28	   situations, modification of the reflexive address by an on-path
+P37L29	   attacker is easy to do.  Consider, for example, the common situation
+P37L30	   where STUN is run directly over UDP.  In this case, an on-path
+P37L31	   attacker can modify the source IP address of the Binding Request
+P37L32	   before it arrives at the STUN server.  The STUN server will then
+P37L33	   return this IP address in the XOR-MAPPED-ADDRESS attribute to the
+P37L34	   client.  Protecting against this attack by using a message-integrity
+P37L35	   check is impossible, since a message-integrity value cannot cover the
+P37L36	   source IP address, since the intervening NAT must be able to modify
+P37L37	   this value.  Instead, one solution to preventing the attacks listed
+P37L38	   below is for the client to verify the reflexive address learned, as
+P37L39	   is done in ICE [I-D.ietf-mmusic-ice].  Other usages may use other
+P37L40	   means to prevent these attacks.
+P37L41	
+P37L42	15.2.1.  Attack I: DDoS Against a Target
+P37L43	
+P37L44	   In this attack, the attacker provides one or more clients with the
+P37L45	   same faked reflexive address that points to the intended target.
+P37L46	   This will trick the STUN clients into thinking that their reflexive
+P37L47	   addresses are equal to that of the target.  If the clients hand out
+P37L48	   that reflexive address in order to receive traffic on it (for
+P38L1	   example, in SIP messages), the traffic will instead be sent to the
+P38L2	   target.  This attack can provide substantial amplification,
+P38L3	   especially when used with clients that are using STUN to enable
+P38L4	   multimedia applications.
+P38L5	
+P38L6	15.2.2.  Attack II: Silencing a Client
+P38L7	
+P38L8	   In this attack, the attacker provides a STUN client with a faked
+P38L9	   reflexive address.  The reflexive address it provides is a transport
+P38L10	   address that routes to nowhere.  As a result, the client won't
+P38L11	   receive any of the packets it expects to receive when it hands out
+P38L12	   the reflexive address.  This exploitation is not very interesting for
+P38L13	   the attacker.  It impacts a single client, which is frequently not
+P38L14	   the desired target.  Moreover, any attacker that can mount the attack
+P38L15	   could also deny service to the client by other means, such as
+P38L16	   preventing the client from receiving any response from the STUN
+P38L17	   server, or even a DHCP server.
+P38L18	
+P38L19	15.2.3.  Attack III: Assuming the Identity of a Client
+P38L20	
+P38L21	   This attack is similar to attack II.  However, the faked reflexive
+P38L22	   address points to the attacker itself.  This allows the attacker to
+P38L23	   receive traffic which was destined for the client.
+P38L24	
+P38L25	15.2.4.  Attack IV: Eavesdropping
+P38L26	
+P38L27	   In this attack, the attacker forces the client to use a reflexive
+P38L28	   address that routes to itself.  It then forwards any packets it
+P38L29	   receives to the client.  This attack would allow the attacker to
+P38L30	   observe all packets sent to the client.  However, in order to launch
+P38L31	   the attack, the attacker must have already been able to observe
+P38L32	   packets from the client to the STUN server.  In most cases (such as
+P38L33	   when the attack is launched from an access network), this means that
+P38L34	   the attacker could already observe packets sent to the client.  This
+P38L35	   attack is, as a result, only useful for observing traffic by
+P38L36	   attackers on the path from the client to the STUN server, but not
+P38L37	   generally on the path of packets being routed towards the client.
+P38L38	
+P38L39	15.3.  Hash Agility Plan
+P38L40	
+P38L41	   This specification uses SHA-1 for computation of the message
+P38L42	   integrity.  If, at a later time, SHA-1 is found to be compromised,
+P38L43	   the following is the remedy that will be applied.
+P38L44	
+P38L45	   We will define a STUN extension which introduces a new message
+P38L46	   integrity attribute, computed using a new hash.  Clients would be
+P38L47	   required to include both the new and old message integrity attributes
+P38L48	   in their requests or indications.  A new server will utilize the new
+P39L1	   message integrity attribute, and an old one, the old.  After a
+P39L2	   transition period where mixed implementations are in deployment, the
+P39L3	   old message-integrity attribute will be deprecated by another
+P39L4	   specification, and clients will cease including it in requests.
+P39L5	
+P39L6	
+P39L7	16.  IAB Considerations
+P39L8	
+P39L9	   The IAB has studied the problem of "Unilateral Self Address Fixing"
+P39L10	   (UNSAF), which is the general process by which a client attempts to
+P39L11	   determine its address in another realm on the other side of a NAT
+P39L12	   through a collaborative protocol reflection mechanism (RFC3424
+P39L13	   [RFC3424]).  STUN can be used to perform this function using a
+P39L14	   Binding Request/Response transaction if one agent is behind a NAT and
+P39L15	   the other is on the public side of the NAT.
+P39L16	
+P39L17	   The IAB has mandated that protocols developed for this purpose
+P39L18	   document a specific set of considerations.  Because some STUN usages
+P39L19	   provide UNSAF functions (such as ICE [I-D.ietf-mmusic-ice] ), and
+P39L20	   others do not (such as SIP Outbound [I-D.ietf-sip-outbound]), answers
+P39L21	   to these considerations need to be addressed by the usages
+P39L22	   themselves.
+P39L23	
+P39L24	
+P39L25	17.  IANA Considerations
+P39L26	
+P39L27	   IANA is hereby requested to create three new registries: a STUN
+P39L28	   methods registry, a STUN Attributes registry, and a STUN Error Codes
+P39L29	   registry.
+P39L30	
+P39L31	17.1.  STUN Methods Registry
+P39L32	
+P39L33	   A STUN method is a hex number in the range 0x000 - 0x3FF.  The
+P39L34	   encoding of STUN method into a STUN message is described in
+P39L35	   Section 6.
+P39L36	
+P39L37	   The initial STUN methods are:
+P39L38	
+P39L39	     0x000: (Reserved)
+P39L40	     0x001: Binding
+P39L41	     0x002: (Reserved; was SharedSecret)
+P39L42	
+P39L43	   STUN methods in the range 0x000 - 0x1FF are assigned by IETF
+P39L44	   Consensus [RFC2434].  STUN methods in the range 0x200 - 0x3FF are
+P39L45	   assigned on a First Come First Served basis [RFC2434]
+P39L46	
+P39L47	
+P39L48	
+P40L1	17.2.  STUN Attribute Registry
+P40L2	
+P40L3	   A STUN Attribute type is a hex number in the range 0x0000 - 0xFFFF.
+P40L4	   STUN attribute types in the range 0x0000 - 0x7FFF are considered
+P40L5	   comprehension-required; STUN attribute types in the range 0x8000 -
+P40L6	   0xFFFF are considered comprehension-optional.  A STUN agent handles
+P40L7	   unknown comprehension-required and comprehension-optional attributes
+P40L8	   differently.
+P40L9	
+P40L10	   The initial STUN Attributes types are:
+P40L11	
+P40L12	     Comprehension-required range (0x0000-0x7FFF):
+P40L13	       0x0000: (Reserved)
+P40L14	       0x0001: MAPPED-ADDRESS
+P40L15	       0x0006: USERNAME
+P40L16	       0x0007: (Reserved; was PASSWORD)
+P40L17	       0x0008: MESSAGE-INTEGRITY
+P40L18	       0x0009: ERROR-CODE
+P40L19	       0x000A: UNKNOWN-ATTRIBUTES
+P40L20	       0x0014: REALM
+P40L21	       0x0015: NONCE
+P40L22	       0x0020: XOR-MAPPED-ADDRESS
+P40L23	
+P40L24	     Comprehension-optional range (0x8000-0xFFFF)
+P40L25	       0x8022: SERVER
+P40L26	       0x8023: ALTERNATE-SERVER
+P40L27	       0x8028: FINGERPRINT
+P40L28	
+P40L29	   STUN Attribute types in the first half of the comprehension-required
+P40L30	   range (0x0000 - 0x3FFF) and in the first half of the comprehension-
+P40L31	   optional range (0x8000 - 0xBFFF) are assigned by IETF Consensus
+P40L32	   [RFC2434].  STUN Attribute types in the second half of the
+P40L33	   comprehension-required range (0x4000 - 0x7FFF) and in the second half
+P40L34	   of the comprehension-optional range (0xC000 - 0xFFFF) are assigned on
+P40L35	   a First Come First Served basis [RFC2434].
+P40L36	
+P40L37	17.3.  STUN Error Code Registry
+P40L38	
+P40L39	   A STUN Error code is a number in the range 0 - 699.  STUN error codes
+P40L40	   are accompanied by a textual reason phrase in UTF-8 which is intended
+P40L41	   only for human consumption and can be anything appropriate; this
+P40L42	   document proposes only suggested values.
+P40L43	
+P40L44	   STUN error codes are consistent in codepoint assignments and
+P40L45	   semantics with SIP [RFC3261] and HTTP [RFC2616].
+P40L46	
+P40L47	   The initial values in this registry are given in Section 14.6.
+P40L48	
+P41L1	   New STUN error codes are assigned on a Specification-Required basis
+P41L2	   [RFC2434].  The specification must carefully consider how clients
+P41L3	   that do not understand this error code will process it before
+P41L4	   granting the request.  See the rules in Section 7.3.4.
+P41L5	
+P41L6	
+P41L7	18.  Changes Since RFC 3489
+P41L8	
+P41L9	   This specification obsoletes RFC3489 [RFC3489].  This specification
+P41L10	   differs from RFC3489 in the following ways:
+P41L11	
+P41L12	   o  Removed the notion that STUN is a complete NAT traversal solution.
+P41L13	      STUN is now a tool that can be used to produce a NAT traversal
+P41L14	      solution.  As a consequence, changed the name of the protocol to
+P41L15	      Session Traversal Utilities for NAT.
+P41L16	
+P41L17	   o  Introduced the concept of STUN usages, and described what a usage
+P41L18	      of STUN must document.
+P41L19	
+P41L20	   o  Removed the usage of STUN for NAT type detection and binding
+P41L21	      lifetime discovery.  These techniques have proven overly brittle
+P41L22	      due to wider variations in the types of NAT devices than described
+P41L23	      in this document.  Removed the RESPONSE-ADDRESS, CHANGED-ADDRESS,
+P41L24	      CHANGE-REQUEST, SOURCE-ADDRESS, and REFLECTED-FROM attributes.
+P41L25	
+P41L26	   o  Added a fixed 32-bit magic cookie and reduced length of
+P41L27	      transaction ID by 32 bits.  The magic cookie begins at the same
+P41L28	      offset as the original transaction ID.
+P41L29	
+P41L30	   o  Added the XOR-MAPPED-ADDRESS attribute, which is included in
+P41L31	      Binding Responses if the magic cookie is present in the request.
+P41L32	      Otherwise the RFC3489 behavior is retained (that is, Binding
+P41L33	      Response includes MAPPED-ADDRESS).  See discussion in XOR-MAPPED-
+P41L34	      ADDRESS regarding this change.
+P41L35	
+P41L36	   o  Introduced formal structure into the Message Type header field,
+P41L37	      with an explicit pair of bits for indication of request, response,
+P41L38	      error response or indication.  Consequently, the message type
+P41L39	      field is split into the class (one of the previous four) and
+P41L40	      method.
+P41L41	
+P41L42	   o  Explicitly point out that the most significant two bits of STUN
+P41L43	      are 0b00, allowing easy differentiation with RTP packets when used
+P41L44	      with ICE.
+P41L45	
+P41L46	   o  Added the FINGERPRINT attribute to provide a method of definitely
+P41L47	      detecting the difference between STUN and another protocol when
+P41L48	      the two protocols are multiplexed together.
+P42L1	   o  Added support for IPv6.  Made it clear that an IPv4 client could
+P42L2	      get a v6 mapped address, and vice-a-versa.
+P42L3	
+P42L4	   o  Added long-term credential-based authentication.
+P42L5	
+P42L6	   o  Added the SERVER, REALM, NONCE, and ALTERNATE-SERVER attributes.
+P42L7	
+P42L8	   o  Removed the SharedSecret method, and thus the PASSWORD attribute.
+P42L9	      This method was almost never implemented and is not needed with
+P42L10	      current usages.
+P42L11	
+P42L12	   o  Removed recommendation to continue listening for STUN Responses
+P42L13	      for 10 seconds in an attempt to recognize an attack.
+P42L14	
+P42L15	   o  Changed transaction timers to be more TCP friendly.
+P42L16	
+P42L17	   o  Removed the STUN example that centered around the separation of
+P42L18	      the control and media planes.  Instead, provided more information
+P42L19	      on using STUN with protocols.
+P42L20	
+P42L21	   o  Defined a generic padding mechanism that changes the
+P42L22	      interpretation of the length attribute.  This would, in theory,
+P42L23	      break backwards compatibility.  However, the mechanism in RFC 3489
+P42L24	      never worked for the few attributes that weren't aligned naturally
+P42L25	      on 32 bit boundaries.
+P42L26	
+P42L27	   o  REALM, SERVER, reason phrases and NONCE limited to 127 characters.
+P42L28	      USERNAME to 513 bytes.
+P42L29	
+P42L30	
+P42L31	19.  Acknowledgements
+P42L32	
+P42L33	   The authors would like to thank Cedric Aoun, Pete Cordell, Cullen
+P42L34	   Jennings, Bob Penfield, Xavier Marjou, Bruce Lowekamp and Chris
+P42L35	   Sullivan for their comments, and Baruch Sterman and Alan Hawrylyshen
+P42L36	   for initial implementations.  Thanks for Leslie Daigle, Allison
+P42L37	   Mankin, Eric Rescorla, and Henning Schulzrinne for IESG and IAB input
+P42L38	   on this work.
+P42L39	
+P42L40	
+P42L41	20.  References
+P42L42	
+P42L43	20.1.  Normative References
+P42L44	
+P42L45	   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+P42L46	              Requirement Levels", BCP 14, RFC 2119, March 1997.
+P42L47	
+P42L48	   [RFC0791]  Postel, J., "Internet Protocol", STD 5, RFC 791,
+P43L1	              September 1981.
+P43L2	
+P43L3	   [RFC2782]  Gulbrandsen, A., Vixie, P., and L. Esibov, "A DNS RR for
+P43L4	              specifying the location of services (DNS SRV)", RFC 2782,
+P43L5	              February 2000.
+P43L6	
+P43L7	   [RFC2818]  Rescorla, E., "HTTP Over TLS", RFC 2818, May 2000.
+P43L8	
+P43L9	   [RFC2617]  Franks, J., Hallam-Baker, P., Hostetler, J., Lawrence, S.,
+P43L10	              Leach, P., Luotonen, A., and L. Stewart, "HTTP
+P43L11	              Authentication: Basic and Digest Access Authentication",
+P43L12	              RFC 2617, June 1999.
+P43L13	
+P43L14	   [RFC2988]  Paxson, V. and M. Allman, "Computing TCP's Retransmission
+P43L15	              Timer", RFC 2988, November 2000.
+P43L16	
+P43L17	   [RFC2104]  Krawczyk, H., Bellare, M., and R. Canetti, "HMAC: Keyed-
+P43L18	              Hashing for Message Authentication", RFC 2104,
+P43L19	              February 1997.
+P43L20	
+P43L21	   [ITU.V42.1994]
+P43L22	              International Telecommunications Union, "Error-correcting
+P43L23	              Procedures for DCEs Using Asynchronous-to-Synchronous
+P43L24	              Conversion", ITU-T Recommendation V.42, 1994.
+P43L25	
+P43L26	20.2.  Informational References
+P43L27	
+P43L28	   [RFC3261]  Rosenberg, J., Schulzrinne, H., Camarillo, G., Johnston,
+P43L29	              A., Peterson, J., Sparks, R., Handley, M., and E.
+P43L30	              Schooler, "SIP: Session Initiation Protocol", RFC 3261,
+P43L31	              June 2002.
+P43L32	
+P43L33	   [RFC2616]  Fielding, R., Gettys, J., Mogul, J., Frystyk, H.,
+P43L34	              Masinter, L., Leach, P., and T. Berners-Lee, "Hypertext
+P43L35	              Transfer Protocol -- HTTP/1.1", RFC 2616, June 1999.
+P43L36	
+P43L37	   [I-D.ietf-mmusic-ice]
+P43L38	              Rosenberg, J., "Interactive Connectivity Establishment
+P43L39	              (ICE): A Protocol for Network Address  Translator (NAT)
+P43L40	              Traversal for Offer/Answer Protocols",
+P43L41	              draft-ietf-mmusic-ice-17 (work in progress), July 2007.
+P43L42	
+P43L43	   [RFC3489]  Rosenberg, J., Weinberger, J., Huitema, C., and R. Mahy,
+P43L44	              "STUN - Simple Traversal of User Datagram Protocol (UDP)
+P43L45	              Through Network Address Translators (NATs)", RFC 3489,
+P43L46	              March 2003.
+P43L47	
+P43L48	   [I-D.ietf-behave-turn]
+P44L1	              Rosenberg, J., "Traversal Using Relays around NAT (TURN):
+P44L2	              Relay Extensions to Session  Traversal Utilities for NAT
+P44L3	              (STUN)", draft-ietf-behave-turn-04 (work in progress),
+P44L4	              July 2007.
+P44L5	
+P44L6	   [I-D.ietf-sip-outbound]
+P44L7	              Jennings, C. and R. Mahy, "Managing Client Initiated
+P44L8	              Connections in the Session Initiation Protocol  (SIP)",
+P44L9	              draft-ietf-sip-outbound-10 (work in progress), July 2007.
+P44L10	
+P44L11	   [I-D.ietf-behave-nat-behavior-discovery]
+P44L12	              MacDonald, D. and B. Lowekamp, "NAT Behavior Discovery
+P44L13	              Using STUN", draft-ietf-behave-nat-behavior-discovery-01
+P44L14	              (work in progress), July 2007.
+P44L15	
+P44L16	   [I-D.ietf-mmusic-ice-tcp]
+P44L17	              Rosenberg, J., "TCP Candidates with Interactive
+P44L18	              Connectivity Establishment (ICE",
+P44L19	              draft-ietf-mmusic-ice-tcp-04 (work in progress),
+P44L20	              July 2007.
+P44L21	
+P44L22	   [RFC3264]  Rosenberg, J. and H. Schulzrinne, "An Offer/Answer Model
+P44L23	              with Session Description Protocol (SDP)", RFC 3264,
+P44L24	              June 2002.
+P44L25	
+P44L26	   [RFC3424]  Daigle, L. and IAB, "IAB Considerations for UNilateral
+P44L27	              Self-Address Fixing (UNSAF) Across Network Address
+P44L28	              Translation", RFC 3424, November 2002.
+P44L29	
+P44L30	   [RFC2434]  Narten, T. and H. Alvestrand, "Guidelines for Writing an
+P44L31	              IANA Considerations Section in RFCs", BCP 26, RFC 2434,
+P44L32	              October 1998.
+P44L33	
+P44L34	
+P44L35	Appendix A.  C Snippet to Determine STUN Message Types
+P44L36	
+P44L37	   Given an 16-bit STUN message type value in host byte order in
+P44L38	   msg_type parameter, below are C macros to determine the STUN message
+P44L39	   types:
+P44L40	
+P44L41	   #define IS_REQUEST(msg_type)       (((msg_type) & 0x0110) == 0x0000)
+P44L42	   #define IS_INDICATION(msg_type)    (((msg_type) & 0x0110) == 0x0010)
+P44L43	   #define IS_SUCCESS_RESP(msg_type)  (((msg_type) & 0x0110) == 0x0100)
+P44L44	   #define IS_ERR_RESP(msg_type)      (((msg_type) & 0x0110) == 0x0110)
+P44L45	
+P44L46	
+P44L47	
+P44L48	
+P45L1	Authors' Addresses
+P45L2	
+P45L3	   Jonathan Rosenberg
+P45L4	   Cisco
+P45L5	   Edison, NJ
+P45L6	   US
+P45L7	
+P45L8	   Email: jdrosen@cisco.com
+P45L9	   URI:   http://www.jdrosen.net
+P45L10	
+P45L11	
+P45L12	   Christian Huitema
+P45L13	   Microsoft
+P45L14	   One Microsoft Way
+P45L15	   Redmond, WA  98052
+P45L16	   US
+P45L17	
+P45L18	   Email: huitema@microsoft.com
+P45L19	
+P45L20	
+P45L21	   Rohan Mahy
+P45L22	   Plantronics
+P45L23	   345 Encinal Street
+P45L24	   Santa Cruz, CA  95060
+P45L25	   US
+P45L26	
+P45L27	   Email: rohan@ekabal.com
+P45L28	
+P45L29	
+P45L30	   Philip Matthews
+P45L31	   Avaya
+P45L32	   1135 Innovation Drive
+P45L33	   Ottawa, Ontario  K2K 3G7
+P45L34	   Canada
+P45L35	
+P45L36	   Phone: +1 613 592 4343 x224
+P45L37	   Fax:
+P45L38	   Email: philip_matthews@magma.ca
+P45L39	   URI:
+P45L40	
+P45L41	
+P45L42	
+P45L43	
+P45L44	
+P45L45	
+P45L46	
+P45L47	
+P45L48	
+P46L1	   Dan Wing
+P46L2	   Cisco
+P46L3	   771 Alder Drive
+P46L4	   San Jose, CA  95035
+P46L5	   US
+P46L6	
+P46L7	   Email: dwing@cisco.com
+P46L8	
+P46L9	
+P46L10	
+P46L11	
+P46L12	
+P46L13	
+P46L14	
+P46L15	
+P46L16	
+P46L17	
+P46L18	
+P46L19	
+P46L20	
+P46L21	
+P46L22	
+P46L23	
+P46L24	
+P46L25	
+P46L26	
+P46L27	
+P46L28	
+P46L29	
+P46L30	
+P46L31	
+P46L32	
+P46L33	
+P46L34	
+P46L35	
+P46L36	
+P46L37	
+P46L38	
+P46L39	
+P46L40	
+P46L41	
+P46L42	
+P46L43	
+P46L44	
+P46L45	
+P46L46	
+P46L47	
+P46L48	
+P47L1	Full Copyright Statement
+P47L2	
+P47L3	   Copyright (C) The IETF Trust (2007).
+P47L4	
+P47L5	   This document is subject to the rights, licenses and restrictions
+P47L6	   contained in BCP 78, and except as set forth therein, the authors
+P47L7	   retain all their rights.
+P47L8	
+P47L9	   This document and the information contained herein are provided on an
+P47L10	   "AS IS" basis and THE CONTRIBUTOR, THE ORGANIZATION HE/SHE REPRESENTS
+P47L11	   OR IS SPONSORED BY (IF ANY), THE INTERNET SOCIETY, THE IETF TRUST AND
+P47L12	   THE INTERNET ENGINEERING TASK FORCE DISCLAIM ALL WARRANTIES, EXPRESS
+P47L13	   OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTY THAT THE USE OF
+P47L14	   THE INFORMATION HEREIN WILL NOT INFRINGE ANY RIGHTS OR ANY IMPLIED
+P47L15	   WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+P47L16	
+P47L17	
+P47L18	Intellectual Property
+P47L19	
+P47L20	   The IETF takes no position regarding the validity or scope of any
+P47L21	   Intellectual Property Rights or other rights that might be claimed to
+P47L22	   pertain to the implementation or use of the technology described in
+P47L23	   this document or the extent to which any license under such rights
+P47L24	   might or might not be available; nor does it represent that it has
+P47L25	   made any independent effort to identify any such rights.  Information
+P47L26	   on the procedures with respect to rights in RFC documents can be
+P47L27	   found in BCP 78 and BCP 79.
+P47L28	
+P47L29	   Copies of IPR disclosures made to the IETF Secretariat and any
+P47L30	   assurances of licenses to be made available, or the result of an
+P47L31	   attempt made to obtain a general license or permission for the use of
+P47L32	   such proprietary rights by implementers or users of this
+P47L33	   specification can be obtained from the IETF on-line IPR repository at
+P47L34	   http://www.ietf.org/ipr.
+P47L35	
+P47L36	   The IETF invites any interested party to bring to its attention any
+P47L37	   copyrights, patents or patent applications, or other proprietary
+P47L38	   rights that may cover technology that may be required to implement
+P47L39	   this standard.  Please address the information to the IETF at
+P47L40	   ietf-ipr@ietf.org.
+P47L41	
+P47L42	
+P47L43	Acknowledgment
+P47L44	
+P47L45	   Funding for the RFC Editor function is provided by the IETF
+P47L46	   Administrative Support Activity (IASA).
+P47L47	
+P47L48	

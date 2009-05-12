@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+<HTML>
+  <HEAD>
+    <LINK href="default.css" rel="stylesheet" type="text/css">
+  </HEAD>
+  <BODY><PRE>
+<span class="p_triple">'''
+Implement common utilities that are needed in more than one standards or RFCs, e.g.,
+Timer and getlocaladdr.
+'''</span>
+
+<span class="p_word">import</span> socket, multitask
+
+<span class="p_word">class</span> Timer(object):
+    <span class="p_triple">'''Timer object used by SIP (rfc3261.Stack) and RTP (rfc3550.Session) among others.'''</span>
+    <span class="p_word">def</span> __init__(self, app):
+        self.app = app
+        self.delay, self.running, self.gen = <span class="p_number">0</span>, False, <span class="p_word">None</span> 
+    <span class="p_word">def</span> start(self, delay=<span class="p_word">None</span>):
+        <span class="p_word">if</span> self.running: self.stop() <span class="p_commentline"># stop previous one first.</span>
+        <span class="p_word">if</span> delay <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>: self.delay = delay <span class="p_commentline"># set the new delay</span>
+        self.running = True
+        self.gen = self.run()
+        multitask.add(self.gen)
+    <span class="p_word">def</span> stop(self):
+        <span class="p_word">if</span> self.running: self.running = False
+        <span class="p_word">if</span> self.gen: 
+            <span class="p_word">try</span>: self.gen.close()
+            <span class="p_word">except</span>: <span class="p_word">pass</span>
+            self.gen = <span class="p_word">None</span>
+    <span class="p_word">def</span> run(self):
+        <span class="p_word">try</span>:
+            <span class="p_word">yield</span> multitask.sleep(self.delay / <span class="p_number">1000.0</span>)
+            <span class="p_word">if</span> self.running: self.app.timedout(self)
+        <span class="p_word">except</span>: <span class="p_word">pass</span> <span class="p_commentline"># probably stopped before timeout</span>
+
+<span class="p_word">def</span> getlocaladdr(sock=<span class="p_word">None</span>):
+    <span class="p_triple">'''Get the local ('addr', port) for the given socket. It uses the
+    getsockname() to get the local IP and port. If the local IP is '0.0.0.0'
+    then it uses gethostbyname(gethostname()) to get the local IP. The
+    returned object's repr gives 'ip:port' string. If the sock is absent, then
+    just gets the local IP and sets the port part as 0.
+    '''</span>
+    <span class="p_commentline"># TODO: use a better mechanism to get the address such as getifaddr</span>
+    addr = sock <span class="p_word">and</span> sock.getsockname() <span class="p_word">or</span> (<span class="p_string">'0.0.0.0'</span>, <span class="p_number">0</span>)
+    <span class="p_word">if</span> addr <span class="p_word">and</span> addr[<span class="p_number">0</span>] == <span class="p_string">'0.0.0.0'</span>: 
+        addr = (socket.gethostbyname(socket.gethostname()), addr[<span class="p_number">1</span>])
+    <span class="p_word">return</span> addr
+
+<span class="p_word">class</span> MessageCore():
+    <span class="p_triple">'''The message core that handles message transfer among different objects. In particular,
+    it provides put and get methods to dispatch and (blocked) receive of messages. A message
+    is a dict and get can specify criteria to match for incoming message. There is only
+    one global Core in this module.
+    
+    Caution: This uses Condition and Lock, hence must not be used along with multitask's single
+    threaded co-operative multitasking framework. MessageCore is meant only for multi-threaded
+    applications.'''</span>
+    <span class="p_word">def</span> __init__(self):
+        self.pending = [] <span class="p_commentline"># pending list. item is (elem, expiry)</span>
+        self.waiting = <span class="p_number">0</span>  <span class="p_commentline"># number of waiting get() calls; don't need a semaphore for single threaded application.</span>
+        self.cond    = Condition(Lock())
+
+    <span class="p_word">def</span> put(self, elem, timeout=<span class="p_number">10.</span>):
+        <span class="p_triple">'''Put a given elem in the queue, and signal one get that is waiting
+        on this elem properties. An optional timeout can specify how long to keep the elem
+        in the queue if no get is done on the elem, default is 10 seconds.'''</span>
+        <span class="p_commentline"># TODO: need to change this to allow signaling all waiting get(), but not multiple times.</span>
+        self.cond.acquire()
+        now = time.time()
+        self.pending = filter(<span class="p_word">lambda</span> x: x[<span class="p_number">1</span>]&lt;=now, self.pending) <span class="p_commentline"># remove expired ones</span>
+        self.pending.append((elem, now+timeout))
+        self.cond.notifyAll()
+        self.cond.release()
+        
+    <span class="p_word">def</span> get(self, timeout=<span class="p_word">None</span>, criteria=<span class="p_word">None</span>):
+        <span class="p_triple">'''Get an elem from the queue that matches the properties specified using the criteria
+        which is a function that gets invoked on every element. An optional timeout keyword 
+        argument can specify how long to wait on the result. It returns None if a timeout 
+        occurs'''</span>
+        result, start = <span class="p_word">None</span>, time.time()
+        self.cond.acquire()                                      <span class="p_commentline"># get the lock</span>
+        now, remaining = time.time(), (timeout <span class="p_word">or</span> <span class="p_number">0</span>)-(time.time()-start)<span class="p_commentline"># in case we took long time to acquire the lock</span>
+        
+        <span class="p_word">while</span> timeout <span class="p_word">is</span> <span class="p_word">None</span> <span class="p_word">or</span> remaining&gt;=<span class="p_number">0</span>:
+            self.pending = filter(<span class="p_word">lambda</span> x: x[<span class="p_number">1</span>]&lt;=now, self.pending) <span class="p_commentline"># remove expired ones</span>
+            found = filter(<span class="p_word">lambda</span> x: criteria(x[<span class="p_number">0</span>]), self.pending)   <span class="p_commentline"># check any matching criteria</span>
+            <span class="p_word">if</span> found: <span class="p_commentline"># found in pending, return it.</span>
+                self.pending.remove(found[<span class="p_number">0</span>]) <span class="p_commentline"># first remove that item</span>
+                self.cond.release()
+                <span class="p_word">return</span> found[<span class="p_number">0</span>]
+            self.cond.wait(timeout=remaining)
+            remaining = (timeout <span class="p_word">or</span> <span class="p_number">0</span>)-(time.time()-start)
+
+        self.cond.release() <span class="p_commentline"># not found and timedout</span>
+        <span class="p_word">return</span> <span class="p_word">None</span>
+    
+<span class="p_word">import</span> weakref
+
+<span class="p_word">class</span> Dispatcher(object):
+    <span class="p_triple">'''A event dispatcher. Should be used very very carefully, because all references are
+    strong references and must be explictly removed for cleanup.'''</span>
+    <span class="p_commentline">#'''A event dispatcher. Should be used very very carefully, because all references are</span>
+    <span class="p_commentline">#weak references and be removed automatically when the event handler is removed.'''</span>
+    <span class="p_word">def</span> __init__(self): self._handler = {}
+    <span class="p_word">def</span> __del__(self): self._handler.clear()
+    
+    <span class="p_word">def</span> attach(self, event, func):
+        <span class="p_triple">'''Attach an event which is a lambda function taking one argument, to the event handler func.'''</span>
+        <span class="p_word">if</span> event <span class="p_word">in</span> self._handler.iterkeys(): 
+            <span class="p_word">if</span> func <span class="p_word">not</span> <span class="p_word">in</span> self._handler[event]: self._handler[event].append(func)
+        <span class="p_word">else</span>: self._handler[event] = [func]
+    <span class="p_word">def</span> detach(self, event, func):
+        <span class="p_triple">'''Detach the event handler func from the event (or all events if None)'''</span>
+        <span class="p_word">if</span> event <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+            <span class="p_word">if</span> event <span class="p_word">in</span> self._handler <span class="p_word">and</span> func <span class="p_word">in</span> self._handler[event]: self._handler[event].remove(func)
+            <span class="p_word">if</span> len(self._handler[event]) == <span class="p_number">0</span>: <span class="p_word">del</span> self._handler[event]
+        <span class="p_word">else</span>:
+            <span class="p_word">for</span> event <span class="p_word">in</span> self._handler:
+                <span class="p_word">if</span> func <span class="p_word">in</span> self._handler[event][:]:
+                    self._handler[event].remove(func)
+                    <span class="p_word">if</span> len(self._handler[event]) == <span class="p_number">0</span>: <span class="p_word">del</span> self._handler[event]
+    <span class="p_word">def</span> dispatch(self, data):
+        <span class="p_triple">'''Dispatch a given data to event handlers if the event lambda function returns true.'''</span>
+        <span class="p_word">for</span> f <span class="p_word">in</span> sum([y[<span class="p_number">1</span>] <span class="p_word">for</span> y <span class="p_word">in</span> filter(<span class="p_word">lambda</span> x: x[<span class="p_number">0</span>](data), self._handler.iteritems())], []): 
+            f(data)
+            <span class="p_commentline"># TODO: ignore the exception </span>
+                
+
+<span class="p_commentline">#------------------------------- Testing ----------------------------------</span>
+
+<span class="p_word">if</span> __name__ == <span class="p_string">'__main__'</span>:
+    <span class="p_commentline"># A simple test that starts two timers, t1=4000 and t2=4000ms. When t2 expires,</span>
+    <span class="p_commentline"># t1 is stopped, and t2 is restarted with 3000ms. The output should print with delay: </span>
+    <span class="p_commentline"># timedout 2000</span>
+    <span class="p_commentline"># stopping timer 4000</span>
+    <span class="p_commentline"># timedout 3000</span>
+    <span class="p_word">class</span> App(object):
+        <span class="p_word">def</span> timedout(self, timer):
+            <span class="p_word">print</span> <span class="p_string">'timedout'</span>, timer.delay
+            <span class="p_word">if</span> timer == self.t2 <span class="p_word">and</span> self.t1 <span class="p_word">is</span> <span class="p_word">not</span> <span class="p_word">None</span>:
+                <span class="p_word">print</span> <span class="p_string">'stopping timer'</span>, self.t1.delay
+                self.t1.stop()
+                self.t1 = <span class="p_word">None</span>
+                timer.start(<span class="p_number">3000</span>)
+    app = App()
+    t1 = Timer(app)
+    t1.start(<span class="p_number">4000</span>)
+    t2 = Timer(app)
+    t2.start(<span class="p_number">2000</span>)
+    app.t1 = t1
+    app.t2 = t2
+    
+    multitask.run()
+
+
+  </PRE></BODY>
+</HTML>
