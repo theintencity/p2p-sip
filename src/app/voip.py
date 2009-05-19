@@ -216,7 +216,7 @@ from std.kutil import Timer, getlocaladdr, getintfaddr
 from std.rfc2396 import URI, Address
 import std.rfc3261 as sip
 import std.rfc3489bis as stun
-import sys, traceback, socket, multitask
+import sys, traceback, socket, multitask, random
 
 _debug = False  # set this to True to display all the debug messages.
 
@@ -546,7 +546,7 @@ class User(object):
     def cancelled(self, ua, request, stack): 
         '''Callback when given original request has been cancelled by remote.'''
         def _cancelled(self, ua, request): # a generator version
-            if hasattr(ua, 'queue') and ua.queue is not Note:
+            if hasattr(ua, 'queue') and ua.queue is not None:
                 yield ua.queue.put(request)
             elif self._queue and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
                 yield self._queue.put(('close', (str(request.From.value), ua)))
@@ -718,7 +718,7 @@ class Presence(object):
             ua = self.ua
             m = ua.createRequest('MESSAGE')
             m['Content-Type'] = sip.Header('text/plain', 'Content-Type')
-            m.body = str(message)
+            m.body = str(status) # TODO: update this to send NOTIFY or PUBLISH
             ua.sendRequest(m)
         yield # I don't wait for response 
     

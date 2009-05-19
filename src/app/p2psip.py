@@ -264,7 +264,7 @@ class Agent(AbstractAgent):
                 data = yield sock.recv()
         while True:
             sock = yield p2p.accept()
-            if identity: multitask.add(p2phandler(sock))
+            if hasattr(self, 'identity') and self.identity: multitask.add(p2phandler(sock))
             
             
 #------------------------------------------- Testing ----------------------

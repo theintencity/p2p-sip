@@ -52,6 +52,9 @@ def getintfaddr(dest):
     except: return None
     finally: s.close()
 
+from threading import Condition, Lock
+import time
+
 class MessageCore():
     '''The message core that handles message transfer among different objects. In particular,
     it provides put and get methods to dispatch and (blocked) receive of messages. A message

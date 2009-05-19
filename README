@@ -2,3 +2,12 @@
 by Kundan Singh <mailto:kundan10@gmail.com>
 Visit http://39peers.net for the project details.
 See LICENSING for copyright and licensing details.
+
+--
+
+For Eclipse and Pydev based development, the .project and .pydevproject files are
+also supplied. You can use this to open an existing project in Eclipse with 
+Pydev extension installed.
+
+--
+
