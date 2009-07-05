@@ -1372,7 +1372,7 @@ class Proxy(UserAgent):
         if request['Max-Forwards'] and int(request.first('Max-Forwards').value) < 0:
             self.sendResponse(483, 'Too many hops')
             return
-        if 'tag' not in request.To: # out of dialog request
+        if 'tag' not in request.To and transaction is not None: # out of dialog request
             if self.stack.findOtherTransaction(request, transaction): # request merging?
                 self.sendResponse(482, "Loop detected - found another transaction")
                 return
@@ -1382,16 +1382,21 @@ class Proxy(UserAgent):
                 response.Unsupported = Header(str(request['Proxy-Require'].value), 'Unsupported')
                 self.sendResponse(response)
                 return
+        
         if transaction: self.transaction = transaction # store it
         
-        if request.method == 'CANCEL': 
-            original = self.stack.findTransaction(Transaction.createId(transaction.branch, 'INVITE'))
+        if request.method == 'CANCEL':
+            branch = request.first('Via').branch if request.Via != None and 'branch' in request.first('Via') else Transaction.createBranch(request, True) 
+            original = self.stack.findTransaction(Transaction.createId(branch, 'INVITE'))
             if original:
                 if original.state == 'proceeding' or original.state == 'trying':
                     original.sendResponse(original.createResponse(487, 'Request terminated'))
-                self.createResponse(200, 'OK') # CANCEL response
+                transaction = Transaction.createServer(self.stack, self, request, self.stack.transport, self.stack.tag, start=False)
+                transaction.sendResponse(transaction.createResponse(200, 'OK'))
+            self.sendCancel()
+            return
             # TODO: the To tag must be same in the two responses
-        
+
         # 16.4 route information processing
         if not request.uri.user and self.isLocal(request.uri) and 'lr' in request.uri.param and request.Route:
             lastRoute = request.all('Route')[-1]; request.delete('Route', position=-1)
