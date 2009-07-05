@@ -1409,7 +1409,7 @@ class Proxy(UserAgent):
     
     def isLocal(self, uri):
         '''Check whether the give uri represents local address (host:port) ?'''
-        return self.stack.transport.host == uri.host and self.stack.transport.port == uri.port
+        return self.stack.transport.host == uri.host and (self.stack.transport.port == uri.port or uri.port == 0 and self.stack.transport.port == 5060)
      
     def sendResponse(self, response, responsetext=None, content=None, contentType=None, createDialog=True):
         '''Invoke the base class to send a response to original UAS. Create a transaction beforehand if needed.'''
