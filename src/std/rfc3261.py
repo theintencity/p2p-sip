@@ -175,6 +175,7 @@ class Message(object):
     # container access: use lower-case key in __dict__
     def __getitem__(self, name): return self.__dict__.get(name.lower(), None)
     def __setitem__(self, name, value): self.__dict__[name.lower()] = value
+    def __delitem__(self, name): del self.__dict__[name.lower()]
     def __contains__(self, name): return name.lower() in self.__dict__
     
     def _parse(self, value):
@@ -1504,9 +1505,13 @@ class Proxy(UserAgent):
             cancel = Transaction.createClient(self.stack, self, branch.cancelRequest, transaction.transport, transaction.remote)
             branch.cancelRequest = None
         else:
-            if response.isfinal: branch.response = response
-            # TODO: self.stack.receivedResponse(self, response)
-            self.sendResponseIfPossible()
+            if response.isfinal: 
+                branch.response = response
+                # TODO: self.stack.receivedResponse(self, response)
+                self.sendResponseIfPossible()
+            else:
+                response.delete('Via', position=0)
+                self.sendResponse(response)
             
     def sendResponseIfPossible(self):
         branches = filter(lambda x: x.response and x.response.isfinal, self.branches)
