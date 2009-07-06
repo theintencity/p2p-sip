@@ -576,6 +576,13 @@ class Transaction(object):
         To, From, CallId, CSeq = (request.To.value, request.From.value, request['Call-ID'].value, request.CSeq.number) if isinstance(request, Message) else (request[0], request[1], request[2], request[3])
         data = str(To).lower() + '|' + str(From).lower() + '|' + str(CallId) + '|' + str(CSeq) + '|' + str(server)
         return 'z9hG4bK' + str(urlsafe_b64encode(md5(data).digest())).replace('=','.')
+    
+    @staticmethod
+    def createProxyBranch(request, server):
+        '''Create branch property from the request, which will get proxied in a new client branch.'''
+        via = request.first('Via')
+        if via and 'branch' in via: return 'z9hG4bK'+ str(urlsafe_b64encode(md5(via.branch).digest())).replace('=','.')
+        else: return Transaction.createBranch(request, server)
 
     @staticmethod
     def createId(branch, method):
@@ -1438,7 +1445,7 @@ class Proxy(UserAgent):
         for h in headers: request.insert(h, append=True) # insert additional headers
         for h in reversed(route): request.insert(h, append=False) # insert the routes
         Via = self.stack.createVia(self.secure)
-        Via.branch = Transaction.createBranch(request, False)
+        Via.branch = Transaction.createProxyBranch(request, False)
         request.insert(Via)
         return request
         
