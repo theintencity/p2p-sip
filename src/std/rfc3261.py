@@ -453,7 +453,8 @@ class Stack(object):
                     else: # hack to locate original t for ACK
                         if _debug: print 'no dialog for ACK, finding transaction'
                         if not t and branch != '0': t = self.findTransaction(Transaction.createId(branch, 'INVITE'))
-                        if t:
+                        if t and t.state != 'terminated':
+                             if _debug: print 'Found transaction', t
                              t.receivedRequest(r)
                              return
                         else: 
