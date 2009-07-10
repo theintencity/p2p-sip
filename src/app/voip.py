@@ -214,7 +214,9 @@ from __future__ import with_statement
 from contextlib import closing
 from std.kutil import Timer, getlocaladdr, getintfaddr
 from std.rfc2396 import URI, Address
-import std.rfc3261 as sip
+from std.rfc4566 import SDP, attrs as format
+from std.rfc3550 import Network as RTPNetwork, Session as RTPSession
+import std.rfc3261 as sip, std.rfc3264 as rfc3264, std.rfc3550 as rfc3550
 import std.rfc3489bis as stun
 import sys, traceback, socket, multitask, random
 
@@ -272,9 +274,11 @@ class User(object):
         This is a generator function and should be invoked as multitask.add(u._listener()).'''
         try:
             while self.sock and self.stack:
-                data, remote = (yield multitask.recvfrom(self.sock, maxsize, timeout=interval))
-                if _debug: print 'received[%d] from %s\n%s'%(len(data),remote,data)
-                self.stack.received(data, remote)
+                try:
+                    data, remote = (yield multitask.recvfrom(self.sock, maxsize, timeout=interval))
+                    if _debug: print 'received[%d] from %s\n%s'%(len(data),remote,data)
+                    self.stack.received(data, remote)
+                except multitask.Timeout: pass
         except GeneratorExit: pass
         except: print 'User._listener exception', (sys and sys.exc_info() or None); traceback.print_exc(); raise
         if _debug: print 'terminating User._listener()'
@@ -364,9 +368,13 @@ class User(object):
         else: return None
     
     #-------------------------- Session related methods -------------------
-    def connect(self, dest, mediasock):
+    def connect(self, dest, mediasock=None, sdp=None):
         '''Invite a remote destination to a session. This is a generator function, which 
-        returns a (session, None) for successful connection and (None, reason) for failure.'''
+        returns a (session, None) for successful connection and (None, reason) for failure.
+        Either mediasock or sdp must be present. If mediasock is present, then session is negotiated 
+        for that mediasock socket, without SDP. Otherwise, the given sdp (rfc4566.SDP) is used 
+        to negotiate the session. On success the returned Session object has mysdp and yoursdp
+        properties storing rfc4566.SDP objects in the offer and answer, respectively.'''
         if self.nattype == 'blocked': 
             raise StopIteration((None, 'udp blocking network')) 
         else:
@@ -375,35 +383,54 @@ class User(object):
             ua.queue = multitask.Queue() # to receive responses
             m = ua.createRequest('INVITE')
             
-            local = yield self._getLocalCandidates(mediasock) # populate the media candidates
-            for c in local: # add proprietary SIP header - Candidate
-                m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)
-            
+            if mediasock is not None:
+                local = yield self._getLocalCandidates(mediasock) # populate the media candidates
+                for c in local: # add proprietary SIP header - Candidate
+                    m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)
+            elif sdp is not None:
+                m.body, local = str(sdp), None
+                m['Content-Type'] = sip.Header('application/sdp', 'Content-Type')
+            else:
+                raise StopIteration((None, 'either mediasock or sdp must be supplied'))
+
             ua.sendRequest(m)
             
             while True:
-                response = yield ua.queue.get()
+                try:
+                    response = yield ua.queue.get()
+                except GeneratorExit: # connect was cancelled
+                    ua.sendCancel()
+                    raise
                 if response.is2xx: # success
                     session = Session(user=self, dest=dest)
                     session.ua, session.mediasock = hasattr(ua, 'dialog') and ua.dialog or ua, mediasock
-                    session.local = local
-                    session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates 
+                    session.mysdp, session.yoursdp, session.local = sdp, None, local
+                    session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates if available 
+                    
+                    if response.body and response['Content-Type'] and response['Content-Type'].value.lower() == 'application/sdp':
+                        session.yoursdp = SDP(response.body)
                     
                     yield session.start(True)
                     raise StopIteration((session, None))
                 elif response.isfinal: # some failure
                     raise StopIteration((None, str(response.response) + ' ' + response.responsetext))
     
-    def accept(self, arg, mediasock):
+    def accept(self, arg, mediasock=None, sdp=None):
         '''Accept a incoming connection from given arg (dest, ua). The arg is what is supplied
         in the 'connect' notification from recv() method's return value.'''
         dest, ua = arg
         m = ua.createResponse(200, 'OK')
         ua.queue = multitask.Queue()
         
-        local = yield self._getLocalCandidates(mediasock)
-        for c in local: # add proprietary SIP header - Candidate
-            m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)
+        if mediasock is not None:
+            local = yield self._getLocalCandidates(mediasock)
+            for c in local: # add proprietary SIP header - Candidate
+                m.insert(sip.Header(c[0] + ':' + str(c[1]), 'Candidate'), True)
+        elif sdp is not None:
+            m.body, local = str(sdp), None
+            m['Content-Type'] = sip.Header('application/sdp', 'Content-Type')
+        else:
+            raise StopIteration((None, 'either mediasock or sdp must be supplied'))
             
         ua.sendResponse(m)
         
@@ -411,10 +438,13 @@ class User(object):
             while True:
                 request = yield ua.queue.get(timeout=5) # wait for 5 seconds for ACK
                 if request.method == 'ACK':
-                    session = Session(user=self, dest=dest)
+                    session, incoming = Session(user=self, dest=dest), ua.request
                     session.ua, session.mediasock = hasattr(ua, 'dialog') and ua.dialog or ua, mediasock
-                    session.local = local
-                    session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in ua.request.all('Candidate')] # store remote candidates 
+                    session.mysdp, session.yoursdp, session.local = sdp, None, local
+                    session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in incoming.all('Candidate')] # store remote candidates 
+                    
+                    if incoming.body and incoming['Content-Type'] and incoming['Content-Type'].value.lower() == 'application/sdp':
+                        session.yoursdp = SDP(incoming.body)
                     
                     yield session.start(False)
                     raise StopIteration((session, None))
@@ -436,7 +466,8 @@ class User(object):
         
     def _getLocalCandidates(self, mediasock):
         local = [getlocaladdr(mediasock)] # first element is local-addr
-        if self.nattype == 'good' or self.nattype == 'bad': # get STUN address for media
+        if _debug: print 'getting local candidates for nattype=', self.nattype
+        if self.nattype == 'good' or self.nattype == 'bad' or self.nat and (self.nattype is None): # get STUN address for media
             response, external = yield stun.request(mediasock)
             local.append(external)
         raise StopIteration(local)
@@ -574,11 +605,104 @@ class User(object):
         def _send(self, data, addr): # generator version
             if _debug: print 'sending[%d] to %s\n%s'%(len(data), addr, data)
             if self.sock:
-                yield self.sock.sendto(data, addr)
+                try: yield self.sock.sendto(data, addr)
+                except socket.error:
+                    if _debug: print 'socket error in sending' 
         multitask.add(_send(self, data, addr))
 
-#-------------------------- Session ---------------------------------------
+#-------------------- Media Session ---------------------------------------
+
+class MediaSession(object):
+    '''A MediaSession object wraps the RTP's Network, RTP's Session and SDP's offer/answer mode.
+    Application using audio/video should use one MediaSession associated with one Session.'''
+    def __init__(self, app, streams, request=None):
+        '''app receives call back for incoming RTP, streams is supplied list of supported SDP.media,
+        and request is a SIP message containing SDP offer if this is an incoming call.'''
+        if len(streams) == 0: raise ValueError('must supply at least one stream')
+        self.app, self.streams = app, streams
+        self.mysdp = self.yoursdp = None; self.rtp, self.net = [], []
+        if not request: # this is for outgoing call, build an offer SDP as mysdp.
+            net = [RTPNetwork(app=None) for i in xrange(len(streams))] # first create as many RTP network objects as streams.
+            for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
+            offer = rfc3264.createOffer(streams)                       # create the offered SDP now
+            ip = map(lambda n: n.src[0] if n.src[0] != '0.0.0.0' else getlocaladdr(n.rtp)[0], net) # get all IP addresses in network
+            if len(set(ip)) == 1: offer['c'] = SDP.connection(address=ip[0]) # unique IP, should set c= line in global level of SDP
+            else:  # no unique IP. Must add ip/c= in all media lines
+                for m, i in zip(offer['m'], ip): m['c'] = SDP.connection(address=i)
+            self.mysdp, self.net[:] = offer, net
+        elif request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp': # this is for incoming call, build an answer SDP as mysdp based on offer SDP from request
+            offer = SDP(request.body)
+            net = [RTPNetwork(app=None) for i in xrange(len(streams))] # create as many network objects as we have streams
+            for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
+            netoffer = dict(map(lambda x: (x.src[1], x), net))           # create a table of RTP port=>network
+            answer = rfc3264.createAnswer(streams, offer)              # create the answered SDP now
+            if not answer or not answer['m']:
+                if _debug: print 'create answer failed to create an answer'
+                for n in net: n.close()
+            else:
+                net1 = map(lambda m: netoffer[m.port] if m.port > 0 else None, answer['m']) # include networks which are successfully answered
+                netanswer = dict(map(lambda x: (x.src[1], x), filter(lambda y: y is not None, net1)))
+                for n in filter(lambda y: y.src[1] not in netanswer, net): n.close() # close the networks that were not used
+                netoffer.clear(); netanswer.clear()
+                netvalid = filter(lambda x: x is not None, net) # only non-None values
+                ip = map(lambda n: n.src[0] if n.src[0] != '0.0.0.0' else getlocaladdr(n.rtp)[0], netvalid) # get all IP addresses in network
+                if len(set(ip)) > 0: answer['c'] = SDP.connection(address=ip[0]) # TODO: we don't support different IPs in this case
+                self.mysdp, self.net[:] = answer, net1
+                self.setRemote(offer) # set the remote SDP which also sets the dest ip:port in net
+        else:
+            if _debug: print 'request does not have SDP body'
+            
+    def setRemote(self, sdp):
+        '''Update the RTP network's destination ip:port based on remote SDP. It also creates RTP Session.
+        This is implicitly invoked in constructor for incoming call, since remote SDP is already known.
+        The application invokes this explicitly for outgoing call when 200 OK is received.'''
+        self.yoursdp, net = sdp, self.net
+        if sdp['m'] and len(net) == len(sdp['m']):
+            ip = sdp['c'].address if sdp['c'] else ('0.0.0.0')
+            for m, n in zip(sdp['m'], net):
+                if n is not None:
+                    ip0 = m['c'].address if m['c'] else ip
+                    n.dest, n.destRTCP = (ip0, m.port), (ip0, m.port+1 if m.port > 0 else 0) # TODO: should use different RTCP ports
+        else:
+            if _debug: print 'invalid remote SDP or mismatch with RTP networks'
+        netvalid = filter(lambda x: x is not None, net)
+        self.rtp[:] = map(lambda n: RTPSession(app=self), netvalid)
+        for r, n in zip(self.rtp, netvalid): r.net = n; n.app = r; r.start() # attach net with session
         
+    def close(self):
+        for rtp in self.rtp: rtp.net = None; rtp.stop()
+        for net in filter(lambda x: x is not None, self.net): net.app = None; net.close() 
+        self.rtp[:], self.net[:] = [], []
+
+    def createTimer(self, app): # Callback to create a timer object.
+        return Timer(app)
+    
+    def received(self, member, packet): # an RTP packet is received. Hand over to sip_data.
+        if self.app and hasattr(self.app, 'received') and callable(self.app.received):
+            self.app.received(media=self, fmt=self._getMyFormat(packet.pt), packet=packet)
+    
+    def send(self, payload, ts, marker, fmt):
+        fy, rtp = self._getYourFormat(fmt)
+        if rtp and fy: rtp.send(payload=payload, ts=ts, marker=marker, pt=int(fy.pt))
+        elif _debug: print 'could not find RTP session for fmt=%r/%r'%(fmt.name, fmt.rate)
+        
+    def _getMyFormat(self, pt): # returns matching fmt for this pt in mysdp
+        if self.mysdp: 
+            for m in self.mysdp['m']:
+                for f in m.fmt:
+                    if f.pt == pt: return f
+        return None
+
+    def _getYourFormat(self, fmt): # returns (fmt, rtp) where fmt is matching format in yoursdp, and rtp is the associated session
+        if self.yoursdp:
+            for m in filter(lambda x: x.port > 0, self.yoursdp['m']):
+                rtp = filter(lambda r: r.net and r.net.dest[1] == m.port, self.rtp) # find matching RTP session
+                fy = filter(lambda f:str(f.name).lower() == str(fmt.name).lower() and f.rate == fmt.rate and f.count == fmt.count, m.fmt)
+                if fy: return (fy[0], rtp[0] if rtp else None)
+        return (None, None)
+        
+#-------------------------- Session ---------------------------------------
+
 class Session(object):
     '''The Session object represents a single session or call between local User and remote
     dest (Address).'''
@@ -590,7 +714,7 @@ class Session(object):
     def start(self, outgoing):
         '''A generator function to initiate the connectivity check and then start the run
         method to receive messages on this ua.'''
-        if self.mediasock:
+        if self.mediasock and self.user.nat:
             yield self._checkconnectivity(outgoing)
         self.gen = self._run()
         multitask.add(self.gen)
