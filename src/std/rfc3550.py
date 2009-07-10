@@ -13,8 +13,10 @@ The Network class abstracts out the network behavior such as pair of sockets.
 
 # @implements RFC3550 P1L31-P1L50
 
-import struct, random, math, time, socket
+import sys, struct, random, math, time, socket, traceback
 from kutil import getlocaladdr
+try: import multitask
+except: print 'could not import multitask from rfc3550'
 
 _debug = False
 
@@ -382,8 +384,8 @@ class Session(object):
         @param seq0: the optional initial sequence number, default a random number.
         @param ts0: the optional initial timestamp, default a random number.
         '''
-        self.app, self.pt, self.rate, self.bandwidth, self.fraction, self.member    = \
-          app, kwargs.get('pt', 96), kwargs.get('rate', 8000), kwargs.get('bandwidth', 64000), kwargs.get('fraction', 0.05), kwargs.get('member', None)
+        self.app, self.net, self.pt, self.rate, self.bandwidth, self.fraction, self.member    = \
+          app, None, kwargs.get('pt', 96), kwargs.get('rate', 8000), kwargs.get('bandwidth', 64000), kwargs.get('fraction', 0.05), kwargs.get('member', None)
         if not self.member:
             ssrc  = kwargs.get('ssrc', random.randint(0, 2**32))
             cname = kwargs.get('cname', '%d@%s'%(ssrc, getlocaladdr()))
@@ -413,7 +415,8 @@ class Session(object):
     @property
     def tsnow(self):
         '''The current RTP timestamp in ts unit based on current time.'''
-        return int(self.ts + (self.tc - self.ntp)*((self.ts - self.ts1) / (self.ntp - self.ntp1))) & 0xffffffff
+        if self.ntp != self.ntp1: return int(self.ts + (self.tc - self.ntp)*((self.ts - self.ts1) / (self.ntp - self.ntp1))) & 0xffffffff
+        else: return int(self.ts) & 0xffffffff
         
     def start(self):  
         '''Start the session, starts sending RTCP and RTP, as well as receiving them.'''
@@ -427,16 +430,20 @@ class Session(object):
         delay = self.rtcpinterval(True) # compute first RTCP interval
         self.tp, self.tn = self.tc, self.tc + delay
         
-        self.timer = timer = self.app.createTimer(self) # schedule a timer to send RTCP
-        timer.start(delay*1000)
-        
+        if hasattr(self.app, 'createTimer') and callable(self.app.createTimer):
+            self.timer = timer = self.app.createTimer(self) # schedule a timer to send RTCP
+            timer.start(delay*1000)
+        else: # ignore RTCP sending if timer is not created
+            self.timer = None
+            if _debug: print 'exception in creating the timer.' 
         self.running = True
-        self.app.starting(self)
+        
+        if hasattr(self.app, 'starting') and callable(self.app.starting): self.app.starting(self) # ignore if starting() is not defined
         
     def stop(self, reason=''):
         '''Stop or close the session, hence stops sending or receiving packets.'''
         if not self.running: return # not running already. Don't bother.
-        sendBye(reason=reason)
+        self.sendBYE(reason=reason)
         self.members.clear()
         self.senders.clear()
         self.pmembers = 0
@@ -444,7 +451,8 @@ class Session(object):
             self.timer.stop()
             self.timer = None
         self.running = False
-        self.app.stopping(self)
+        if hasattr(self.app, 'stopping') and callable(self.app.stopping): self.app.stopping(self) # ignore if stopping is not defined
+        self.net = None
     
     def send(self, payload='', ts=0, marker=False, pt=None):
         '''Send a RTP packet using the given payload, timestamp and marker.'''
@@ -457,7 +465,10 @@ class Session(object):
 
         if pt is None: pt = self.pt
         pkt = RTP(pt=pt, marker=marker, seq=self.seq0+self.seq, ts=self.ts0+ts, ssrc=member.ssrc, payload=payload)
-        self.app.sendRTP(pkt)
+        data = str(pkt)
+        if self.net is not None: multitask.add(self.net.sendRTP(data)) # invoke app or net to send the packet
+        elif hasattr(self.app, 'sendRTP') and callable(self.app.sendRTP): self.app.sendRTP(self, data)
+        elif _debug: print 'ignoring send RTP' 
 
         self.seq = self.seq + 1
         
@@ -478,7 +489,8 @@ class Session(object):
             member.address = src
             member.updateseq(p.seq)
             member.updatejitter(p.ts, self.tsnow)
-            self.app.received(member, p)
+            if hasattr(self.app, 'received') and callable(self.app.received): self.app.received(member, p)
+            elif _debug: print 'ignoring received RTP'
         
     def receivedRTCP(self, data, src, dest):
         '''Received an RTCP packet on network. Process it locally.'''
@@ -511,11 +523,11 @@ class Session(object):
                     if ssrc in self.senders:
                         del self.senders[ssrc]
                     if self.running:
-                        self.timer.stop()
+                        if self.timer: self.timer.stop()
                         self.tn = self.tc + (len(self.members)/self.pmembers) * (self.tn-self.tc)
                         self.tp = self.tc - (len(self.members)/self.pmembers) * (self.tc-self.tp)
-                        self.timer.start((self.tn - self.tc) * 1000)
-                        self.pmembers = len(self.pmembers)
+                        if self.timer: self.timer.start((self.tn - self.tc) * 1000)
+                        self.pmembers = len(self.members)
                     
         # @implements RFC3550 P31L19-P31L24
         self.avgrtcpsize = (1/16.)*len(data) + (15/16.)*self.avgrtcpsize
@@ -599,7 +611,9 @@ class Session(object):
             packet.append(p)
             
         data = str(packet) # format for network data
-        self.app.sendRTCP(data) # invoke app to send the packet
+        if self.net is not None: multitask.add(self.net.sendRTCP(data)) # invoke app or net to send the packet
+        elif hasattr(self.app, 'sendRTCP') and callable(self.app.sendRTCP): self.app.sendRTCP(self, data)
+        elif _debug: print 'ignoring send RTCP' 
         self.rtcpsent = True
         return len(data)
         
@@ -608,7 +622,11 @@ class Network(object):
     in case of a simple consecutive (even,odd) UDP ports of RTP and RTCP. The useful properties
     are src and dest, which are tuple ('ip', port) representing source and destination
     addresses. There are also srcRTCP and destRTCP properties that explicitly allow
-    setting RTCP ports different from RTP. Once created the src property can not be changed.'''
+    setting RTCP ports different from RTP. Once created the src property can not be changed.
+    One way to connect this Network object with Session is to assign session.net as this object, and
+    assign network.app as Session object. This way the Session object invokes this Network's methods
+    (using generator) to send packets, and Network invokes Session's methods to indicate incoming 
+    packets.'''
     def __init__(self, app, **kwargs):
         '''Initialize the network.'''
         self.app    = app
@@ -617,6 +635,7 @@ class Network(object):
         self.srcRTCP= kwargs.get('srcRTCP', (self.src[0], self.src[1] and self.src[1]+1 or 0))
         self.destRTCP=kwargs.get('destRTCP', None)
         self.maxsize = kwargs.get('maxsize', 1500)
+        self.rtp = self.rtcp = None
         
         if self.src[1] != 0:  # specified port
             try:
@@ -656,6 +675,10 @@ class Network(object):
             raise ValueError, 'cannot allocate sockets'
 
     def __del__(self):
+        self.close()
+    
+    def close(self):
+        if _debug: print 'cleaning up sockets'
         if self.rtp: self.rtp.close(); self.rtp = None
         if self.rtcp: self.rtcp.close(); self.rtcp = None
         if self.app: self.app = None
@@ -665,22 +688,30 @@ class Network(object):
             while True:
                 data, remote = yield multitask.recvfrom(sock, self.maxsize)
                 if self.app: self.app.receivedRTP(data, remote, self.src)
-        except: pass
+        except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc() 
         
     def receiveRTCP(self, sock):
         try:
             while True:
                 data, remote = yield multitask.recvfrom(sock, self.maxsize)
-                if self.app: self.app.receivedRTCP(data, remote, self.src)
-        except: pass
+                if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
+        except: print 'receive RTCP exception', (sys and sys.exc_info())
         
     def sendRTP(self, data, dest=None):
         if self.rtp:
-            yield multitask.sendto(self.rtp, data, dest or self.dest)
+            dest = dest or self.dest
+            if dest and dest[1] > 0: 
+                if _debug: print 'sending RTP %d to %r'%(len(data), dest)
+                yield multitask.sendto(self.rtp, data, dest)
+            elif _debug: print 'ignoring send RTP'
         
     def sendRTCP(self, data, dest=None):
         if self.rtcp:
-            yield multitask.sendto(self.rtcp, data, dest or self.dest)
+            dest = dest or self.destRTCP
+            if dest and dest[1] > 0:
+                if _debug: print 'sending RTCP %d to %r'%(len(data), dest) 
+                yield self.rtcp.sendto(data, 0, dest)
+            elif _debug: print 'ignoring send RTCP'
         
 if __name__ == '__main__':
     import doctest

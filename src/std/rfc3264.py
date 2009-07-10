@@ -18,7 +18,7 @@ from std.rfc3264 import createOffer, createAnswer
 >>> offer = createOffer([audio, video])
 >>>
 >>> offer.o.sessionid = offer.o.version = 1192000146 # so that testing doesn't depend on time
->>> offer.o.host = '192.168.1.66'                    # or IP address
+>>> offer.o.address = '192.168.1.66'                    # or IP address
 >>> print str(offer).replace('\\r', '\\\\r').replace('\\n', '\\\\n')
 v=0\\r\\no=- 1192000146 1192000146 IN IP4 192.168.1.66\\r\\ns=-\\r\\nt=0 0\\r\\nm=audio 9000 RTP/AVP 0 8\\r\\na=rtpmap:0 PCMU/8000\\r\\na=rtpmap:8 PCMA/8000\\r\\nm=video 9002 RTP/AVP 31\\r\\na=rtpmap:31 H261/90000\\r\\n
 
@@ -32,7 +32,7 @@ from std.rfc3264 import createAnswer
 >>> answer = createAnswer([audio], offer)
 >>>
 >>> answer.o.sessionid = answer.o.version = 1192000146 
->>> answer.o.host = '192.168.1.66'
+>>> answer.o.address = '192.168.1.66'
 >>> print str(answer).replace('\\r', '\\\\r').replace('\\n', '\\\\n')
 v=0\\r\\no=- 1192000146 1192000146 IN IP4 192.168.1.66\\r\\ns=-\\r\\nt=0 0\\r\\nm=audio 8020 RTP/AVP 0\\r\\na=rtpmap:0 PCMU/8000\\r\\nm=video 0 RTP/AVP 31\\r\\na=rtpmap:31 H261/90000\\r\\n
 
@@ -46,7 +46,6 @@ newOffer = createOffer([audio], offer)
 # @implements RFC3264 P3L18-P3L21
 
 from std.rfc4566 import SDP, attrs as format  # although RFC 3264 used old RFC 2327 for SDP definition, we use new RFC 4566
-import socket
 
 _debug = True
 
@@ -82,10 +81,10 @@ def createAnswer(streams, offer, **kwargs):
     s.m = []
     streams = list(streams) # so that original stream is not modified
     for your in offer.m: # for each m= line in offer
-        my   = None      # answered stream
-        for i in range(0, len(streams)):
+        my, i   = None, 0      # answered stream
+        while i < len(streams):
             if streams[i].media == your.media: # match the first stream in streams
-                my = SDP.media(str(streams[i])) # found, hence
+                my = streams[i].dup() # found, hence
                 del streams[i]  #  remove from streams so that we don't match again for another m=
                 found = []
                 for fy in your.fmt:  # all offered formats, find the matching pairs
@@ -94,13 +93,16 @@ def createAnswer(streams, offer, **kwargs):
                         except: fmpt = fypt = -1
                         if 0<=fmpt<32 and 0<=fypt<32 and fmpt == fypt \
                         or fmpt<0 and fypt<0 and fm.pt == fy.pt \
-                        or fm.name == fy.name and fm.rate == fy.rate and fm.count == fy.count: # we don't match the params
+                        or str(fm.name).lower() == str(fy.name).lower() and fm.rate == fy.rate and fm.count == fy.count: # we don't match the params
                             found.append((fy, fm)); break
                 if found: # we found some matching formats, put them in 
                     my.fmt = map(lambda x: x[0], found) # use remote's fy including fy.pt
                 else:
                     my.fmt = [format(pt=0)] # no match in formats, but matched media, must put a format with payload type 0
                     my.port = 0             #   and reset the port.
+                break
+            else: 
+                i = i + 1
         if not my: # did not match the stream, must put a stream with port = 0
             my = SDP.media(str(your))
             my.port = 0

@@ -94,7 +94,8 @@ class SDP(attrs):
                 if f.name:
                     result += '\r\n' + 'a=rtpmap:' + str(f.pt) + ' ' + f.name + '/' + str(f.rate) + (f.params and ('/'+f.params) or '')
             return result
-    
+        def dup(self): # use this method instead of SDP.media(str(m)) to duplicate m. Otherwise, fmt will be incomplete
+            return SDP.media(media=self.media, port=self.port, proto=self.proto, fmt=map(lambda f: attrs(pt=f.pt, name=f.name, rate=f.rate, params=f.params), self.fmt))
     
     # @implements RFC4566 P8L17-P10L5
     def _parse(self, text):
@@ -121,10 +122,10 @@ class SDP(attrs):
                     for f in filter(lambda x: x.pt == pt, obj.fmt):
                         f.name = name; f.rate = int(rate); f.params = params or None
                 else:
-                    obj[k] = (k in SDP._multiple and ((k in obj) and (obj[k]+v) or [v])) or v 
+                    obj[k] = (k in SDP._multiple and ((k in obj) and (obj[k]+[v]) or [v])) or v 
             else:          # global
                 obj = self
-                obj[k] = ((k in SDP._multiple) and ((k in obj) and (obj[k]+v) or [v])) or v
+                obj[k] = ((k in SDP._multiple) and ((k in obj) and (obj[k]+[v]) or [v])) or v
 
     def __repr__(self):
         result = ''
