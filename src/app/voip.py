@@ -620,7 +620,7 @@ class MediaSession(object):
         and request is a SIP message containing SDP offer if this is an incoming call.'''
         if len(streams) == 0: raise ValueError('must supply at least one stream')
         self.app, self.streams = app, streams
-        self.mysdp = self.yoursdp = None; self.rtp, self.net = [], []
+        self.mysdp = self.yoursdp = None; self.rtp, self.net, self._types = [], [], []
         if not request: # this is for outgoing call, build an offer SDP as mysdp.
             net = [RTPNetwork(app=None) for i in xrange(len(streams))] # first create as many RTP network objects as streams.
             for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
@@ -665,15 +665,22 @@ class MediaSession(object):
                     n.dest, n.destRTCP = (ip0, m.port), (ip0, m.port+1 if m.port > 0 else 0) # TODO: should use different RTCP ports
         else:
             if _debug: print 'invalid remote SDP or mismatch with RTP networks'
+        for my in filter(lambda m: m.port > 0, self.mysdp['m'] if self.mysdp else []): # update _types based on mysdp and yoursdp
+            for your in filter(lambda m: m.port > 0 and m.media == my.media, self.yoursdp['m'] if self.yoursdp else []): self._types.append(my.media)
         netvalid = filter(lambda x: x is not None, net)
         self.rtp[:] = map(lambda n: RTPSession(app=self), netvalid)
         for r, n in zip(self.rtp, netvalid): r.net = n; n.app = r; r.start() # attach net with session
         
     def close(self):
+        '''Clean up the media session. This must be called to clean up sockets, tasks, etc.'''
         for rtp in self.rtp: rtp.net = None; rtp.stop()
         for net in filter(lambda x: x is not None, self.net): net.app = None; net.close() 
         self.rtp[:], self.net[:] = [], []
 
+    def hasType(self, type):
+        '''Whether the media with the given type exists in both mysdp and yoursdp? Type can be 'audio' or 'video'.'''
+        return type.lower() in self._types 
+        
     def createTimer(self, app): # Callback to create a timer object.
         return Timer(app)
     
@@ -690,7 +697,8 @@ class MediaSession(object):
         if self.mysdp: 
             for m in self.mysdp['m']:
                 for f in m.fmt:
-                    if f.pt == pt: return f
+                    if str(f.pt) == str(pt): return f
+        # print 'format not found for pt=%d sdp=\n%s'%(pt, str(self.mysdp))
         return None
 
     def _getYourFormat(self, fmt): # returns (fmt, rtp) where fmt is matching format in yoursdp, and rtp is the associated session

@@ -466,7 +466,7 @@ class Session(object):
         if pt is None: pt = self.pt
         pkt = RTP(pt=pt, marker=marker, seq=self.seq0+self.seq, ts=self.ts0+ts, ssrc=member.ssrc, payload=payload)
         data = str(pkt)
-        if self.net is not None: multitask.add(self.net.sendRTP(data)) # invoke app or net to send the packet
+        if self.net is not None: self.net.sendRTP(data) # TODO: not a generator, multitask.add(self.net.sendRTP(data)) # invoke app or net to send the packet
         elif hasattr(self.app, 'sendRTP') and callable(self.app.sendRTP): self.app.sendRTP(self, data)
         elif _debug: print 'ignoring send RTP' 
 
@@ -697,12 +697,13 @@ class Network(object):
                 if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
         except: print 'receive RTCP exception', (sys and sys.exc_info())
         
-    def sendRTP(self, data, dest=None):
+    def sendRTP(self, data, dest=None): # unline sendRTCP this is not a generator
         if self.rtp:
             dest = dest or self.dest
             if dest and dest[1] > 0: 
                 if _debug: print 'sending RTP %d to %r'%(len(data), dest)
-                yield multitask.sendto(self.rtp, data, dest)
+                #yield multitask.sendto(self.rtp, data, dest)
+                self.rtp.sendto(data, dest)
             elif _debug: print 'ignoring send RTP'
         
     def sendRTCP(self, data, dest=None):
