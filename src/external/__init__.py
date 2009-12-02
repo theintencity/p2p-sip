@@ -1,3 +1,3 @@
 '''
-This package contains various high-level applications and tools to enable 39peers technology.
+This package contains the external dependencies for the p2p-sip project.
 '''
