@@ -23,15 +23,10 @@ to act on the user input.
 _debug = False # change this to false for released code
 _trace = False
 
-# Uncomment the following to enable debugging
-#_debug = True
-#dht._debug = True
-#p2p._debug = True
-#_trace = True
 p2p.BOOTSTRAP = None
 
 
-import linecache, random, sys
+import linecache
 
 def traceit(frame, event, arg):
     if event == "line":
@@ -417,6 +412,10 @@ def testDHT(frame):
 
 
 if __name__ == '__main__':
+    if sys.argv[-1] == '-d':
+        _debug = True = dht._debug = p2p._debug = True
+        #_trace = True
+        
     app = wx.PySimpleApp()
     frame = wx.Frame(parent=None, id=wx.ID_ANY, title='DHT display')
     #testDisplay(frame)

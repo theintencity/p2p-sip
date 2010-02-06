@@ -954,7 +954,8 @@ class ReverseRoutingTable(set):
         
 def randomsleep(timeout):
     '''Sleep for a random amound of seconds in range [0.5*timeout, 1.5*timeout].'''
-    yield multitask.sleep((random.random()+0.5)+timeout)
+    # if _debug: print 'sleeping for random T=', timeout
+    yield multitask.sleep((random.random()+0.5)*timeout)
 
 #------------------------------------------------------------------------------ 
 # The main Router class to control the router logic.
@@ -1627,13 +1628,13 @@ class Storage(object):
             key = Key(time=msg.time, expires=msg.expires, put=msg.put, guid=msg.dest, hash=hash, nonce=msg.nonce, owner=owner)
             value = Value(value=value, hash=hash, Kp=msg.Kp, sigma=msg.sigma)
             self.ranges.invalidate(key.guid)
-            p, r = (yield self.db.put(key, value))[:2]
+            p, q, r, s = (yield self.db.put(key, value))[:4]
             if p: self.ranges.invalidate(p.guid)
             if r: self.ranges.invalidate(r.guid)
         
             if not replicas:
                 raise ValueError, 'no replica node available'
-            msg = msg.dup()
+            msg, seq = msg.dup(), msg.seq
             msg.name = 'Replicate:Request'
             msg['guid'] = msg.dest  # TODO: this was added because guid was needed in replicate request
             global _seq; _seq = _seq + 1; msg.seq = _seq
@@ -1648,7 +1649,7 @@ class Storage(object):
                     replicas.remove(resp.remote)
                     
             # response is sent directly to the source
-            yield self.net.send(Message(name='Put:Response', seq=msg.seq, result=True), node=msg.src) 
+            yield self.net.send(Message(name='Put:Response', seq=seq, result=True), node=msg.src) 
         
         except ValueError, E:
             if _debug: print 'puthandler exception', E

@@ -7,7 +7,8 @@ This used the OpenSSL module internally.
 
 import os, struct
 from string import atoi
-from OpenSSL.crypto import *
+try: from OpenSSL.crypto import *
+except: print 'WARNING: cannot import OpenSSL.crypto'
 
 #===============================================================================
 # Generic methods such as ASN.1 minimal parsing and utility functions

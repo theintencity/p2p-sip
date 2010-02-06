@@ -167,7 +167,7 @@ class Network(object):
             data, addr = yield multitask.recvfrom(self.udp, maxsize, timeout=timeout)
             msg, remote = self.parse(data, addr, self.udp.type)
             if not msg: continue # ignore invalid messages. TODO: handle non-p2p message
-            if _debug: print self.name, 'udp-received %s=>%s: %r'%(remote.hostport, self.node.hostport, msg)
+            if _debug and msg.name[:4] != 'Hash': print self.name, 'udp-received %s=>%s: %r'%(remote.hostport, self.node.hostport, msg)
             if 'ack' in msg and msg.name != 'Ack:Indication': # the remote requires an ack. send one.
                 del msg['ack'] # remove the ack
                 ack = dht.Message(name='Ack:Indication', hash=H(data))    # hash of original received packet
@@ -235,7 +235,7 @@ class Network(object):
             if node.type==socket.SOCK_DGRAM and timeout is not None: # no ack required for tcp 
                 msg['ack'] = True # require a NetworkAck
             data = dht.int2bin(self.node.guid) + str(msg) # TODO: this assumes guid is same for all transports.
-            if _debug: print self.name, 'sending %d bytes %s=>%s: %r'%(len(data), self.node.hostport, node.hostport, msg)
+            if _debug and msg.name[:4] != 'Hash': print self.name, 'sending %d bytes %s=>%s: %r'%(len(data), self.node.hostport, node.hostport, msg)
             if node.type == socket.SOCK_DGRAM:
                 self.udp.sendto(data, (node.ip, node.port))
             else:
@@ -321,10 +321,11 @@ class Client(object):
     
     def bootstrap(self, timeout=5, interval=30):
         '''A generator to perform bootstrap function.'''
+        candidates = self.candidates[:] # a copy of list of candidates
         while True:
-            if _debug: print 'bootstrap server=', self.server, 'neighbors=', len(self.neighbors), 'candidates=', len(self.candidates)
-            if not self.server and not self.neighbors and self.candidates: # more candidates but no more neighbors
-                node = self.candidates.pop(0)
+            if _debug: print self.net.name, 'bootstrap server=', self.server, 'neighbors=', len(self.neighbors), 'candidates=', len(candidates)
+            if not self.server and not self.neighbors and candidates: # more candidates but no more neighbors
+                node = candidates.pop(0)
                 if _debug: print 'bootstrap trying node=', repr(node)
                 if node.type==socket.SOCK_DGRAM and isMulticast(node.ip): 
                     yield self.net.send(Message(name='Discover:Request'), node=node)
@@ -343,7 +344,7 @@ class Client(object):
                             added = True
                         else:
                             if _debug: print 'received candidate', repr(node)
-                            self.candidates.append(node) # put this as the next candidate
+                            candidates.append(node) # put this as the next candidate
                     if added:
                         yield self.net.put(Message(name='Discover:Indication', node=self.node, neighbors=self.neighbors)) # indicate change in client.
                 else: 
@@ -354,6 +355,9 @@ class Client(object):
                 if not result: # no response received, remove the neighbor
                     del self.neighbors[0]
                     yield self.net.put(Message(name='Discover:Indication', node=self.node, neighbors=self.neighbors)) # indicate change in client.
+            elif not self.server and not self.neighbors and not candidates:
+                candidates = self.candidates[:]
+                yield dht.randomsleep(timeout)
             else: # just wait before trying again.
                 yield dht.randomsleep(interval) 
 
@@ -370,9 +374,11 @@ class Client(object):
                 response = yield self.net.get(lambda x: x.name=='Discover:Response' and x.multicast, timeout=(random.random()+0.5)*timeout)
                 if response: # someone else sent a response, we don't have to send anymore
                     continue
-            response = Message(name='Discover:Response', neighbors=([self.net.node, self.net.nodetcp] if self.server else [])+self.neighbors)
-            dest = (msg.remote if not msg.multicast else self.net.nodemcast)
-            yield self.net.send(msg=response, node=dest)
+            neighbors = ([self.net.node, self.net.nodetcp] if self.server else [])+self.neighbors
+            if not msg.multicast or neighbors:
+                response = Message(name='Discover:Response', neighbors=neighbors)
+                dest = (msg.remote if not msg.multicast else self.net.nodemcast)
+                yield self.net.send(msg=response, node=dest)
     
     def pinghandler(self):
         '''Respond to Ping:Request.'''
@@ -460,12 +466,12 @@ class ServerSocket(object):
     bind is called, then connect or accept cannot be invoked. The difference between start() and bind()
     is that start() bootstraps the P2P network whereas bind() registers the local user identity so that
     incoming peer-to-peer connections can be received.'''
-    def __init__(self, bootstrap=True):
-        '''Create a new server socket. If bootstrap argument is True, then it performs bootstrap
+    def __init__(self, server=False):
+        '''Create a new server socket. If server argument is False, then it performs bootstrap
         process using external bootstrap ADDRESS and PORT, otherwise it assumes this socket to be 
         a initial bootstrap server.'''
         self.net = self.client = self.router = self.storage = None
-        self.bootstrap = bootstrap
+        self.server = server
         self._gens = []
         
     def start(self, net=None):
@@ -473,8 +479,8 @@ class ServerSocket(object):
         if self.net is None:
             self.net = net or Network(Ks=crypto.generateRSA()[0], cert=None) 
             self.net.start()
-            self.client = Client(self.net, server=self.bootstrap).start()
-            if self.bootstrap:
+            self.client = Client(self.net, server=self.server).start()
+            if self.server:
                 if self.router is None: self.router = dht.Router(self.net).start()
                 if self.storage is None: self.storage = dht.Storage(self.net, self.router).start()
                 if not self.router.initialized: self.router.initialized = True
@@ -555,7 +561,7 @@ class ServerSocket(object):
     def close(self):
         '''Close the bound socket'''
         if hasattr(self, 'identity'):
-            result = yield self.remove(guid=H(identity), value=self.net.node.guid, nonce=self.nonce, expires=self.expires)
+            result = yield self.remove(guid=H(self.identity), value=self.net.node.guid, nonce=self.nonce, expires=self.expires)
             del self.identity, self.nonce, self.expires
         raise StopIteration(None)
         
@@ -585,7 +591,7 @@ class ServerSocket(object):
         if _debug: print 'accept msg=%r'%(msg)
         if not msg: raise StopIteration(None)
         sock = Socket(sock=self, peer=(msg.sock, msg.src.guid), server=True)
-        yield net.send(Message(name='Connect:Response', seq=msg.seq, result=True), node=msg.src) 
+        yield net.send(Message(name='Connect:Response', seq=msg.seq, result=True), node=msg.src)
         raise StopIteration(sock)
 
     def sendto(self, identity, data, timeout=30):
@@ -628,12 +634,23 @@ def _testServerSocket():
         s2 = ServerSocket().start()
     multitask.add(testInternal())
     
+def _testAlgorithm():
+    def testInternal():
+        #global _debug
+        #_debug = dht._debug = True
+        nodes = [ServerSocket(True).start()]
+        for x in xrange(10):
+            nodes.append(ServerSocket().start())
+        yield
+    multitask.add(testInternal())
+    
 #--------------------------------- Testing --------------------------------
 if __name__ == '__main__':
     try:
         #_testCreateSockets()
         #_testClient()
-        _testServerSocket()
+        #_testServerSocket()
+        _testAlgorithm()
         multitask.run()
     except KeyboardInterrupt:
         pass
