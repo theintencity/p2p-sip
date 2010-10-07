@@ -130,7 +130,7 @@ class View(wx.Panel):
                 pending.append((node.s.get, dict(guid=p2p.H(self.key.GetValue()))))
             elif cmd == 'rm':
                 print 'rm ' + self.key.GetValue() + ', ' + self.value.GetValue()
-                pending.append((node.s.put, dict(guid=p2p.H(self.key.GetValue()), value=self.value.GetValue(), nonce=p2p.H(self.key.GetValue()), expires=now+60)))
+                pending.append((node.s.remove, dict(guid=p2p.H(self.key.GetValue()), value=self.value.GetValue(), nonce=p2p.H(self.key.GetValue()), expires=now+60)))
             elif cmd == 'bind':
                 print 'bind ' + self.user.GetValue()
                 import multitask
@@ -385,7 +385,7 @@ def testDHT(frame):
                     print result
                 else:
                     if _debug: print result
-                    values = map(lambda x: x.value, result)
+                    values = map(lambda x: x[0], result)
                     print '\n'.join(values) if values else 'None'
         def waitonsock(sock):
             global pending

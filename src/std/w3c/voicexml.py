@@ -30,7 +30,7 @@ def F(x): return x[0] if x else None
 #------------------------------------------------------------------------------
 
 def interpret(url=None, **kwargs):
-    '''A generator to process a give VoiceXML URL or Document.'''
+    '''A generator to process a given VoiceXML URL or Document.'''
     vxml = Document(url=url)
     yield vxml.run()
 
@@ -106,7 +106,7 @@ class FormItem(object):
         self.name = self.justFilled = self.var = self.counter = self.grammar = None
     @property
     def tag(self):
-        return xml.tag
+        return self.xml.tag
     
 def interpretForm(form, grammar, utterance=None):
     '''Form interpretation algorithm'''

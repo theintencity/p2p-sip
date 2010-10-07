@@ -290,7 +290,7 @@ class User(Connection):
         return self._chat[to]
     
     def process(self, data):
-        if not data: multitask.add(logout())
+        if not data: multitask.add(self.logout())
         # TODO: check if a chat exists for this user? otherwise add one
     
 #------------------------------------------------------------------------------

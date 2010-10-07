@@ -866,7 +866,7 @@ class Presence(object):
             self.gen = None
         if self.ua:
             if outgoing:
-                self.ua.sendRequest(ua.createRequest('BYE'))
+                self.ua.sendRequest(self.ua.createRequest('BYE'))
                 try: response = yield self.ua.queue.get(timeout=5) # wait for atmost 5 seconds for BYE response
                 except: pass # ignore the timeout error
             self.ua.queue = None

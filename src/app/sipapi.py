@@ -49,7 +49,7 @@ class IncomingEvent(MessageEvent):
     def reject(self, code, reason=None):
         self.ua.sendResponse(code, reason)
     def challenge(self, realm):
-        response = event.ua.createResponse(401, 'Unauthorized')
+        response = self.ua.createResponse(401, 'Unauthorized')
         response.insert(Header(createAuthenticate(realm=realm, domain=str(self.uri), stale=('FALSE' if auth==401 else 'TRUE')), 'WWW-Authenticate'), append=True)
         self.ua.sendResponse(response)
     def proxy(self, recordRoute=False):

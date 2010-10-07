@@ -1,7 +1,7 @@
 # Copyright (c) 2007-2008, Kundan Singh. All rights reserved. See LICENSING for details.
 # @implements RFC3920 (XMPP core for client)
 
-import time, sys, re, socket, select, base64, md5, multitask, traceback
+import time, sys, re, socket, select, base64, md5, multitask, traceback, random
 from xml.parsers import expat
 
 if __name__ == '__main__': sys.path.append('../external')
@@ -140,7 +140,7 @@ class Connection(object):
         if isinstance(self._sock, TLS): succeed('xmpp-tls')       # already done TLS
         starttls = 'none' if not self.features('starttls') else 'required' if self.features('starttls')('required') else 'optional'
         if starttls == 'none' or starttls == 'optional' and self.secure != '': succeed('xmpp-tcp')
-        elif starttls == 'required' and self.secure == False: yield disconnect(); fail('server requires TLS')
+        elif starttls == 'required' and self.secure == False: yield self.disconnect(); fail('server requires TLS')
         
         if _debug: print 'starting TLS'
         yield self.sout.put(XML(tag='starttls', xmlns='urn:ietf:params:xml:ns:xmpp-tls'))

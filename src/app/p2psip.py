@@ -54,7 +54,7 @@ it to be a general purpose proxy used in a server farm.
 '''
 
 from __future__ import with_statement
-import os, sys, socket, time, traceback
+import os, sys, socket, time, traceback, types
 
 if __name__ == '__main__': # hack to add other libraries in the sys.path
     f = os.path.dirname(sys.path.pop(0))
@@ -63,11 +63,13 @@ if __name__ == '__main__': # hack to add other libraries in the sys.path
 
 import multitask
 from contextlib import closing
+from std import rfc3261
+from app import p2p, dht
 from std.rfc2396 import Address
 from std.rfc3261 import Stack, Message, Header, UserAgent, Proxy, TransportInfo
 from std.rfc2617 import createAuthenticate
 from std.kutil import getlocaladdr, Timer
-from app.p2p import ServerSocket
+from app.p2p import ServerSocket, H
 
 _debug = False
 
@@ -150,11 +152,14 @@ class AbstractAgent(object):
         handlerName = 'on' + request.method
         try:
             if hasattr(self, handlerName) and callable(eval('self.' + handlerName)): # user has defined onINVITE, onREGISTER, etc
-                eval('self.' + handlerName + '(ua, request, stack)')
+                result = getattr(self, handlerName)(ua, request, stack)
             else:
-                self.onRequest(ua, request, stack)
+                result = self.onRequest(ua, request, stack)
+            if result is not None and type(result) == types.GeneratorType:
+                if _debug: print 'result type', type(result)
+                multitask.add(result)
         except:
-            print 'exception in', handlerName
+            if _debug: print 'exception in', handlerName
             traceback and traceback.print_exc()
             ua.sendResponse(500, 'Internal server error')
     
@@ -171,11 +176,14 @@ class AbstractAgent(object):
             return
         auth = self.authorize(request) # validate user's password.
         if auth == 200:
-            if not self.save(msg=request, uri=str(request.To.value.uri).lower()):
+            saved = yield self.save(msg=request, uri=str(request.To.value.uri).lower())
+            if _debug: print 'saved=', saved
+            if not saved:
                 ua.sendResponse(500, 'Internal server error')
             else:
                 response = ua.createResponse(200, 'OK'); 
-                for h in map(lambda x: Header(str(x), 'Contact'), self.locate(request.To.value.uri)): 
+                locations = yield self.locate(str(request.To.value.uri))
+                for h in map(lambda x: Header(str(x), 'Contact'), locations): 
                     response.insert(h, append=True)
                 response.Expires = request.Expires if request.Expires else Header('3600', 'Expires')
                 ua.sendResponse(response)
@@ -185,17 +193,16 @@ class AbstractAgent(object):
             response = ua.createResponse(401, 'Unauthorized')
             response.insert(Header(createAuthenticate(realm='localhost', domain=str(request.uri), stale=('FALSE' if auth==401 else 'TRUE')), 'WWW-Authenticate'), append=True)
             ua.sendResponse(response)
-        return
     
     def onPUBLISH(self, ua, request, stack): # incoming publish is handled as register
-        self.onREGISTER(ua, request, stack)
+        return self.onREGISTER(ua, request, stack)
     
     def onRequest(self, ua, request, stack): # any other request
         if request.Route: # if route header is present unconditionally proxy the request
             proxied = ua.createRequest(request.method, dest=request.uri, recordRoute=(request.method=='INVITE'))
             ua.sendRequest(proxied)
             return
-        dest = self.locate(request.uri)
+        dest = yield self.locate(str(request.uri))
         if _debug: print 'locations=', dest
         if dest: 
             response = ua.createResponse(302, 'Moved temporarily')
@@ -230,8 +237,9 @@ class AbstractAgent(object):
             existing[:] = filter(lambda x: x[1]>now, existing) # filter out expired contacts
             if not existing: # no more contacts
                 del self.location[uri] # remove from the table as well
-        if _debug: print 'save', self.location
-        return True
+        if _debug: print 'save', self.location, 'returning True'
+        yield # for some reason this is required for multitask.add() to work
+        raise StopIteration(True)
     
     def locate(self, uri):
         '''Return all saved contacts for the given uri.'''
@@ -240,17 +248,20 @@ class AbstractAgent(object):
         now = time.time()
         existing[:] = filter(lambda x: x[1]>now, existing) # remove expired headers
         for c in existing: c[0]['expires'] = str(int(c[1]-now)) # update the expires header with relative seconds
-        return map(lambda x: x[0], existing) # return the contact headers
+        result = map(lambda x: x[0], existing) # return the contact headers
+        yield # for some reason this is required for multitask.add() to work
+        raise StopIteration(result)
     
 class Agent(AbstractAgent):
     '''An adaptor for P2P-SIP, that maps between local SIP user agent and Internet SIP network,
     and uses P2P module for lookup and storage. This is based on the data mode. A similar class
     can be implemented that does service mode, with advanced features such as presence aggregation
     and dynamic call routing.'''
-    def __init__(self, sipaddr=('127.0.0.1', 5062)):
+    def __init__(self, server=False, sipaddr=('127.0.0.1', 5062)):
         '''Initialize the P2P-SIP agent'''
-        AbstractAgent.__init__(self, sipaddr)
-        self.p2p = ServerSocket(bootstrap=True) # for initial testing start as bootstrap server
+        AbstractAgent.__init__(self, sipaddr=sipaddr)
+        self.p2p = ServerSocket(server=server) # for initial testing start as bootstrap server
+        self.location = None # to prevent accidental access to location dictionary
     def start(self):
         '''Start the Agent'''
         self.p2p.start(); AbstractAgent.start(self); return self
@@ -266,6 +277,48 @@ class Agent(AbstractAgent):
             sock = yield p2p.accept()
             if hasattr(self, 'identity') and self.identity: multitask.add(p2phandler(sock))
             
+    def save(self, msg, uri, defaultExpires=3600):
+        '''Save the contacts from REGISTER or PUBLISH msg to P2P storage.'''
+        expires = int(msg.Expires.value if msg.Expires else defaultExpires)
+        
+        existing = yield self.p2p.get(H(uri))
+        if msg.Contact and msg.first('Contact').value == '*': # single contact: * header
+            if msg.Expires and msg.Expires.value == '0': # unregistration msg
+                if existing:
+                    for value, nonce, Kp, expires in existing:
+                        yield self.p2p.remove(H(uri), value, nonce, expires+1)
+                existing = []
+        else: # handle individual contact headers in the msg
+            existing = dict([(str(Header(str(x[0]), 'Contact').value.uri), x) for x in existing])
+            now, remove, update = time.time(), [], []
+            for c in msg.all('Contact'): # for all contacts in the new msg
+                e = now + (expires if 'expires' not in c else int(c.expires)) # expiration for this contact.
+                if e<=now: remove.append(c)
+                else: update.insert(0, (c, e))
+            for c in remove:
+                if c.value.uri in existing:
+                    value, nonce, Kp, expires = existing[c.value.uri]
+                    yield self.p2p.remove(H(uri), value, nonce, expires+1)
+            for c, e in update:
+                if c.value.uri in existing:
+                    value, nonce, Kp, expires = existing[c.value.uri]
+                    yield self.p2p.put(H(uri), value, nonce, now+e)
+                else:
+                    yield self.p2p.put(H(uri), str(c.value), dht.randomNonce(), now+e)
+        if _debug: print 'save', self.location, 'returning True'
+        raise StopIteration(True)
+    
+    def locate(self, uri):
+        '''Return all saved contacts for the given uri from P2P storage.'''
+        existing = yield self.p2p.get(H(uri))
+        now = time.time()
+        result = []
+        for value, nonce, Kp, expires in existing:
+            c = Header(value, 'Contact')
+            c['expires'] = str(int(expires - now))
+            result.append(c)
+        if _debug: print 'locate', uri, result
+        raise StopIteration(result)
             
 #------------------------------------------- Testing ----------------------
 _apps = dict()
@@ -279,7 +332,16 @@ def stop(app=None):
         _apps[app].stop(); del _apps[app]
         
 if __name__ == '__main__':
-    start()
+    from optparse import OptionParser
+    parser = OptionParser()
+    parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
+    parser.add_option('-s', '--server',  dest='server',  default=False, action="store_true", help='start as bootstrap node')
+    parser.add_option('-p', '--port',    dest='port',    default=5062, type="int", help='SIP port number to listen. default is 5062.')
+    (options, args) = parser.parse_args()
+    
+    _debug = p2p._debug = rfc3261._debug = options.verbose
+    
+    agent = Agent(server=options.server, sipaddr=('0.0.0.0', options.port)).start()
     try: multitask.run()
     except KeyboardInterrupt: pass
-    stop()
+    agent.stop()

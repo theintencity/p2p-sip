@@ -1464,14 +1464,14 @@ class Database(object):
         v[i] = key
 
     def get(self, guid, owner=None, maxvalues=32):
-        '''Get all the values for the guid, optionally for the given owner, with a cap of maxvalues.'''
+        '''Get all the key-values for the guid, optionally for the given owner, with a cap of maxvalues.'''
         self._cleanup(guid)
         result = []
         if guid not in self._guid: return result
         o = self._guid[guid]
         if owner is None: v = set(sum(map(lambda x: x.values(), o.values()), []))
         else: v = set(sum(o[owner].values(), [])) if owner in o else set()
-        result = map(lambda y: self._data[y], filter(lambda x: x in self._data, v))
+        result = map(lambda y: (y, self._data[y]), filter(lambda x: x in self._data, v))
         if _debug: print 'db.get(guid=%r,owner=%r,maxvalues=%r) returns %r'%(guid, owner, maxvalues, result)
         return result
     
@@ -1687,8 +1687,10 @@ class Storage(object):
 
     def gethandler(self, msg):
         '''Handle a Get:Request with items seq, guid, and optional owner.'''
-        vals = yield self.db.get(guid=msg.dest, owner=msg.owner, maxvalues=msg.maxvalues)
-        yield self.net.send(Message(name='Get:Response', seq=msg.seq, guid=msg.dest, vals=vals), node=msg.src) # send response directly to the source
+        keyvals = yield self.db.get(guid=msg.dest, owner=msg.owner, maxvalues=msg.maxvalues)
+        vals = [v for k, v in keyvals]
+        keyss = [k for k, v in keyvals]
+        yield self.net.send(Message(name='Get:Response', seq=msg.seq, guid=msg.dest, vals=vals, keyss=keyss), node=msg.src) # send response directly to the source
     
     def leafsetchanged(self):
         '''The routers' leafset changed, hence the replicas for data also changed.'''
@@ -1879,7 +1881,7 @@ def put(net, guid, value, nonce, expires, Ks=None, put=True, timeout=30, retry=7
     global _seq
     seq = _seq = _seq + 1
     request = Message(name='Put:Request', date=time.time(), seq=seq, src=net.node, dest=guid, nonce=nonce, expires=expires, put=put, \
-                value=str(value) if put else H(str(value)), Kp=Ks and extractPublicKey(Ks) or None, \
+                value=str(value) if put else '', hash=H(str(value)), Kp=Ks and extractPublicKey(Ks) or None, \
                 sigma=sign(Ks, H(str(guid) + str(value) + str(nonce) + str(expires))) if Ks else None) 
 
     while retry>0:
@@ -1900,7 +1902,7 @@ def get(net, guid, maxvalues=16, Kp=None, timeout=5):
     then only values by the owner with public key Kp are fectched.
     
     results = yield get(H(key))
-    for value, nonce, expires, hashKp in results:
+    for value, nonce, Kp, expires in results:
         do something
     '''
     global _seq
@@ -1911,7 +1913,9 @@ def get(net, guid, maxvalues=16, Kp=None, timeout=5):
     while retry>0:
         yield net.put(Message(name='Route:Request', src=net.node, dest=guid, payload=request), timeout=5)
         response = yield net.get(timeout=timeout, criteria=lambda x: x.seq == seq and x.name =='Get:Response') # wait for response
-        if response: raise StopIteration(response['vals']) # don't use response.values as it is a built-in method of base class dict of Message.
+        if response:
+            result = [(v.value, k.nonce, v.Kp, k.expires) for k, v in zip(response.get('keyss', [None]*len(response['vals'])), response['vals'])]
+            raise StopIteration(result) # don't use response.values as it is a built-in method of base class dict of Message.
         else: retry = retry - 1
     raise StopIteration([]) # exhausted all retries
 

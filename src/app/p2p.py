@@ -436,7 +436,8 @@ class Client(object):
         request = Message(name='Get:Request', seq=seq, src=net.node, dest=guid, maxvalues=maxvalues, hash=Kp and H(str(Kp)) or None)
         yield net.send(Message(name='Proxy:Request', src=net.node, payload=request), node=self.neighbors[0], timeout=5)
         response = yield net.get(timeout=timeout, criteria=lambda x: x.seq == seq and x.name =='Get:Response') # wait for response
-        raise StopIteration(response and response['vals'] or []) # don't use response.values as it is a built-in method of base class dict of Message.
+        result = [(v.value, k.nonce, v.Kp, k.expires) for k, v in zip(response.get('keyss', [None]*len(response['vals'])), response['vals'])] if response else []
+        raise StopIteration(result) # don't use response.values as it is a built-in method of base class dict of Message.
     
 def _testClient():
     def internalTest():
