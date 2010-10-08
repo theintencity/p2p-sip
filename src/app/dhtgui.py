@@ -413,7 +413,7 @@ def testDHT(frame):
 
 if __name__ == '__main__':
     if sys.argv[-1] == '-d':
-        _debug = True = dht._debug = p2p._debug = True
+        _debug = dht._debug = p2p._debug = True
         #_trace = True
         
     app = wx.PySimpleApp()

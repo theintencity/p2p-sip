@@ -1383,7 +1383,7 @@ class Value(object):
             for n in ('value', 'hash', 'Kp', 'sigma'):
                 exec 'self.%s = kwargs.get("%s", None)'%(n,n)
         if isinstance(self.value, long): print 'Incorrect Value(value=%r)'%(self.value)
-    def __repr__(self): return '<value value-len=%d hash=%r Kp=%r sigma=%r, value=%r>'%(len(self.value), self.hash, self.Kp, self.sigma, self.value)
+    def __repr__(self): return '<value value-len=%d hash=%r Kp=%r sigma=%r, value=%r>'%(len(self.value) if self.value else 0, self.hash, self.Kp, self.sigma, self.value)
     def __len__(self): return len(str(self))
     def __str__(self):
         value, hash, Kp, sigma = str(self.value), int2bin(self.hash), str(self.Kp), str(self.sigma)
@@ -1471,7 +1471,7 @@ class Database(object):
         o = self._guid[guid]
         if owner is None: v = set(sum(map(lambda x: x.values(), o.values()), []))
         else: v = set(sum(o[owner].values(), [])) if owner in o else set()
-        result = map(lambda y: (y, self._data[y]), filter(lambda x: x in self._data, v))
+        result = map(lambda y: (y, self._data[y]), filter(lambda x: x in self._data and x.put, v))
         if _debug: print 'db.get(guid=%r,owner=%r,maxvalues=%r) returns %r'%(guid, owner, maxvalues, result)
         return result
     
@@ -1881,7 +1881,7 @@ def put(net, guid, value, nonce, expires, Ks=None, put=True, timeout=30, retry=7
     global _seq
     seq = _seq = _seq + 1
     request = Message(name='Put:Request', date=time.time(), seq=seq, src=net.node, dest=guid, nonce=nonce, expires=expires, put=put, \
-                value=str(value) if put else '', hash=H(str(value)), Kp=Ks and extractPublicKey(Ks) or None, \
+                value=str(value), hash=H(str(value)), Kp=Ks and extractPublicKey(Ks) or None, \
                 sigma=sign(Ks, H(str(guid) + str(value) + str(nonce) + str(expires))) if Ks else None) 
 
     while retry>0:
@@ -1936,7 +1936,7 @@ def traceit(frame, event, arg):
         if filename == "<stdin>":
             filename = "dht.py"
         #if lineno > 288 and filename.find('rfc3261')>=0:
-        if lineno >= 896 and filename.find('dht.py')>=0:
+        if lineno >= 1405 and lineno <= 1465 and filename.find('dht.py')>=0:
             if (filename.endswith(".pyc") or
                 filename.endswith(".pyo")):
                 filename = filename[:-1]

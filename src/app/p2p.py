@@ -415,7 +415,7 @@ class Client(object):
         net = self.net
         seq = dht._seq = dht._seq + 1
         request = Message(name='Put:Request', date=time.time(), seq=seq, src=net.node, dest=guid, nonce=nonce, expires=expires, put=put, \
-                    value=str(value) if put else H(str(value)), Kp=Ks and dht.extractPublicKey(Ks) or None, \
+                    value=str(value) if put else None, hash=H(str(value)), Kp=Ks and dht.extractPublicKey(Ks) or None, \
                     sigma=dht.sign(Ks, H(str(guid) + str(value) + str(nonce) + str(expires))) if Ks else None) 
         yield net.send(Message(name='Proxy:Request', src=net.node, payload=request), node=self.neighbors[0], timeout=5)
         response = yield net.get(timeout=timeout, criteria=lambda x: x.seq==seq and x.name=='Put:Response') # wait for response
