@@ -560,7 +560,7 @@ class Transaction(object):
     def state():
         def fset(self, value): 
             self._state = value
-            if self._state == 'terminating': self.close() # automatically close when state goes terminating
+            if self._state == 'terminated': self.close() # automatically close when state goes terminating
         def fget(self): return self._state
         return locals()
     state = property(**state())
@@ -1279,7 +1279,8 @@ class Dialog(UserAgent):
         if self.remoteTag: request.To.tag = self.remoteTag
         if self.routeSet and len(self.routeSet)>0 and 'lr' not in self.routeSet[0].value.uri.param: # strict route
             request.uri = self.routeSet[0].value.uri.dup()
-            del request.uri.param['lr']
+            if 'lr' in request.uri.param:
+                del request.uri.param['lr']
         return request
     
     def createResponse(self, response, responsetext, content=None, contentType=None):
