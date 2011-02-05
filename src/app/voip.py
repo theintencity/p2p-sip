@@ -379,6 +379,8 @@ class User(object):
             raise StopIteration((None, 'udp blocking network')) 
         else:
             dest = Address(str(dest))
+            if not dest.uri:
+                raise StopIteration((None, 'invalid dest URI'))
             ua = self.createClient(dest)
             ua.queue = multitask.Queue() # to receive responses
             m = ua.createRequest('INVITE')
