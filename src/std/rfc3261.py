@@ -454,9 +454,9 @@ class Stack(object):
                         if _debug: print 'no dialog for ACK, finding transaction'
                         if not t and branch != '0': t = self.findTransaction(Transaction.createId(branch, 'INVITE'))
                         if t and t.state != 'terminated':
-                             if _debug: print 'Found transaction', t
-                             t.receivedRequest(r)
-                             return
+                            if _debug: print 'Found transaction', t
+                            t.receivedRequest(r)
+                            return
                         else: 
                             if _debug: print 'No existing transaction for ACK'
                             u = self.createServer(r, uri)
@@ -491,7 +491,12 @@ class Stack(object):
             elif r.method != 'ACK':
                 self.send(Message.createResponse(404, "Not found", None, None, r))
         else:
-            t.receivedRequest(r)
+            if isinstance(t, ServerTransaction) or isinstance(t, InviteServerTransaction):
+                t.receivedRequest(r)
+            else:
+                # TODO: This is a hack! Need to follow RFC 3261 about creating branch param for proxy
+                self.send(Message.createResponse(482, 'Loop detected', None, None, r))
+                
         
     def _receivedResponse(self, r, uri):
         '''Received a SIP response r (Message) from the uri (URI).'''
