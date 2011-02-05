@@ -669,8 +669,10 @@ class Network(object):
                 retry = retry - 1
         if s1 and s2:
             self.rtp, self.rtcp = s1, s2
-            multitask.add(self.receiveRTP(s1))
-            multitask.add(self.receiveRTCP(s2))
+            self._rtpgen = self.receiveRTP(s1)
+            self._rtcpgen = self.receiveRTCP(s2)
+            multitask.add(self._rtpgen)
+            multitask.add(self._rtcpgen)
         else:
             raise ValueError, 'cannot allocate sockets'
 
@@ -679,6 +681,8 @@ class Network(object):
     
     def close(self):
         if _debug: print 'cleaning up sockets'
+        if self._rtpgen: self._rtpgen.close(); self._rtpgen = None
+        if self._rtcpgen: self._rtcpgen.close(); self._rtcpgen = None
         if self.rtp: self.rtp.close(); self.rtp = None
         if self.rtcp: self.rtcp.close(); self.rtcp = None
         if self.app: self.app = None
@@ -688,6 +692,7 @@ class Network(object):
             while True:
                 data, remote = yield multitask.recvfrom(sock, self.maxsize)
                 if self.app: self.app.receivedRTP(data, remote, self.src)
+        except GeneratorExit: pass # terminated
         except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc() 
         
     def receiveRTCP(self, sock):
@@ -695,6 +700,7 @@ class Network(object):
             while True:
                 data, remote = yield multitask.recvfrom(sock, self.maxsize)
                 if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
+        except GeneratorExit: pass # terminated
         except: print 'receive RTCP exception', (sys and sys.exc_info())
         
     def sendRTP(self, data, dest=None): # unline sendRTCP this is not a generator
