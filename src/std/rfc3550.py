@@ -641,9 +641,11 @@ class Network(object):
             try:
                 s1 = socket.socket(type=socket.SOCK_DGRAM)
                 s2 = socket.socket(type=socket.SOCK_DGRAM)
+                if _debug: print 'created RTP/RTCP sockets', s1, s2
                 s1.bind(self.src)
                 s2.bind(self.srcRTCP)
             except:
+                if _debug: print 'failed to bind. closing', s1, s2
                 s1.close(); s2.close();
                 s1 = s2 = None
         else:
@@ -654,6 +656,7 @@ class Network(object):
             while retry>0:
                 s1 = socket.socket(type=socket.SOCK_DGRAM)
                 s2 = socket.socket(type=socket.SOCK_DGRAM)
+                if _debug: print 'created RTP/RTCP sockets(2)', s1, s2
                 # don't bind to any (port=0) to avoid collision in RTCP, where some OS will allocate same port for RTP for retries
                 if even:
                     port = random.randint(low, high) & 0x0fffe # should not use high+1?
@@ -663,7 +666,9 @@ class Network(object):
                     s1.bind((self.src[0], port))
                     s2.bind((self.src[0], port+1))
                     self.src, self.srcRTCP = s1.getsockname(), s2.getsockname()
+                    break
                 except:
+                    if _debug: print 'failed to bind. closing(2)', s1, s2
                     s1.close(); s2.close();
                     s1 = s2 = None
                 retry = retry - 1
@@ -680,7 +685,7 @@ class Network(object):
         self.close()
     
     def close(self):
-        if _debug: print 'cleaning up sockets'
+        if _debug: print 'cleaning up sockets', self.rtp, self.rtcp
         if self._rtpgen: self._rtpgen.close(); self._rtpgen = None
         if self._rtcpgen: self._rtcpgen.close(); self._rtcpgen = None
         if self.rtp: self.rtp.close(); self.rtp = None
