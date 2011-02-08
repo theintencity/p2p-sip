@@ -13,7 +13,7 @@ The Network class abstracts out the network behavior such as pair of sockets.
 
 # @implements RFC3550 P1L31-P1L50
 
-import sys, struct, random, math, time, socket, traceback
+import os, sys, struct, random, math, time, socket, traceback
 from kutil import getlocaladdr
 try: import multitask
 except: print 'could not import multitask from rfc3550'
@@ -566,7 +566,7 @@ class Session(object):
              
     def sendBYE(self, reason=''):    
         if self.rtpsent and self.rtcpsent:
-            sendRTCP(True)
+            self.sendRTCP(True)
             
     def sendRTCP(self, sendbye=False):
         '''Send a RTCP packet with SR or RR and SDES, and optionally BYE if sendbye is True.
@@ -674,8 +674,8 @@ class Network(object):
                 retry = retry - 1
         if s1 and s2:
             self.rtp, self.rtcp = s1, s2
-            self._rtpgen = self.receiveRTP(s1)
-            self._rtcpgen = self.receiveRTCP(s2)
+            self._rtpgen = self.receiveRTP(self.rtp)
+            self._rtcpgen = self.receiveRTCP(self.rtcp)
             multitask.add(self._rtpgen)
             multitask.add(self._rtcpgen)
         else:
@@ -694,19 +694,25 @@ class Network(object):
         
     def receiveRTP(self, sock):
         try:
+            fd = sock.fileno()
             while True:
                 data, remote = yield multitask.recvfrom(sock, self.maxsize)
                 if self.app: self.app.receivedRTP(data, remote, self.src)
         except GeneratorExit: pass # terminated
-        except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc() 
+        except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc()
+        try: os.close(fd)
+        except: pass
         
     def receiveRTCP(self, sock):
         try:
+            fd = sock.fileno()
             while True:
                 data, remote = yield multitask.recvfrom(sock, self.maxsize)
                 if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
         except GeneratorExit: pass # terminated
         except: print 'receive RTCP exception', (sys and sys.exc_info())
+        try: os.close(fd)
+        except: pass
         
     def sendRTP(self, data, dest=None): # unline sendRTCP this is not a generator
         if self.rtp:
