@@ -561,6 +561,10 @@ class User(object):
                     yield self._queue.put(('send', (str(request.From.value), request.body)))
                 else:
                     ua.sendResponse(405, 'Method not allowed')
+            elif request.method == 'CANCEL':   
+                # TODO: non-dialog CANCEL comes here. need to fix rfc3261 so that it goes to cancelled() callback.
+                if ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
+                    yield self._queue.put(('close', (str(request.From.value), ua)))
             else:
                 ua.sendResponse(405, 'Method not allowed')
         multitask.add(_receivedRequest(self, ua, request))
