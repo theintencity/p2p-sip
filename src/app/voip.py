@@ -783,7 +783,7 @@ class Session(object):
             ua.sendResponse(501, 're-INVITE not implemented')
         elif request.method == 'BYE': # remote terminated the session
             ua.sendResponse(200, 'OK')
-            self.close(outgoing=False)
+            yield self.close(outgoing=False)
             yield self._queue.put(('close', None))
         elif request.method == 'MESSAGE': # session based instant message
             ua.sendResponse(200, 'OK')
@@ -898,7 +898,7 @@ class Presence(object):
         if request.method == 'INVITE':
             ua.sendResponse(501, 're-INVITE not implemented')
         elif request.method == 'BYE': # remote terminated the session
-            self.close(outgoing=False)
+            yield self.close(outgoing=False)
             yield self._queue.put(('close', None))
         elif request.method == 'MESSAGE': # session based instant message
             message = request.body
