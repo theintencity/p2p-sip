@@ -28,6 +28,8 @@ class Timer(object):
             if self.running: self.app.timedout(self)
         except: pass # probably stopped before timeout
 
+_local_ip = None # if set, then use this when needed in getlocaladdr
+
 def getlocaladdr(sock=None):
     '''Get the local ('addr', port) for the given socket. It uses the
     getsockname() to get the local IP and port. If the local IP is '0.0.0.0'
@@ -35,12 +37,17 @@ def getlocaladdr(sock=None):
     returned object's repr gives 'ip:port' string. If the sock is absent, then
     just gets the local IP and sets the port part as 0.
     '''
+    global _local_ip
     # TODO: use a better mechanism to get the address such as getifaddr
     addr = sock and sock.getsockname() or ('0.0.0.0', 0)
     if addr and addr[0] == '0.0.0.0': 
-        addr = (socket.gethostbyname(socket.gethostname()), addr[1])
+        addr = (_local_ip if _local_ip else socket.gethostbyname(socket.gethostname()), addr[1])
     return addr
 
+def setlocaladdr(ip):
+    global _local_ip
+    _local_ip = ip
+    
 import traceback
 def getintfaddr(dest):
     '''Get the local address that is used to connect to the given destination address.'''
