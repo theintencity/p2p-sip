@@ -717,7 +717,7 @@ class Network(object):
     def sendRTP(self, data, dest=None): # unline sendRTCP this is not a generator
         if self.rtp:
             dest = dest or self.dest
-            if dest and dest[1] > 0: 
+            if dest and dest[1] > 0 and dest[0] != '0.0.0.0': 
                 if _debug: print 'sending RTP %d to %r'%(len(data), dest)
                 #yield multitask.sendto(self.rtp, data, dest)
                 self.rtp.sendto(data, dest)
@@ -726,7 +726,7 @@ class Network(object):
     def sendRTCP(self, data, dest=None):
         if self.rtcp:
             dest = dest or self.destRTCP
-            if dest and dest[1] > 0:
+            if dest and dest[1] > 0 and dest[0] != '0.0.0.0':
                 if _debug: print 'sending RTCP %d to %r'%(len(data), dest) 
                 yield self.rtcp.sendto(data, 0, dest)
             elif _debug: print 'ignoring send RTCP'

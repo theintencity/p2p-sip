@@ -92,8 +92,12 @@ def route(event):
         if not event.agent.location.save(msg=event, uri=str(event.To.value.uri).lower()): return event.action.reject(500, 'Internal Server Error in Location Service')
         return event.action.accept(contacts=event.agent.location.locate(str(event.To.value.uri).lower()))
     
+    # whether the original request had Route header to this server?
+    try: had_lr = event.had_lr
+    except AttributeError: had_lr = False
+    
     # open relay section
-    if event.method == 'INVITE':
+    if not had_lr and event.method == 'INVITE':
         if event.agent.domain and HPS(event['From'].value.uri.hostPort) not in event.agent.domain and HPS(event.uri.hostPort) not in event.agent.domain:
             return event.action.reject(403, 'Please register to use our service')
     else:

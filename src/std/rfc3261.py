@@ -432,11 +432,16 @@ class Stack(object):
     def _receivedRequest(self, r, uri):
         '''Received a SIP request r (Message) from the uri (URI).'''
         branch = r.first('Via').branch
-        if r.method == 'ACK' and branch == '0': 
-            # TODO: this is a hack to work around iptel.org which puts branch=0 in all ACK
-            # hence it matches the previous transaction's ACK for us, which is not good. 
-            # We need to fix our code to handle end-to-end ACK correctly in findTransaction.
-            t = None
+        if r.method == 'ACK':
+            if branch == '0': 
+                # TODO: this is a hack to work around iptel.org which puts branch=0 in all ACK
+                # hence it matches the previous transaction's ACK for us, which is not good. 
+                # We need to fix our code to handle end-to-end ACK correctly in findTransaction.
+                t = None
+            else:
+                t = self.findTransaction(branch) # assume final, non 2xx response
+                if not t or t.lastResponse and t.lastResponse.is2xx: # don't deliver to the invite server transaction
+                    t = self.findTransaction(Transaction.createId(branch, r.method))
         else:
             t = self.findTransaction(Transaction.createId(branch, r.method))
         if not t: # no transaction found
@@ -1418,6 +1423,7 @@ class Proxy(UserAgent):
         #if 'maddr' in request.uri.param: TODO: handle this case
         if request.Route and self.isLocal(request.first('Route').value.uri):
             request.delete('Route', position=0) # delete first Route header
+            request.had_lr = True               # mark it so that a proxy can decide whether to open relay or not
             
         self.stack.receivedRequest(self, request)
     

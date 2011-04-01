@@ -658,10 +658,17 @@ class MediaSession(object):
         else:
             if _debug: print 'request does not have SDP body'
             
+    def hold(self, value): # enable/disable hold mode.
+        ip = map(lambda n: n.src[0] if n.src[0] != '0.0.0.0' else getlocaladdr(n.rtp)[0], self.net)
+        if self.mysdp['c']: self.mysdp['c'].address = ip[0] if not value else '0.0.0.0'
+        for m, i in zip(self.mysdp['m'], ip): 
+            if m['c']: m['c'].address = i if not value else '0.0.0.0'
+        
     def setRemote(self, sdp):
-        '''Update the RTP network's destination ip:port based on remote SDP. It also creates RTP Session.
-        This is implicitly invoked in constructor for incoming call, since remote SDP is already known.
-        The application invokes this explicitly for outgoing call when 200 OK is received.'''
+        '''Update the RTP network's destination ip:port based on remote SDP. It also creates RTP Session if 
+        needed. This is implicitly invoked in constructor for incoming call, since remote SDP is already 
+        known. The application invokes this explicitly for outgoing call when 200 OK is received. Also, it
+        is invoked when Session receives an incoming re-INVITE or different SDP in 200 OK of outbound re-INVITE'''
         self.yoursdp, net = sdp, self.net
         if sdp['m'] and len(net) == len(sdp['m']):
             ip = sdp['c'].address if sdp['c'] else ('0.0.0.0')
@@ -674,8 +681,10 @@ class MediaSession(object):
         for my in filter(lambda m: m.port > 0, self.mysdp['m'] if self.mysdp else []): # update _types based on mysdp and yoursdp
             for your in filter(lambda m: m.port > 0 and m.media == my.media, self.yoursdp['m'] if self.yoursdp else []): self._types.append(my.media)
         netvalid = filter(lambda x: x is not None, net)
-        self.rtp[:] = map(lambda n: RTPSession(app=self), netvalid)
-        for r, n in zip(self.rtp, netvalid): r.net = n; n.app = r; r.start() # attach net with session
+        if len(self.rtp) != len(netvalid):
+            for rtp in self.rtp: rtp.net = None; rtp.stop() # clean previous RTP session
+            self.rtp[:] = map(lambda n: RTPSession(app=self), netvalid)
+            for r, n in zip(self.rtp, netvalid): r.net = n; n.app = r; r.start() # attach net with session
         
     def close(self):
         '''Clean up the media session. This must be called to clean up sockets, tasks, etc.'''
@@ -774,13 +783,12 @@ class Session(object):
         except GeneratorExit: 
             self.gen = None
             self.ua.queue = multitask.Queue() # this is needed because the queue gets corrupted when generator is closed
-            
+           
     def _receivedRequest(self, request):
         '''Callback when received an incoming request.'''
         if _debug: print 'session receivedRequest', request.method, 'ua=', self.ua
         ua = self.ua
-        if request.method == 'INVITE':
-            ua.sendResponse(501, 're-INVITE not implemented')
+        if request.method == 'INVITE': yield self._receivedReInvite(request)
         elif request.method == 'BYE': # remote terminated the session
             ua.sendResponse(200, 'OK')
             yield self.close(outgoing=False)
@@ -834,7 +842,35 @@ class Session(object):
         except:
             if _debug: print '_checkconnectivity() exception', (sys and sys.exc_info() or None)
             
+    def _receivedReInvite(self, request): # only accept re-invite if no new media stream.
+        if not (hasattr(self, 'media') and isinstance(self.media, MediaSession)):
+            self.ua.sendResponse(501, 'Re-INVITE Not Supported')
+        if not (request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp'):
+            self.ua.sendResponse(488, 'Must Supply SDP in Request Body')
+        else:
+            oldsdp, newsdp = self.yoursdp, SDP(request.body)
+            if oldsdp and newsdp and len(oldsdp['m']) != len(newsdp['m']): # don't accept change in m= lines count
+                self.ua.sendResponse(488, 'Change Not Acceptable Here')
+            else:
+                self.media.setRemote(SDP(request.body))
+                self.mysdp, self.yoursdp, m = self.media.mysdp, self.media.yoursdp, self.ua.createResponse(200, 'OK')
+                m.body, m['Content-Type'] = str(self.mysdp), sip.Header('application/sdp', 'Content-Type')
+                self.ua.sendResponse(m)
+                yield self._queue.put(('change', self.yoursdp))
 
+    def hold(self, value): # send re-INVITE with SDP ip=0.0.0.0
+        if hasattr(self, 'media') and isinstance(self.media, MediaSession):
+            self.media.hold(value); 
+            self.change(self.media.mysdp)
+        else: raise ValueError('No media attribute found')
+        
+    def change(self, mysdp):
+        if self.ua:
+            ua, self.mysdp = self.ua, mysdp; m = ua.createRequest('INVITE')
+            m['Content-Type'] = sip.Header('application/sdp', 'Content-Type')
+            m.body = str(mysdp)
+            ua.sendRequest(m)
+        
 class Presence(object):
     '''The Presence object represents a single subscribe dialog between local user and remote
     contact.'''
