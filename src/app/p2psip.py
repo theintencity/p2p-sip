@@ -205,9 +205,13 @@ class AbstractAgent(object):
         dest = yield self.locate(str(request.uri))
         if _debug: print 'locations=', dest
         if dest: 
-            response = ua.createResponse(302, 'Moved temporarily')
-            for c in dest: response.insert(c, append=True)
-            ua.sendResponse(response)
+            if request['user-agent'] and request['user-agent'].value.find('X-Lite') >= 0:
+                for c in dest: 
+                    ua.sendRequest(ua.createRequest(request.method, c.value.uri))
+            else:
+                response = ua.createResponse(302, 'Moved Temporarily')
+                for c in dest: response.insert(c, append=True)
+                ua.sendResponse(response)
         else:
             ua.sendResponse(480, 'Temporarily unavailable') # or 404 not found?
         
