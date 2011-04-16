@@ -670,7 +670,7 @@ class Transaction(object):
     def stopTimers(self):
         '''Stop all the named timers'''
         for v in self.timers.values(): v.stop()
-        del self.timers
+        self.timers.clear()
 
     def timedout(self, timer):
         '''Callback invoked by Timer returned by stack.createTimer().'''

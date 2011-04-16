@@ -621,14 +621,14 @@ class User(object):
 class MediaSession(object):
     '''A MediaSession object wraps the RTP's Network, RTP's Session and SDP's offer/answer mode.
     Application using audio/video should use one MediaSession associated with one Session.'''
-    def __init__(self, app, streams, request=None, listen_ip='0.0.0.0'):
+    def __init__(self, app, streams, request=None, listen_ip='0.0.0.0', NetworkClass=RTPNetwork):
         '''app receives call back for incoming RTP, streams is supplied list of supported SDP.media,
         and request is a SIP message containing SDP offer if this is an incoming call.'''
         if len(streams) == 0: raise ValueError('must supply at least one stream')
         self.app, self.streams = app, streams
         self.mysdp = self.yoursdp = None; self.rtp, self.net, self._types = [], [], []
         if not request: # this is for outgoing call, build an offer SDP as mysdp.
-            net = [RTPNetwork(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # first create as many RTP network objects as streams.
+            net = [NetworkClass(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # first create as many RTP network objects as streams.
             for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
             offer = rfc3264.createOffer(streams)                       # create the offered SDP now
             ip = map(lambda n: n.src[0] if n.src[0] != '0.0.0.0' else getlocaladdr(n.rtp)[0], net) # get all IP addresses in network
@@ -638,7 +638,7 @@ class MediaSession(object):
             self.mysdp, self.net[:] = offer, net
         elif request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp': # this is for incoming call, build an answer SDP as mysdp based on offer SDP from request
             offer = SDP(request.body)
-            net = [RTPNetwork(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # create as many network objects as we have streams
+            net = [NetworkClass(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # create as many network objects as we have streams
             for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
             netoffer = dict(map(lambda x: (x.src[1], x), net))           # create a table of RTP port=>network
             answer = rfc3264.createAnswer(streams, offer)              # create the answered SDP now

@@ -728,7 +728,7 @@ class Network(object):
             dest = dest or self.destRTCP
             if dest and dest[1] > 0 and dest[0] != '0.0.0.0':
                 if _debug: print 'sending RTCP %d to %r'%(len(data), dest) 
-                yield self.rtcp.sendto(data, 0, dest)
+                yield multitask.sendto(self.rtcp, data, dest)
             elif _debug: print 'ignoring send RTCP'
         
 if __name__ == '__main__':
