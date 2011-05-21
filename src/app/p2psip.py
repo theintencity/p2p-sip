@@ -202,18 +202,26 @@ class AbstractAgent(object):
             proxied = ua.createRequest(request.method, dest=request.uri, recordRoute=(request.method=='INVITE'))
             ua.sendRequest(proxied)
             return
+        if request.had_lr and not ua.isLocal(request.uri):
+            if _debug: print 'proxying routed non-local request', request.uri
+            proxied = ua.createRequest(request.method, dest=request.uri)
+            ua.sendRequest(proxied)
+            return
         dest = yield self.locate(str(request.uri))
         if _debug: print 'locations=', dest
         if dest: 
-            if request['user-agent'] and request['user-agent'].value.find('X-Lite') >= 0:
-                for c in dest: 
-                    ua.sendRequest(ua.createRequest(request.method, c.value.uri))
+            if self.isProxy(request):
+                for c in dest: # proxy using record-route
+                    ua.sendRequest(ua.createRequest(request.method, c.value.uri, recordRoute=True))
             else:
                 response = ua.createResponse(302, 'Moved Temporarily')
                 for c in dest: response.insert(c, append=True)
                 ua.sendResponse(response)
         else:
             ua.sendResponse(480, 'Temporarily unavailable') # or 404 not found?
+        
+    def isProxy(self, request): # return True to proxy, False to redirect
+        return request['user-agent'] and request['user-agent'].value.find('X-Lite') >= 0
         
     def authorize(self, request, realm='localhost'):
         '''Server side of authentication. Returns 200 on success, 401 on failure, 0 if missing or invalid
@@ -261,14 +269,14 @@ class Agent(AbstractAgent):
     and uses P2P module for lookup and storage. This is based on the data mode. A similar class
     can be implemented that does service mode, with advanced features such as presence aggregation
     and dynamic call routing.'''
-    def __init__(self, server=False, sipaddr=('127.0.0.1', 5062)):
+    def __init__(self, server=False, sipaddr=('127.0.0.1', 5062), port=0):
         '''Initialize the P2P-SIP agent'''
         AbstractAgent.__init__(self, sipaddr=sipaddr)
-        self.p2p = ServerSocket(server=server) # for initial testing start as bootstrap server
+        self.p2p = ServerSocket(server=server, port=port) # for initial testing start as bootstrap server
         self.location = None # to prevent accidental access to location dictionary
-    def start(self):
+    def start(self, servers=None):
         '''Start the Agent'''
-        self.p2p.start(); AbstractAgent.start(self); return self
+        self.p2p.start(servers=servers); AbstractAgent.start(self); return self
     def stop(self):
         '''Stop the Agent'''
         AbstractAgent.stop(self); self.p2p.stop(); return self
@@ -340,12 +348,16 @@ if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
     parser.add_option('-s', '--server',  dest='server',  default=False, action="store_true", help='start as bootstrap node')
-    parser.add_option('-p', '--port',    dest='port',    default=5062, type="int", help='SIP port number to listen. default is 5062.')
+    parser.add_option('-p', '--sip-port',dest='sip_port', default=5062, type="int", help='SIP port number to listen. default is 5062.')
+    parser.add_option('-P', '--p2p-port',dest='p2p_port', default=0, type="int", help='Preferred P2P port number to listen. If supplied, disables multicast.')
+    parser.add_option('-S', '--servers', dest='servers', default=None, help='list of bootstrap nodes as "ip:port,ip:port,..."')
     (options, args) = parser.parse_args()
     
     _debug = p2p._debug = rfc3261._debug = options.verbose
     
-    agent = Agent(server=options.server, sipaddr=('0.0.0.0', options.port)).start()
+    servers = [(x.split(':', 1)[0], int(x.split(':', 1)[1])) for x in options.servers.split(',')] if options.servers else None
+    
+    agent = Agent(server=options.server, sipaddr=('0.0.0.0', options.sip_port), port=options.p2p_port).start(servers)
     try: multitask.run()
     except KeyboardInterrupt: pass
     agent.stop()

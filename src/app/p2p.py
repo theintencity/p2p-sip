@@ -15,7 +15,7 @@ For super/ordinary node, keep three levels of indirection:
   supernodeIds => IP:port (using DHT routing)
 '''
 
-import os, sys, socket, multitask, time, pickle, re, random, hashlib, struct, select
+import os, sys, traceback, socket, multitask, time, pickle, re, random, hashlib, struct, select
 from binascii import hexlify, unhexlify
 
 from app import dht, dummycrypto as crypto
@@ -117,7 +117,7 @@ class Network(object):
     The same set of sockets (ports) are used for peer-to-peer, SIP and STUN messages using application
     level demultiplexing based on data received.'''
     count = 0
-    def __init__(self, Ks, cert):
+    def __init__(self, Ks, cert, port=0):
         '''Construct a new network object. The application must invoke bind() before using any
         other function on this object. The private key Ks and certificate cert must be supplied
         to construct a network object.'''
@@ -127,7 +127,9 @@ class Network(object):
         self.qstun = multitask.SmartQueue() # queue for STUN-related messages
 
         self.Ks, self.cert = Ks, cert
-        self.udp, self.tcp, self.mcast = createSockets(preferred=(ADDRESS, PORT))
+        if port == 0: ip, port = ADDRESS, PORT # use multicast, and any port TCP/UDP
+        else: ip, port = '0.0.0.0', port # disable multicast
+        self.udp, self.tcp, self.mcast = createSockets(preferred=(ip, port))
         self.tcp.listen(5)
         self.tcpc = dict()  # table of client connections from Node to connected socket if any.
         ip, port = getlocaladdr(self.udp); ignore, ptcp = getlocaladdr(self.tcp)
@@ -254,7 +256,7 @@ class Network(object):
                             if _debug: print 'connection timedout to %s'%(node.hostport,)
                             raise multitask.Timeout, 'Cannot connect to the destination'
                     self.tcpc[node] = sock
-                    multitask.sleep()
+                    # yield multitask.sleep()
                     multitask.add(self.tcphandler(sock, (node.ip, node.port)))
                 data = struct.pack('!H', len(data)) + data # put a length first.
                 sock.send(data)
@@ -300,13 +302,13 @@ class Client(object):
         self.server = server # whether we are in server or client mode. Starts with client, but may switch to server later.
         self._gens = None
         
-    def start(self, servers=[]):
+    def start(self, servers=None):
         '''Start the client with the given set of optional servers list.'''
         if not self._gens:
             guid  = H(ADDRESS + ':' + str(PORT))
             try: bs = [Node(ip=socket.gethostbyname(BOOTSTRAP), port=PORT, type=socket.SOCK_STREAM, guid=guid)]
             except: bs = []
-            self.candidates = [self.net.nodemcast] + servers + bs
+            self.candidates = (servers or []) + [self.net.nodemcast] + bs
             if _debug: print 'Client.start candidates=', self.candidates
             self.neighbors  = []
             self._gens = [self.discoverhandler(), self.bootstrap(), self.clienthandler()] # , self.pinghandler()
@@ -467,20 +469,27 @@ class ServerSocket(object):
     bind is called, then connect or accept cannot be invoked. The difference between start() and bind()
     is that start() bootstraps the P2P network whereas bind() registers the local user identity so that
     incoming peer-to-peer connections can be received.'''
-    def __init__(self, server=False):
+    def __init__(self, server=False, port=0):
         '''Create a new server socket. If server argument is False, then it performs bootstrap
         process using external bootstrap ADDRESS and PORT, otherwise it assumes this socket to be 
         a initial bootstrap server.'''
         self.net = self.client = self.router = self.storage = None
         self.server = server
         self._gens = []
+        self.port = port
         
-    def start(self, net=None):
+    def start(self, net=None, servers=None):
         '''Start the p2p node as ordinary node. Create a network object if none.'''
         if self.net is None:
-            self.net = net or Network(Ks=crypto.generateRSA()[0], cert=None) 
+            self.net = net or Network(Ks=crypto.generateRSA()[0], cert=None, port=self.port) 
             self.net.start()
-            self.client = Client(self.net, server=self.server).start()
+            
+            # convert from serevrs ip:port list to Node list
+            if servers:
+                servers=[Node(ip=ip, port=port, type=socket.SOCK_DGRAM, guid=H(ip + ':' + str(port))) for ip, port in servers]
+                if _debug: print 'using servers=', servers
+            
+            self.client = Client(self.net, server=self.server).start(servers)
             if self.server:
                 if self.router is None: self.router = dht.Router(self.net).start()
                 if self.storage is None: self.storage = dht.Storage(self.net, self.router).start()
