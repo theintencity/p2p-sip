@@ -373,7 +373,7 @@ class XML(object):
         ns = [u'xmlns="%s"'%(self.xmlns,)] if self.xmlns and (not self.parent or self.xmlns != self.parent.xmlns) else []
         attrs = [u'%s="%s"'%(k, escape(ustr(v))) for k,v in self.attrs.iteritems()]
         intag = u' '.join([self.tag] + ns + attrs)
-        inner = u''.join([str(x) if isinstance(x, XML) else escape(x) for x in self.children])
+        inner = u''.join([unicode(x) if isinstance(x, XML) else escape(x) for x in self.children])
         return u'<%s>%s</%s>'%(intag, inner, self.tag) if inner else u'<%s />'%(intag)
     
     def __cmp__(self, other): return cmp(unicode(self), unicode(other))
