@@ -720,9 +720,18 @@ class MediaSession(object):
         if self.yoursdp:
             for m in filter(lambda x: x.port > 0, self.yoursdp['m']):
                 rtp = filter(lambda r: r.net and r.net.dest[1] == m.port, self.rtp) # find matching RTP session
-                fy = filter(lambda f:str(f.name).lower() == str(fmt.name).lower() and f.rate == fmt.rate and f.count == fmt.count, m.fmt)
+                fy = filter(lambda f:str(f.name).lower() == str(fmt.name).lower() and f.rate == fmt.rate and f.count == fmt.count
+                            or fmt.pt >= 0 and fmt.pt < 96 and fmt.pt == f.pt, m.fmt)
                 if fy: return (fy[0], rtp[0] if rtp else None)
         return (None, None)
+        
+    def hasYourFormat(self, fmt): # check whether the fmt is available in yoursdp
+        if self.yoursdp:
+            for m in filter(lambda x: x.port > 0, self.yoursdp['m']):
+                fy = filter(lambda f:str(f.name).lower() == str(fmt.name).lower() and f.rate == fmt.rate and f.count == fmt.count
+                            or fmt.pt >= 0 and fmt.pt < 96 and fmt.pt == f.pt, m.fmt)
+                if fy: return True
+        return False
         
 #-------------------------- Session ---------------------------------------
 

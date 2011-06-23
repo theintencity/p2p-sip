@@ -76,7 +76,10 @@ class SDP(attrs):
                 self.port = int(self.port)
                 self.fmt = []
                 for f in rest.split(' '):
-                    a = attrs(); a.pt = f; self.fmt.append(a)
+                    a = attrs()
+                    try: a.pt = int(f)  # if payload type is numeric
+                    except: a.pt = f
+                    self.fmt.append(a)
             elif 'media' in kwargs:
                 self.media = kwargs.get('media')
                 self.port  = int(kwargs.get('port', 0))
@@ -119,7 +122,7 @@ class SDP(attrs):
                     pt, rest = v[7:].split(' ', 1)
                     name, sep, rest = rest.partition('/')
                     rate, sep, params = rest.partition('/')
-                    for f in filter(lambda x: x.pt == pt, obj.fmt):
+                    for f in filter(lambda x: str(x.pt) == str(pt), obj.fmt):
                         f.name = name; f.rate = int(rate); f.params = params or None
                 else:
                     obj[k] = (k in SDP._multiple and ((k in obj) and (obj[k]+[v]) or [v])) or v 
