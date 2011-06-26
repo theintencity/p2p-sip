@@ -670,14 +670,24 @@ class MediaSession(object):
         known. The application invokes this explicitly for outgoing call when 200 OK is received. Also, it
         is invoked when Session receives an incoming re-INVITE or different SDP in 200 OK of outbound re-INVITE'''
         self.yoursdp, net = sdp, self.net
-        if sdp['m'] and len(net) == len(sdp['m']):
+        if sdp['m']:
             ip = sdp['c'].address if sdp['c'] else ('0.0.0.0')
-            for m, n in zip(sdp['m'], net):
-                if n is not None:
-                    ip0 = m['c'].address if m['c'] else ip
-                    n.dest, n.destRTCP = (ip0, m.port), (ip0, m.port+1 if m.port > 0 else 0) # TODO: should use different RTCP ports
+            if len(net) == len(sdp['m']): # assume that answer's m= order matches offer's
+                for m, n in zip(sdp['m'], net):
+                    if n is not None:
+                        ip0 = m['c'].address if m['c'] else ip
+                        n.dest, n.destRTCP = (ip0, m.port), (ip0, m.port+1 if m.port > 0 else 0) # TODO: should use different RTCP ports
+            else:
+                for m1 in sdp['m']:
+                    found = False
+                    for i, m2 in enumerate(self.mysdp['m']):
+                        if m1.media == m2.media and i <= len(net):
+                            ip0, n, found = m1['c'].address if m1['c'] else ip, net[i], True
+                            n.dest, n.destRTCP = (ip0, m1.port), (ip0, m1.port+1 if m1.port > 0 else 0)
+                    if not found:
+                        if _debug: print 'invalid m= line in answer', m1
         else:
-            if _debug: print 'invalid remote SDP or mismatch with RTP networks'
+            if _debug: print 'missing m= line in remote SDP'
         for my in filter(lambda m: m.port > 0, self.mysdp['m'] if self.mysdp else []): # update _types based on mysdp and yoursdp
             for your in filter(lambda m: m.port > 0 and m.media == my.media, self.yoursdp['m'] if self.yoursdp else []): self._types.append(my.media)
         netvalid = filter(lambda x: x is not None, net)
@@ -719,7 +729,7 @@ class MediaSession(object):
     def _getYourFormat(self, fmt): # returns (fmt, rtp) where fmt is matching format in yoursdp, and rtp is the associated session
         if self.yoursdp:
             for m in filter(lambda x: x.port > 0, self.yoursdp['m']):
-                rtp = filter(lambda r: r.net and r.net.dest[1] == m.port, self.rtp) # find matching RTP session
+                rtp = filter(lambda r: r.net and r.net.dest and r.net.dest[1] == m.port, self.rtp) # find matching RTP session
                 fy = filter(lambda f:str(f.name).lower() == str(fmt.name).lower() and f.rate == fmt.rate and f.count == fmt.count
                             or fmt.pt >= 0 and fmt.pt < 96 and fmt.pt == f.pt, m.fmt)
                 if fy: return (fy[0], rtp[0] if rtp else None)
