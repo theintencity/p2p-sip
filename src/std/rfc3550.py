@@ -19,6 +19,7 @@ try: import multitask
 except: print 'could not import multitask from rfc3550'
 
 _debug = False
+_padding = False  # whether outbound RTP header contains padding or not?
 
 '''
 return the data as list string representing binary form of the characted in data.
@@ -80,12 +81,13 @@ class RTP(object):
             else: self.extn = None
             self.payload = value if px & 0x20 == 0 else value[:len(value)-ord(value[-1])]
     def __repr__(self):
-        return struct.pack('!BBHII', 0x80 | ((len(self.payload)%4 != 0) and 0x20 or 0x00) | (self.extn and 0x10 or 0x00) | (len(self.csrcs) > 15 and 15 or len(self.csrcs)), \
+        global _padding
+        return struct.pack('!BBHII', 0x80 | (_padding and (len(self.payload)%4 != 0) and 0x20 or 0x00) | (self.extn and 0x10 or 0x00) | (len(self.csrcs) > 15 and 15 or len(self.csrcs)), \
                            (self.pt & 0x7f) | (self.marker and 1 or 0) << 7, (self.seq & 0xffff), self.ts, self.ssrc) \
                 + ''.join(struct.pack('!I', x) for x in self.csrcs[:16]) \
                 + ('' if not self.extn else (struct.pack('!HH', self.extn[0] & 0xffff, len(self.extn[1])/4) + self.extn[1])) \
                 + self.payload \
-                + ('' if (len(self.payload) % 4 == 0) else ('\x00'*(4-len(self.payload)%4-1) + struct.pack('!B', 4-len(self.payload)%4)))
+                + ('' if (not _padding or len(self.payload) % 4 == 0) else ('\x00'*(4-len(self.payload)%4-1) + struct.pack('!B', 4-len(self.payload)%4)))
         
 
 # @implements RFC3550 P9L1-P9L7
@@ -188,6 +190,7 @@ class RTCP(list):
             self.append(p)
 
     def __str__(self):
+        global _padding
         result = ''
         for p in self:
             count, value = 0, ''
@@ -220,8 +223,8 @@ class RTCP(list):
                 count = p.subtype
                 value += p.data
             length = len(value)/4 + (1 if len(value)%4 != 0 else 0)
-            result += struct.pack('!BBH', 0x80 | (len(value)%4 != 0 and 0x20 or 0x00) | (count & 0x1f), p.pt, length) \
-                + value + ('' if (len(value) % 4 == 0) else ('\x00'*(4-len(value)%4-1) + struct.pack('!B', 4-len(value)%4)))
+            result += struct.pack('!BBH', 0x80 | (_padding and len(value)%4 != 0 and 0x20 or 0x00) | (count & 0x1f), p.pt, length) \
+                + value + ('' if (not _padding or len(value) % 4 == 0) else ('\x00'*(4-len(value)%4-1) + struct.pack('!B', 4-len(value)%4)))
         # TODO: we do padding in each packet, instead of only in last.
         return result
 
