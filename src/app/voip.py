@@ -368,7 +368,7 @@ class User(object):
         else: return None
     
     #-------------------------- Session related methods -------------------
-    def connect(self, dest, mediasock=None, sdp=None):
+    def connect(self, dest, mediasock=None, sdp=None, provisional=False):
         '''Invite a remote destination to a session. This is a generator function, which 
         returns a (session, None) for successful connection and (None, reason) for failure.
         Either mediasock or sdp must be present. If mediasock is present, then session is negotiated 
@@ -396,26 +396,33 @@ class User(object):
                 raise StopIteration((None, 'either mediasock or sdp must be supplied'))
 
             ua.sendRequest(m)
-            
-            while True:
-                try:
-                    response = yield ua.queue.get()
-                except GeneratorExit: # connect was cancelled
-                    ua.sendCancel()
-                    raise
-                if response.is2xx: # success
-                    session = Session(user=self, dest=dest)
-                    session.ua, session.mediasock = hasattr(ua, 'dialog') and ua.dialog or ua, mediasock
-                    session.mysdp, session.yoursdp, session.local = sdp, None, local
-                    session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates if available 
+            session, reason = yield self.continueConnect((ua, dest, mediasock, sdp, local), provisional=provisional)
+            raise StopIteration(session, reason)
                     
-                    if response.body and response['Content-Type'] and response['Content-Type'].value.lower() == 'application/sdp':
-                        session.yoursdp = SDP(response.body)
-                    
-                    yield session.start(True)
-                    raise StopIteration((session, None))
-                elif response.isfinal: # some failure
-                    raise StopIteration((None, str(response.response) + ' ' + response.responsetext))
+    def continueConnect(self, context, provisional):
+        ua, dest, mediasock, sdp, local = context
+        while True:
+            try:
+                response = yield ua.queue.get()
+            except GeneratorExit: # connect was cancelled
+                ua.sendCancel()
+                raise
+            if response.response == 180 or response.response == 183: # ringing or early media event
+                context = (ua, dest, mediasock, sdp, local)
+                raise StopIteration((context, "%d %s"%(response.response, response.responsetext)))
+            if response.is2xx: # success
+                session = Session(user=self, dest=dest)
+                session.ua, session.mediasock = hasattr(ua, 'dialog') and ua.dialog or ua, mediasock
+                session.mysdp, session.yoursdp, session.local = sdp, None, local
+                session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates if available 
+                
+                if response.body and response['Content-Type'] and response['Content-Type'].value.lower() == 'application/sdp':
+                    session.yoursdp = SDP(response.body)
+                
+                yield session.start(True)
+                raise StopIteration((session, None))
+            elif response.isfinal: # some failure
+                raise StopIteration((None, str(response.response) + ' ' + response.responsetext))
     
     def accept(self, arg, mediasock=None, sdp=None):
         '''Accept a incoming connection from given arg (dest, ua). The arg is what is supplied
