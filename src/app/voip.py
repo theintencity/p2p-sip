@@ -730,7 +730,7 @@ class MediaSession(object):
             for m in self.mysdp['m']:
                 for f in m.fmt:
                     if str(f.pt) == str(pt): return f
-        # print 'format not found for pt=%d sdp=\n%s'%(pt, str(self.mysdp))
+        if _debug: print 'format not found for pt=', pt
         return None
 
     def _getYourFormat(self, fmt): # returns (fmt, rtp) where fmt is matching format in yoursdp, and rtp is the associated session
