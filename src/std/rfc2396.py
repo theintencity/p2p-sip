@@ -132,7 +132,7 @@ class Address(object):
     # 2. "Kundan Singh" <sip:kundan@example.net>
     # 3. sip:kundan@example.net
     _syntax = [re.compile('^(?P<name>[a-zA-Z0-9\-\.\_\+\~\ \t]*)<(?P<uri>[^>]+)>'), 
-              re.compile('^(?:"(?P<name>[a-zA-Z0-9\-\.\_\+\~\ \t]+)")[\ \t]*<(?P<uri>[^>]+)>'),
+              re.compile('^(?:"(?P<name>[^"]+)")[\ \t]*<(?P<uri>[^>]+)>'),
               re.compile('^[\ \t]*(?P<name>)(?P<uri>[^;]+)')]
     
     def __init__(self, value=None):
