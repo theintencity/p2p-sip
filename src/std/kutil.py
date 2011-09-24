@@ -3,14 +3,15 @@ Implement common utilities that are needed in more than one standards or RFCs, e
 Timer and getlocaladdr.
 '''
 
-import socket, multitask
+import socket
 
 class Timer(object):
-    '''Timer object used by SIP (rfc3261.Stack) and RTP (rfc3550.Session) among others.'''
+    '''Timer (multitask version) object used by SIP (rfc3261.Stack) and RTP (rfc3550.Session) among others.'''
     def __init__(self, app):
         self.app = app
         self.delay, self.running, self.gen = 0, False, None 
     def start(self, delay=None):
+        import multitask
         if self.running: self.stop() # stop previous one first.
         if delay is not None: self.delay = delay # set the new delay
         self.running = True
@@ -24,9 +25,30 @@ class Timer(object):
             self.gen = None
     def run(self):
         try:
+            import multitask
             yield multitask.sleep(self.delay / 1000.0)
             if self.running: self.app.timedout(self)
         except: pass # probably stopped before timeout
+
+class gevent_Timer(object):
+    '''Timer (gevent version) object used by SIP (rfc3261.Stack) and RTP (rfc3550.Session) among others.'''
+    def __init__(self, app):
+        self.app = app
+        self.delay, self.running, self.gen = 0, False, None 
+    def start(self, delay=None):
+        import gevent
+        if self.running: self.stop() # stop previous one first.
+        if delay is not None: 
+            self.delay = delay # set the new delay
+        self.running = True
+        self.gen = gevent.spawn_later(self.delay / 1000.0, self.app.timedout, self)
+    def stop(self):
+        if self.running: 
+            self.running = False
+        if self.gen: 
+            try: self.gen.kill()
+            except: pass
+            self.gen = None
 
 _local_ip = None # if set, then use this when needed in getlocaladdr
 
@@ -166,4 +188,5 @@ if __name__ == '__main__':
     app.t1 = t1
     app.t2 = t2
     
+    import multitask
     multitask.run()
