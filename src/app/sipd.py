@@ -1,29 +1,13 @@
 # Copyright (c) 2008, Kundan Singh. All rights reserved. See LICENSING for details.
 
 '''
-Implements a comprehensive SIP service platform including the following functions:
+Implements a SIP server including the following functions:
 1. SIP registration, proxy and redirect server
 2. Two-stage scalable SIP server farm
 3. Master-slave reliable SIP server farm
 
-In future I will implement the following as well:
-4. Multiparty conferencing using SIP
-5. Unified messaging using SIP
-6. Media storage and playback using SIP/RTSP
-7. Interactive voice response using SIP/VoiceXML
-8. Scalable cache using a DHT
-9. Presence agent/server for SIP/SIMPLE
-10.Web based configuration using XML-RPC and HTTP
-11.Web support using Flash server
-12.Backend database for storing configuration and profile
-13.Media relay using TURN and STUN. (no ICE).
-
 The high level script in this module controls the behavior of an incoming call similar to SIP Express Router (SER) config file. 
 An examples from SER config file is at http://lists.iptel.org/pipermail/serusers/2004-December/013690.html
-
-TODO: This is just the controller module which invokes individual functions from other modules based on the configuration. All 
-configuration is done using web and stored in the database. Multiple instances of the application interact with each other and 
-share the signaling and media responsibility as needed.
 '''
 
 from app import sipapi
