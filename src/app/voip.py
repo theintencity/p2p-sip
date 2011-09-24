@@ -248,13 +248,13 @@ class User(object):
     
     #----------------------------- start/stop daemon ---------------------- 
        
-    def start(self):
+    def start(self, maxsize=1500, interval=180):
         '''Start the listener, if not already started.'''
         if not self._listenergen:
-            self._listenergen  = self._listener()
+            self._listenergen  = self._listener(maxsize=maxsize, interval=interval)
             multitask.add(self._listenergen) # start the transport listening task
         if self.nat and not self._natcheckgen:
-            self._natcheckgen = self._natcheck()
+            self._natcheckgen = self._natcheck(interval=interval)
             multitask.add(self._natcheckgen) # start the task that periodically checks the nat type
         return self
     
@@ -267,7 +267,7 @@ class User(object):
         self._listenergen = self._natcheckgen = None
         return self
     
-    def _listener(self, maxsize=1500, interval=180):
+    def _listener(self, maxsize, interval):
         '''Listen for transport messages on the signaling socket. The default maximum 
         packet size to receive is 1500 bytes. The interval argument specifies how
         often should the sock be checked for close, default is 180 s.
@@ -283,7 +283,7 @@ class User(object):
         except: print 'User._listener exception', (sys and sys.exc_info() or None); traceback.print_exc(); raise
         if _debug: print 'terminating User._listener()'
     
-    def _natcheck(self, interval=180):
+    def _natcheck(self, interval):
         '''Periodically discover the NAT behavior. Default interval is every 3 min (180s).
         This is a generator function and should be invoked as multitask.add(u._natcheck())'''
         try:
@@ -315,7 +315,7 @@ class User(object):
         self.username, self.password = username or self.username or address.uri.user, password or self.password
 
         if update: self.transport.host = getintfaddr(address.uri.host)
-        reg = self.reg = self.createClient()
+        reg = self.reg = self.createClient(setProxyUser=False)
         reg.queue = multitask.Queue()
         result, reason = (yield self._bind(interval=interval, refresh=refresh, wait=False))
         if _debug: print 'received response', result
@@ -462,16 +462,14 @@ class User(object):
         
         raise StopIteration((None, 'didnot receive ACK'))
     
-    def reject(self, arg, reason='486 Busy here'):
-        dest, ua = arg
+    def reject(self, arg, reason='486 Busy here', headers=None):
         code, sep, phrase = reason.partition(' ')
-        if code: 
-            try: code = int(code)
-            except: pass
-        if not isinstance(code, int): 
-            code = 603 # decline
-            phrase = reason
-        ua.sendResponse(ua.createResponse(code, phrase))
+        try: code = int(code) if code else ''
+        except: pass
+        if not isinstance(code, int): code, phrase = 603, reason # decline
+        response = arg[1].createResponse(code, phrase)
+        if headers: [response.insert(h, append=True) for h in headers] 
+        arg[1].sendResponse(response)
         
     def _getLocalCandidates(self, mediasock):
         local = [getlocaladdr(mediasock)] # first element is local-addr
@@ -525,7 +523,7 @@ class User(object):
         if _debug: print 'createServer', ua
         return ua
     
-    def createClient(self, dest=None):
+    def createClient(self, dest=None, setProxyUser=True):
         '''Create a UAC and add additional attributes: queue and gen.'''
         ua = sip.UserAgent(self.stack)
         ua.queue = ua.gen = None
@@ -533,7 +531,7 @@ class User(object):
         ua.remoteParty = dest and dest.dup() or self.address and self.address.dup() or None
         ua.remoteTarget= dest and dest.uri.dup() or self.address and self.address.uri.dup() or None
         ua.routeSet    = self.proxy and [sip.Header(str(self.proxy), 'Route')] or None
-        if ua.routeSet and not ua.routeSet[0].value.uri.user: ua.routeSet[0].value.uri.user = ua.remoteParty.uri.user
+        if setProxyUser and ua.routeSet and not ua.routeSet[0].value.uri.user: ua.routeSet[0].value.uri.user = ua.remoteParty.uri.user
         if _debug: print 'createClient', ua
         return ua
 
@@ -548,7 +546,7 @@ class User(object):
                 yield ua.queue.put(request)
             elif request.method == 'INVITE':    # a new invitation
                 if self._queue is not None:
-                    if not request['Conf-ID']: # regular call invitatio
+                    if not request['Conf-ID']: # regular call invitation
                         yield self._queue.put(('connect', (str(request.From.value), ua)))
                     else: # conference invitation
                         if request['Invited-By']:
@@ -628,13 +626,13 @@ class User(object):
 class MediaSession(object):
     '''A MediaSession object wraps the RTP's Network, RTP's Session and SDP's offer/answer mode.
     Application using audio/video should use one MediaSession associated with one Session.'''
-    def __init__(self, app, streams, request=None, listen_ip='0.0.0.0', NetworkClass=RTPNetwork):
+    def __init__(self, app, streams, request=None, yoursdp=None, listen_ip='0.0.0.0', NetworkClass=RTPNetwork):
         '''app receives call back for incoming RTP, streams is supplied list of supported SDP.media,
         and request is a SIP message containing SDP offer if this is an incoming call.'''
         if len(streams) == 0: raise ValueError('must supply at least one stream')
         self.app, self.streams = app, streams
         self.mysdp = self.yoursdp = None; self.rtp, self.net, self._types = [], [], []
-        if not request: # this is for outgoing call, build an offer SDP as mysdp.
+        if not request and not yoursdp: # this is for outgoing call, build an offer SDP as mysdp.
             net = [NetworkClass(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # first create as many RTP network objects as streams.
             for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
             offer = rfc3264.createOffer(streams)                       # create the offered SDP now
@@ -643,8 +641,8 @@ class MediaSession(object):
             else:  # no unique IP. Must add ip/c= in all media lines
                 for m, i in zip(offer['m'], ip): m['c'] = SDP.connection(address=i)
             self.mysdp, self.net[:] = offer, net
-        elif request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp': # this is for incoming call, build an answer SDP as mysdp based on offer SDP from request
-            offer = SDP(request.body)
+        elif yoursdp or request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp': # this is for incoming call, build an answer SDP as mysdp based on offer SDP from request
+            offer = yoursdp or SDP(request.body) 
             net = [NetworkClass(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # create as many network objects as we have streams
             for m, n in zip(streams, net): m.port = n.src[1]           # update port numbers in streams. TODO: need to add RTCP port if different than RTP+1
             netoffer = dict(map(lambda x: (x.src[1], x), net))           # create a table of RTP port=>network
