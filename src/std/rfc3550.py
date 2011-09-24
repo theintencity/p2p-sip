@@ -58,7 +58,7 @@ class RTP(object):
     00011000000110010001101000011011
     00011100000111010001111000000001
     '''
-    def __init__(self, value=None, pt=0, seq=0, ts=0, ssrc=0, csrcs=[], marker=False, extn=None, payload=''):
+    def __init__(self, value=None, pt=0, seq=0, ts=0, ssrc=0, csrcs=None, marker=False, extn=None, payload=''):
         '''Construct a RTP packet from individual components: pt a payload type [0, 128),
         seq a 16 bit unsigned sequence number, ts a 32 bit unsigned timestamp, ssrc a
         32 bit source identifier, csrcs a list of 32-bit contributing source identifiers
@@ -66,6 +66,7 @@ class RTP(object):
         extension and payload is the RTP payload data. 
         Alternatively, if value is specified, then construct the RTP packet by parsing the 
         value.'''
+        csrcs = csrcs or []
         if not value: # construct using components.
             self.pt, self.seq, self.ts, self.ssrc, self.csrcs, self.marker, self.extn, self.payload = \
             pt, seq, ts, ssrc, csrcs, marker, extn, payload
@@ -467,7 +468,7 @@ class Session(object):
         self.rtpsent = self.wesent = True
 
         if pt is None: pt = self.pt
-        pkt = RTP(pt=pt, marker=marker, seq=self.seq0+self.seq, ts=self.ts0+ts, ssrc=member.ssrc, payload=payload)
+        pkt = RTP(pt=pt, marker=marker, seq=self.seq0+self.seq, ts=(self.ts0+ts) & 0xffffffff, ssrc=member.ssrc, payload=payload)
         data = str(pkt)
         if self.net is not None: self.net.sendRTP(data) # TODO: not a generator, multitask.add(self.net.sendRTP(data)) # invoke app or net to send the packet
         elif hasattr(self.app, 'sendRTP') and callable(self.app.sendRTP): self.app.sendRTP(self, data)
