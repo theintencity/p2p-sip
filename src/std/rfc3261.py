@@ -350,6 +350,7 @@ class Stack(object):
         def createTimer(self, cbObj): return timerObject
             'the returned timer object must have start() and stop() methods, a delay (int)
             attribute, and should invoke cbObj.timedout(timer) when the timer expires.'
+    Only the authenticate and sending methods are optional. All others are mandatory.
     
     The application must invoke the following callback on the stack:
     stack.received(data, src) 
@@ -398,7 +399,7 @@ class Stack(object):
         '''Send a data (Message) to given dest (URI or hostPort), or using the Via header of 
         response message if dest is missing.'''
         if dest and isinstance(dest, URI):
-            if not uri.host: raise ValueError, 'No host in destination uri'
+            if not dest.uri.host: raise ValueError, 'No host in destination uri'
             dest = (dest.host, dest.port or self.transport.type == 'tls' and self.transport.secure and 5061 or 5060)
         if isinstance(data, Message):
             if data.method:      # request
@@ -420,8 +421,9 @@ class Stack(object):
                 via = m.first('Via')
                 if via.viaUri.host != src[0] or via.viaUri.port != src[1]: 
                     via['received'], via.viaUri.host = src[0], src[0]
-                if 'rport' in via: via['rport'] = src[1]
-                via.viaUri.port = src[1]
+                if 'rport' in via: 
+                    via['rport'] = src[1]
+                    via.viaUri.port = src[1]
                 self._receivedRequest(m, uri)
             elif m.response: # response: call receivedResponse
                 self._receivedResponse(m, uri)
@@ -520,12 +522,12 @@ class Stack(object):
         
     # following are the main API methods to indicate events from UAS/UAC/Dialog
     def createServer(self, request, uri): return self.app.createServer(request, uri, self)
-    def sending(self, ua, message): self.app.sending(ua, message, self)
+    def sending(self, ua, message): return self.app.sending(ua, message, self) if hasattr(self.app, 'sending') else None
     def receivedRequest(self, ua, request): self.app.receivedRequest(ua, request, self)
     def receivedResponse(self, ua, response): self.app.receivedResponse(ua, response, self)
     def cancelled(self, ua, request): self.app.cancelled(ua, request, self)
     def dialogCreated(self, dialog, ua): self.app.dialogCreated(dialog, ua, self)
-    def authenticate(self, ua, header): return self.app.authenticate(ua, header, self)
+    def authenticate(self, ua, header): return self.app.authenticate(ua, header, self) if hasattr(self.app, 'authenticate') else False
     def createTimer(self, obj): return self.app.createTimer(obj, self)
     
     def findDialog(self, arg):
@@ -632,7 +634,6 @@ class Transaction(object):
         #    and r['Call-ID'].value == t['Call-ID'].value and r.CSeq.value == t.CSeq.value \
         #    and r.From.tag == t.From.tag and t2.server == t1.server
         a = r.To.value.uri == t.To.value.uri
-        if _debug: print r.From.value.uri, t.From.value.uri
         a = a and (r.From.value.uri == t.From.value.uri)
         a = a and (r['Call-ID'].value == t['Call-ID'].value)
         a = a and (r.CSeq.value == t.CSeq.value)
@@ -1429,7 +1430,7 @@ class Proxy(UserAgent):
     
     def isLocal(self, uri):
         '''Check whether the give uri represents local address (host:port) ?'''
-        return self.stack.transport.host == uri.host and (self.stack.transport.port == uri.port or uri.port == 0 and self.stack.transport.port == 5060)
+        return (self.stack.transport.host == uri.host or uri.host in ('localhost', '127.0.0.1')) and (self.stack.transport.port == uri.port or not uri.port and self.stack.transport.port == 5060) # TODO: what about 5061 for sips
      
     def sendResponse(self, response, responsetext=None, content=None, contentType=None, createDialog=True):
         '''Invoke the base class to send a response to original UAS. Create a transaction beforehand if needed.'''
