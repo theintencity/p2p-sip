@@ -8,7 +8,7 @@ In my code there is no performance optimization, if it hurts the style and
 compactness of the code.
 '''
 
-import re, socket
+import re, socket, traceback
 from kutil import getlocaladdr
 from rfc2396 import isIPv4, isMulticast, URI, Address
 from rfc2617 import createAuthorization
@@ -191,15 +191,20 @@ class Message(object):
         # 8. Content-Length if present must match the length of body.
         # 9. mandatory headers are To, From, Call-ID and CSeq.
         # 10. syntax for top Via header and fields: ttl, maddr, received, branch.
-        firstheaders, body = value.split('\r\n\r\n', 1)
-        firstline, headers = firstheaders.split('\r\n', 1)
+        try: firstheaders, body = value.split('\r\n\r\n', 1)
+        except ValueError: # may be \n\n
+            try: firstheaders, body = value.split('\n\n', 1)
+            except ValueError: firstheaders, body = value, '' # assume no body
+        try: firstline, headers = firstheaders.split('\r\n', 1)
+        except ValueError: firstline, headers = firstheaders.split('\n', 1)
         a, b, c = firstline.split(' ', 2)
         try:    # try as response
             self.response, self.responsetext, self.protocol = int(b), c, a # throws error if b is not int.
         except: # probably a request
             self.method, self.uri, self.protocol = a, URI(b), c
             
-        for h in headers.split('\r\n'):
+        for h in headers.split('\n'):
+            if h and h[-1] == '\r': h = h[:-1]
             if h.startswith(r'[ \t]'):
                 pass
             try:
@@ -430,10 +435,12 @@ class Stack(object):
             else: raise ValueError, 'Received invalid message'
         except ValueError, E: # TODO: send 400 response to non-ACK request
             if _debug: print 'Error in received message:', E
+            if _debug: traceback.print_exc()
             
     def _receivedRequest(self, r, uri):
         '''Received a SIP request r (Message) from the uri (URI).'''
-        branch = r.first('Via').branch
+        try: branch = r.first('Via').branch
+        except AttributeError: branch = ''
         if r.method == 'ACK':
             if branch == '0': 
                 # TODO: this is a hack to work around iptel.org which puts branch=0 in all ACK
@@ -508,7 +515,8 @@ class Stack(object):
     def _receivedResponse(self, r, uri):
         '''Received a SIP response r (Message) from the uri (URI).'''
         if not r.Via: raise ValueError, 'No Via header in received response'
-        branch = r.first('Via').branch
+        try: branch = r.first('Via').branch
+        except AttributeError: branch = ''
         method = r.CSeq.method
         t = self.findTransaction(Transaction.createId(branch, method))
         if not t:
@@ -637,7 +645,7 @@ class Transaction(object):
         a = a and (r.From.value.uri == t.From.value.uri)
         a = a and (r['Call-ID'].value == t['Call-ID'].value)
         a = a and (r.CSeq.value == t.CSeq.value)
-        a = a and (r.From.tag == t.From.tag)
+        a = a and (r.From['tag'] == t.From['tag'])
         a = a and (t2.server == t1.server)
         return a
     
@@ -1236,9 +1244,9 @@ class Dialog(UserAgent):
         d.secure = request.uri.secure
         d.localSeq, d.localSeq = 0, request.CSeq.number
         d.callId = request['Call-ID'].value
-        d.localTag, d.remoteTag = response.To.tag, request.From.tag
+        d.localTag, d.remoteTag = response.To['tag'] or '', request.From['tag'] or ''
         d.localParty, d.remoteParty = Address(str(request.To.value)), Address(str(request.From.value))
-        d.remoteTarget = URI(str(request.first('Contact').value.uri))
+        if request.Contact: d.remoteTarget = URI(str(request.first('Contact').value.uri))
         # TODO: retransmission timer for 2xx in UAC
         stack.dialogs[d.id] = d
         return d
@@ -1254,16 +1262,16 @@ class Dialog(UserAgent):
         d.secure = request.uri.secure
         d.localSeq, d.remoteSeq = request.CSeq.number, 0
         d.callId = request['Call-ID'].value
-        d.localTag, d.remoteTag = request.From.tag, response.To.tag
+        d.localTag, d.remoteTag = request.From['tag'] or '', response.To['tag'] or ''
         d.localParty, d.remoteParty = Address(str(request.From.value)), Address(str(request.To.value))
-        d.remoteTarget = URI(str(response.first("Contact").value.uri))
+        if response.Contact: d.remoteTarget = URI(str(response.first("Contact").value.uri))
         stack.dialogs[d.id] = d
         return d
 
     @staticmethod
     def extractId(m):
         '''Extract dialog identifier string from a Message m.'''
-        return m['Call-ID'].value + '|' + (m.To.tag if m.method else m.From.tag) + '|' + (m.From.tag if m.method else m.To.tag)
+        return m['Call-ID'].value + '|' + (m.To['tag'] if m.method else m.From['tag']) + '|' + (m.From['tag'] if m.method else m.To['tag'])
     
     def __init__(self, stack, request, server, transaction=None):
         '''Create a dialog for the request in server (True) or client (False) mode for given transaction.'''
