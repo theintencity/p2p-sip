@@ -755,7 +755,7 @@ class Session(object):
     dest (Address).'''
     def __init__(self, user, dest):
         self.user, self.dest = user, dest
-        self.ua = self.mediasock = self.local = self.remote = self.gen = self.remotemediaaddr = None
+        self.ua = self.mediasock = self.local = self.remote = self.gen = self.remotemediaaddr = self.media = None
         self._queue = multitask.Queue()
         
     def start(self, outgoing):
@@ -781,7 +781,7 @@ class Session(object):
     
     def close(self, outgoing=True):
         '''Close the call and terminate any generators.'''
-        self.mediasock = self.local = self.remote = None
+        self.mediasock = self.local = self.remote = self.media = None
         if self.gen: # close the generator
             self.gen.close()
             self.gen = None
@@ -867,9 +867,9 @@ class Session(object):
             if _debug: print '_checkconnectivity() exception', (sys and sys.exc_info() or None)
             
     def _receivedReInvite(self, request): # only accept re-invite if no new media stream.
-        if not (hasattr(self, 'media') and isinstance(self.media, MediaSession)):
+        if not self.media or not hasattr(self.media, 'mysdp') or not hasattr(self.media, 'yoursdp') or not hasattr(self.media, 'setRemote'):
             self.ua.sendResponse(501, 'Re-INVITE Not Supported')
-        if not (request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp'):
+        elif not (request.body and request['Content-Type'] and request['Content-Type'].value.lower() == 'application/sdp'):
             self.ua.sendResponse(488, 'Must Supply SDP in Request Body')
         else:
             oldsdp, newsdp = self.yoursdp, SDP(request.body)
@@ -877,23 +877,23 @@ class Session(object):
                 self.ua.sendResponse(488, 'Change Not Acceptable Here')
             else:
                 self.media.setRemote(SDP(request.body))
-                self.mysdp, self.yoursdp, m = self.media.mysdp, self.media.yoursdp, self.ua.createResponse(200, 'OK')
-                m.body, m['Content-Type'] = str(self.mysdp), sip.Header('application/sdp', 'Content-Type')
+                mysdp, yoursdp, m = self.media.mysdp, self.media.yoursdp, self.ua.createResponse(200, 'OK')
+                m.body, m['Content-Type'] = str(mysdp), sip.Header('application/sdp', 'Content-Type')
                 self.ua.sendResponse(m)
-                yield self._queue.put(('change', self.yoursdp))
+                yield self._queue.put(('change', yoursdp))
 
     def hold(self, value): # send re-INVITE with SDP ip=0.0.0.0
-        if hasattr(self, 'media') and isinstance(self.media, MediaSession):
+        if self.media and hasattr(self.media, 'hold') and hasattr(self.media, 'mysdp'):
             self.media.hold(value); 
             self.change(self.media.mysdp)
         else: raise ValueError('No media attribute found')
         
     def change(self, mysdp):
         if self.ua:
-            ua, self.mysdp = self.ua, mysdp; m = ua.createRequest('INVITE')
+            m = self.ua.createRequest('INVITE')
             m['Content-Type'] = sip.Header('application/sdp', 'Content-Type')
             m.body = str(mysdp)
-            ua.sendRequest(m)
+            self.ua.sendRequest(m)
         
 class Presence(object):
     '''The Presence object represents a single subscribe dialog between local user and remote
