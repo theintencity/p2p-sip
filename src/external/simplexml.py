@@ -376,6 +376,15 @@ class XML(object):
         inner = u''.join([unicode(x) if isinstance(x, XML) else escape(x) for x in self.children])
         return u'<%s>%s</%s>'%(intag, inner, self.tag) if inner else u'<%s />'%(intag)
     
+    def toprettyxml(self, encoding='UTF-8', indent='  ', count=0): # similar but not same as xml.dom.minidom's toprettyxml
+        ns = [u'xmlns="%s"'%(self.xmlns,)] if self.xmlns and (not self.parent or self.xmlns != self.parent.xmlns) else []
+        attrs = [u'%s="%s"'%(k, escape(ustr(v))) for k,v in self.attrs.iteritems()]
+        intag = u' '.join([self.tag] + ns + attrs)
+        inner = (u'\n' + indent*(count+1)).join([x.toprettyxml(encoding=None, indent=indent, count=count+1) if isinstance(x, XML) else escape(x.strip()) for x in self.children if not isinstance(x, basestring) or x.strip()])
+        return ('' if encoding is None else u'<?xml version="1.0"?>\n' if not encoding else u'<?xml version="1.0" encoding="%s"?>\n'%(encoding,)) + \
+            (u'<%s>\n'%(intag,) + indent*(count+1) + inner + '\n' + indent*count + u'</%s>'%(self.tag,) if len(self.elems) \
+             else (u'<%s>%s</%s>'%(intag, inner, self.tag) if inner else u'<%s />'%(intag,)))
+        
     def __cmp__(self, other): return cmp(unicode(self), unicode(other))
     
     # XML attributes can be accessed using Python container semantics. Doesn't throw exception.
