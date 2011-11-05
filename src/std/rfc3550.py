@@ -633,6 +633,18 @@ class Network(object):
     packets.'''
     def __init__(self, app, **kwargs):
         '''Initialize the network.'''
+        s1, s2 = self._initialize(app, **kwargs)
+        
+        if s1 and s2:
+            self.rtp, self.rtcp = s1, s2
+            self._rtpgen = self.receiveRTP(self.rtp)
+            self._rtcpgen = self.receiveRTCP(self.rtcp)
+            multitask.add(self._rtpgen)
+            multitask.add(self._rtcpgen)
+        else:
+            raise ValueError, 'cannot allocate sockets'
+        
+    def _initialize(self, app, **kwargs):
         self.app    = app
         self.src    = kwargs.get('src', ('0.0.0.0', 0))
         self.dest   = kwargs.get('dest', None)
@@ -640,7 +652,7 @@ class Network(object):
         self.destRTCP=kwargs.get('destRTCP', None)
         self.maxsize = kwargs.get('maxsize', 1500)
         self.rtp = self.rtcp = None
-        
+
         if self.src[1] != 0:  # specified port
             try:
                 s1 = socket.socket(type=socket.SOCK_DGRAM)
@@ -676,14 +688,7 @@ class Network(object):
                     s1.close(); s2.close();
                     s1 = s2 = None
                 retry = retry - 1
-        if s1 and s2:
-            self.rtp, self.rtcp = s1, s2
-            self._rtpgen = self.receiveRTP(self.rtp)
-            self._rtcpgen = self.receiveRTCP(self.rtcp)
-            multitask.add(self._rtpgen)
-            multitask.add(self._rtcpgen)
-        else:
-            raise ValueError, 'cannot allocate sockets'
+        return (s1, s2)
 
     def __del__(self):
         self.close()
@@ -734,7 +739,70 @@ class Network(object):
                 if _debug: print 'sending RTCP %d to %r'%(len(data), dest) 
                 yield multitask.sendto(self.rtcp, data, dest)
             elif _debug: print 'ignoring send RTCP'
+
+try: import gevent
+except ImportError: gevent = None
+
+class gevent_Network(Network):
+    def __init__(self, app, **kwargs):
+        '''Initialize the network.'''
+        if not gevent: raise ValueError('must have gevent before instantiating gevent_Network')
+        s1, s2 = self._initialize(app, **kwargs)
+        if s1 and s2:
+            self.rtp, self.rtcp = s1, s2
+            self._rtpgen = gevent.spawn(self.receiveRTP, self.rtp)
+            self._rtcpgen = gevent.spawn(self.receiveRTCP, self.rtcp)
+        else:
+            raise ValueError, 'cannot allocate sockets'
+
+    def close(self):
+        if _debug: print 'cleaning up sockets', self.rtp, self.rtcp
+        if self._rtpgen: self._rtpgen.kill(); self._rtpgen = None
+        if self._rtcpgen: self._rtcpgen.kill(); self._rtcpgen = None
+        if self.rtp: self.rtp.close(); self.rtp = None
+        if self.rtcp: self.rtcp.close(); self.rtcp = None
+        if self.app: self.app = None
         
+    def receiveRTP(self, sock):
+        try:
+            fd = sock.fileno()
+            while True:
+                data, remote = sock.recvfrom(self.maxsize)
+                if self.app: self.app.receivedRTP(data, remote, self.src)
+        except gevent.GreenletExit: pass # terminated
+        except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc()
+        try: os.close(fd)
+        except: pass
+        
+    def receiveRTCP(self, sock):
+        try:
+            fd = sock.fileno()
+            while True:
+                data, remote = sock.recvfrom(self.maxsize)
+                if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
+        except gevent.GreenletExit: pass # terminated
+        except: print 'receive RTCP exception', (sys and sys.exc_info())
+        try: os.close(fd)
+        except: pass
+        
+    def sendRTP(self, data, dest=None): # unline sendRTCP this is not a generator
+        if self.rtp:
+            dest = dest or self.dest
+            if dest and dest[1] > 0 and dest[0] != '0.0.0.0': 
+                if _debug: print 'sending RTP %d to %r'%(len(data), dest)
+                self.rtp.sendto(data, dest)
+            else: 
+                if _debug: print 'ignoring send RTP as dest is not set'
+        
+    def sendRTCP(self, data, dest=None):
+        if self.rtcp:
+            dest = dest or self.destRTCP
+            if dest and dest[1] > 0 and dest[0] != '0.0.0.0':
+                if _debug: print 'sending RTCP %d to %r'%(len(data), dest) 
+                self.rtcp.sendto(data, dest)
+            else: 
+                if _debug: 'ignoring send RTCP as dest is not set'
+
 if __name__ == '__main__':
     import doctest
     doctest.testmod()

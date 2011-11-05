@@ -661,6 +661,9 @@ class _dnsanswer:
 
         datalen = len(data)
 
+        if datalen < offset + 2:
+            return ('', offset)
+        
         self.__sentry(datalen, offset + 2)
 
         # check whether the first element is a link

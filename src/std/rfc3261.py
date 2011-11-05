@@ -418,8 +418,9 @@ class Stack(object):
         
     def received(self, data, src):
         '''Callback when received some data (str) from the src ('host', port).'''
+        m = Message()
         try:
-            m = Message(data)
+            m._parse(data)
             uri = URI((self.transport.secure and 'sips' or 'sip') + ':' + str(src[0]) + ':' + str(src[1]))
             if m.method: # request: update Via and call receivedRequest
                 if m.Via == None: raise ValueError, 'No Via header in request'
@@ -436,6 +437,9 @@ class Stack(object):
         except ValueError, E: # TODO: send 400 response to non-ACK request
             if _debug: print 'Error in received message:', E
             if _debug: traceback.print_exc()
+            if m.method and m.uri and m.protocol and m.method != 'ACK': # this was a request
+                try: self.send(Message.createResponse(400, str(E), None, None, m))
+                except: pass # ignore error since m may be malformed.                
             
     def _receivedRequest(self, r, uri):
         '''Received a SIP request r (Message) from the uri (URI).'''
@@ -1124,6 +1128,8 @@ class UserAgent(object):
                 original.sendResponse(original.createResponse(487, 'Request terminated'))
             transaction.sendResponse(transaction.createResponse(200, 'OK')) # CANCEL response
             # TODO: the To tag must be same in the two responses
+            self.stack.cancelled(self, request) # invoke cancelled on original UA instead of receivedRequest
+            return
             
         self.stack.receivedRequest(self, request)
 

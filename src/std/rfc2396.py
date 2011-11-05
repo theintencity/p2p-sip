@@ -62,13 +62,20 @@ class URI(object):
             + '(?:(?:(?P<host>[^;\?:]*)(?::(?P<port>[\d]+))?))'  # host, port
             + '(?:;(?P<params>[^\?]*))?' # parameters
             + '(?:\?(?P<headers>.*))?$') # headers
+    _syntax_urn = re.compile(r'^(?P<scheme>urn):(?P<host>[^;\?>]+)$')
     
     def __init__(self, value=''):
         '''Construct from a string representation of a URI, or empty'''
         if value:
             m = URI._syntax.match(value)
-            if not m: raise ValueError, 'Invalid URI(' + value + ')'
-            self.scheme, self.user, self.password, self.host, self.port, params, headers = m.groups()
+            if m: 
+                self.scheme, self.user, self.password, self.host, self.port, params, headers = m.groups()
+            elif URI._syntax_urn.match(value):
+                m = URI._syntax_urn.match(value)
+                self.scheme, self.host = m.groups()
+                self.user = self.password = self.port = params = headers = None
+            else:
+                raise ValueError, 'Invalid URI(' + value + ')'
             if self.scheme == 'tel' and self.user is None:
                 self.user, self.host = self.host, None
             self.port   = self.port and int(self.port) or None
@@ -168,9 +175,12 @@ class Address(object):
     
     @property
     def displayable(self):
-        '''Read-only displayable string representation''' 
+        '''Read-only displayable string representation'''
+        return self.getDisplayable(limit=25)
+    
+    def getDisplayable(self, limit):
         name = self.displayName or self.uri and self.uri.user or self.uri and self.uri.host or ''
-        return name if len(name)<25 else (name[0:22] + '...')
+        return name if len(name)<limit else (name[0:limit-3] + '...')
     
 if __name__ == '__main__':
     import doctest

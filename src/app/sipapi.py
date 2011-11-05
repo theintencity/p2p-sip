@@ -143,12 +143,18 @@ class Agent(Dispatcher):
             while True:
                 data = yield multitask.recv(sock, maxsize)
                 if _debug: print '%r=>%r on type=%r\n%s'%(remote, sock.getsockname(), sock.type, data)
-                if data: stack.received(data, remote)
+                if data: 
+                    try: stack.received(data, remote)
+                    except:
+                        if _debug: print 'exception'; traceback.print_exc()
         while True:
             if sock.type == socket.SOCK_DGRAM:
                 data, remote = yield multitask.recvfrom(sock, maxsize)
                 if _debug: print '%r=>%r on type=%r\n%s'%(remote, sock.getsockname(), sock.type, data)
-                if data: stack.received(data, remote)
+                if data: 
+                    try: stack.received(data, remote)
+                    except:
+                        if _debug: print 'exception'; traceback.print_exc()
             elif sock.type == socket.SOCK_STREAM:
                 conn, remote = yield multitask.accept(sock)
                 if conn:
