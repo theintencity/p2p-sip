@@ -10,7 +10,7 @@ compactness of the code.
 
 import re, socket, traceback
 from kutil import getlocaladdr
-from rfc2396 import isIPv4, isMulticast, URI, Address
+from rfc2396 import isIPv4, isMulticast, isLocal, isPrivate, URI, Address
 from rfc2617 import createAuthorization
 from socket import gethostbyname # TODO: should replace with getifaddr, SRV, NAPTR or similar
 
@@ -371,11 +371,11 @@ class Stack(object):
         reliable: a boolean indicating whether the transport is reliable or not?
         congestionControlled: a boolean indicating whether the transport is congestion controlled?
     '''
-    def __init__(self, app, transport):
+    def __init__(self, app, transport, fix_nat=False):
         '''Construct a stack using the specified application (higher) layer and
         transport (lower) data.'''
         self.tag = str(random.randint(0,2**31))
-        self.app, self.transport = app, transport
+        self.app, self.transport, self.fix_nat = app, transport, fix_nat
         self.closing = False
         self.dialogs, self.transactions = dict(), dict()
         self.serverMethods = ['INVITE','BYE','MESSAGE','SUBSCRIBE','NOTIFY']
@@ -430,8 +430,12 @@ class Stack(object):
                 if 'rport' in via: 
                     via['rport'] = src[1]
                     via.viaUri.port = src[1]
+                if self.fix_nat and m.method in ('INVITE', 'MESSAGE'):
+                    self._fixNatContact(m, src)
                 self._receivedRequest(m, uri)
             elif m.response: # response: call receivedResponse
+                if m['CSeq'] and m.CSeq.method in ('INVITE', 'MESSAGE'):
+                    self._fixNatContact(m, src)
                 self._receivedResponse(m, uri)
             else: raise ValueError, 'Received invalid message'
         except ValueError, E: # TODO: send 400 response to non-ACK request
@@ -440,7 +444,16 @@ class Stack(object):
             if m.method and m.uri and m.protocol and m.method != 'ACK': # this was a request
                 try: self.send(Message.createResponse(400, str(E), None, None, m))
                 except: pass # ignore error since m may be malformed.                
-            
+    
+    def _fixNatContact(self, m, src):
+        if m['Contact']:
+            uri = m.first('Contact').value.uri
+            if uri.scheme in ('sip', 'sips') and isIPv4(uri.host) and uri.host != src[0] and \
+            not isLocal(src[0]) and not isLocal(uri.host) and isPrivate(uri.host):
+                if _debug: print 'fixing NAT -- private contact from', uri,
+                uri.host, uri.port = src[0], src[1]
+                if _debug: print 'to received', uri
+                
     def _receivedRequest(self, r, uri):
         '''Received a SIP request r (Message) from the uri (URI).'''
         try: branch = r.first('Via').branch

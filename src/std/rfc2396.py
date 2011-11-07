@@ -32,7 +32,29 @@ def isMulticast(data):
         return ((m & 0xF0000000) == 0xE0000000) # class D: 224.0.0.0/4 or first four bits as 0111
     except:
         return False
- 
+
+def isLocal(data):
+    '''Check if the data is a dotted decimal local interface IP address?
+    >>> isLocal('127.0.0.1') == True
+    True
+    >>> False == isLocal('192.1.2.3')
+    True
+    '''
+    return data == '127.0.0.1' # TODO: check for IPv6
+
+def isPrivate(data):
+    '''Check if the data is a dotted decimal private IP address behind a NAT?
+    >>> isPrivate('10.1.2.3') == True
+    True
+    >>> False == isPrivate('192.1.2.3')
+    True
+    '''
+    try: # TODO: check for IPv6
+        a, b, c, d = struct.unpack('>BBBB', socket.inet_aton(data))
+        return a == 10 or a == 172 and 16 <= b < 32 or a == 192 and b == 168
+    except:
+        return False
+    
 class URI(object):
     '''A URI object with dynamic properties.
     Attributes and items such as scheme, user, password, host, port, 
