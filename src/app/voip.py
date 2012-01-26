@@ -631,6 +631,7 @@ class MediaSession(object):
         and request is a SIP message containing SDP offer if this is an incoming call.'''
         if len(streams) == 0: raise ValueError('must supply at least one stream')
         self.app, self.streams = app, streams
+        self.is_hold = False
         self.mysdp = self.yoursdp = None; self.rtp, self.net, self._types = [], [], []
         if not request and not yoursdp: # this is for outgoing call, build an offer SDP as mysdp.
             net = [NetworkClass(app=None, src=(listen_ip, 0)) for i in xrange(len(streams))] # first create as many RTP network objects as streams.
@@ -664,10 +665,19 @@ class MediaSession(object):
             if _debug: print 'request does not have SDP body'
             
     def hold(self, value): # enable/disable hold mode.
-        ip = map(lambda n: n.src[0] if n.src[0] != '0.0.0.0' else getlocaladdr(n.rtp)[0], self.net)
+        ip = []
+        for i in self.net:
+            if i is None:
+                ip.append(i)
+            elif i.src and i.src[0] != '0.0.0.0':
+                ip.append(i.src[0])
+            else:
+               ip.append(getlocaladdr(i.rtp[0]))
         if self.mysdp['c']: self.mysdp['c'].address = ip[0] if not value else '0.0.0.0'
-        for m, i in zip(self.mysdp['m'], ip): 
+        self.mysdp['a'] = ['sendrecv'] if not value else ['sendonly']
+        for m, i in zip(self.mysdp['m'], ip):
             if m['c']: m['c'].address = i if not value else '0.0.0.0'
+        self.is_hold = value
         
     def setRemote(self, sdp):
         '''Update the RTP network's destination ip:port based on remote SDP. It also creates RTP Session if 
@@ -715,7 +725,7 @@ class MediaSession(object):
         return Timer(app)
     
     def received(self, member, packet): # an RTP packet is received. Hand over to sip_data.
-        if self.app and hasattr(self.app, 'received') and callable(self.app.received):
+        if self.app and hasattr(self.app, 'received') and callable(self.app.received) and not self.is_hold:
             self.app.received(media=self, fmt=self._getMyFormat(packet.pt), packet=packet)
     
     def send(self, payload, ts, marker, fmt):
