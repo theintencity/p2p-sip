@@ -755,12 +755,26 @@ class gevent_Network(Network):
         else:
             raise ValueError, 'cannot allocate sockets'
 
+    def closeRTP(self):
+        if self.rtp: self.rtp.close(); self.rtp = None
+
+    def closeRTCP(self):
+        if self.rtcp: self.rtcp.close(); self.rtcp = None
+    
     def close(self):
         if _debug: print 'cleaning up sockets', self.rtp, self.rtcp
-        if self._rtpgen: self._rtpgen.kill(); self._rtpgen = None
-        if self._rtcpgen: self._rtcpgen.kill(); self._rtcpgen = None
-        if self.rtp: self.rtp.close(); self.rtp = None
-        if self.rtcp: self.rtcp.close(); self.rtcp = None
+        if self._rtpgen is not None:
+            status = bool(self._rtpgen)
+            self._rtpgen.kill();
+            if(status is False and self.rtp):#either not scheduled, or already closed
+                self.closeRTP()
+            self._rtpgen = None
+        if self._rtcpgen is not None:
+            status = bool(self._rtcpgen)
+            self._rtcpgen.kill();
+            if(status is False and self.rtcp):#either not scheduled, or already closed
+                self.closeRTCP()
+            self._rtcpgen = None
         if self.app: self.app = None
         
     def receiveRTP(self, sock):
@@ -771,6 +785,8 @@ class gevent_Network(Network):
                 if self.app: self.app.receivedRTP(data, remote, self.src)
         except gevent.GreenletExit: pass # terminated
         except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc()
+        self.closeRTP()
+        self._rtpgen = None
         try: os.close(fd)
         except: pass
         
@@ -782,6 +798,8 @@ class gevent_Network(Network):
                 if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
         except gevent.GreenletExit: pass # terminated
         except: print 'receive RTCP exception', (sys and sys.exc_info())
+        self.closeRTCP()
+        self._rtcpgen = None
         try: os.close(fd)
         except: pass
         
