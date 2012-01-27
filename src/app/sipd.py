@@ -79,13 +79,14 @@ def route(event):
     # whether the original request had Route header to this server?
     try: had_lr = event.had_lr
     except AttributeError: had_lr = False
+    # if _debug: print 'had_lr=', had_lr, 'domain=', event.agent.domain, 'isLocal=', event.ua.isLocal(event.uri)
     
     # open relay section
     if not had_lr and event.method == 'INVITE':
         if event.agent.domain and HPS(event['From'].value.uri.hostPort) not in event.agent.domain and HPS(event.uri.hostPort) not in event.agent.domain:
             return event.action.reject(403, 'Please register to use our service')
     else:
-        if event.agent.domain and HPS(event.uri) not in event.agent.domain or not event.agent.domain and not event.ua.isLocal(event.uri): 
+        if event.agent.domain and HPS(event.uri.hostPort) not in event.agent.domain or not event.agent.domain and not event.ua.isLocal(event.uri): 
             if _debug: print 'proxying non-invite non-local request'
             event.location = event.uri
             return event.action.proxy()

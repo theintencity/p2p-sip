@@ -167,11 +167,15 @@ class Agent(Dispatcher):
         '''Send a given data to remote for the SIP stack.'''
         def _send(self, data, remote, stack): # a generator function that does the sending
             if _debug: print '%r=>%r on type=%r\n%s'%(stack.sock.getsockname(), remote, stack.sock.type, data)
-            if stack.sock.type == socket.SOCK_STREAM: # for TCP send only if a connection exists to the remote.
-                if remote in self.conn: 
-                    yield multitask.send(self.conn[remote], data) # and send using that connected TCP socket.
-            else: # for UDP send using the stack's UDP socket.
-                yield multitask.sendto(stack.sock, data, remote)
+            try:
+                if stack.sock.type == socket.SOCK_STREAM: # for TCP send only if a connection exists to the remote.
+                    if remote in self.conn: 
+                        yield multitask.send(self.conn[remote], data) # and send using that connected TCP socket.
+                else: # for UDP send using the stack's UDP socket.
+                    yield multitask.sendto(stack.sock, data, remote)
+            except StopIteration: pass
+            except: 
+                if _debug: traceback.print_exc()
         multitask.add(_send(self, data, remote, stack))
         
     def createServer(self, request, uri, stack): 

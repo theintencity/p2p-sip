@@ -434,7 +434,7 @@ class Stack(object):
                     self._fixNatContact(m, src)
                 self._receivedRequest(m, uri)
             elif m.response: # response: call receivedResponse
-                if m['CSeq'] and m.CSeq.method in ('INVITE', 'MESSAGE'):
+                if self.fix_nat and m['CSeq'] and m.CSeq.method in ('INVITE', 'MESSAGE'):
                     self._fixNatContact(m, src)
                 self._receivedResponse(m, uri)
             else: raise ValueError, 'Received invalid message'
@@ -446,10 +446,10 @@ class Stack(object):
                 except: pass # ignore error since m may be malformed.                
     
     def _fixNatContact(self, m, src):
-        if m['Contact']:
+        if m['Contact']: 
             uri = m.first('Contact').value.uri
             if uri.scheme in ('sip', 'sips') and isIPv4(uri.host) and uri.host != src[0] and \
-            not isLocal(src[0]) and not isLocal(uri.host) and isPrivate(uri.host):
+            not isLocal(src[0]) and not isLocal(uri.host) and isPrivate(uri.host) and not isPrivate(src[0]):
                 if _debug: print 'fixing NAT -- private contact from', uri,
                 uri.host, uri.port = src[0], src[1]
                 if _debug: print 'to received', uri
@@ -519,6 +519,12 @@ class Stack(object):
             if app:
                 t = app.createTransaction(r) 
                 #t = Transaction.createServer(self, app, r, self.transport, self.tag)
+                if r.method == 'ACK' and t is not None and t.id in self.transactions:
+                    # Asterisk sends the same branch id in the second call's ACK, and should not match the previous 
+                    # call's ACK. So we don't add ACK to the transactions list. Another option would be to keep
+                    # index in self.transactions as call-id + transaction-id instead of just transaction-id.
+                    # In that case there should be a way to remove ACK transactions.
+                    del self.transactions[t.id] 
             elif r.method != 'ACK':
                 self.send(Message.createResponse(404, "Not found", None, None, r))
         else:
@@ -539,9 +545,18 @@ class Stack(object):
         if not t:
             if method == 'INVITE' and r.is2xx: # success of INVITE
                 d = self.findDialog(r)
-                if not d: raise ValueError, 'No transaction or dialog for 2xx of INVITE'
-                else: d.receivedResponse(None, r)
-            else: raise ValueError, 'No transaction for response'
+                if not d: # no dialog or transaction for success response of INVITE.
+                    raise ValueError, 'No transaction or dialog for 2xx of INVITE'
+                else: 
+                    d.receivedResponse(None, r)
+            else:
+                if _debug: print 'transaction id %r not found in %r'%(Transaction.createId(branch, method), self.transactions)
+                if method == 'INVITE' and r.isfinal: # final failure response for INVITE, send ACK to same transport
+                    # TODO: check if this following is as per the standard
+                    m = Message.createRequest('ACK', str(r.To.value.uri))
+                    m['Call-ID'], m.From, m.To, m.Via, m.CSeq = r['Call-ID'], r.From, r.To, r.first('Via'), Header(str(r.CSeq.number) + ' ACK', 'CSeq')
+                    self.send(m, uri.hostPort)
+                raise ValueError, 'No transaction for response'
         else:
             t.receivedResponse(r)
         
@@ -592,6 +607,7 @@ class Transaction(object):
         '''Stop the timers and remove from the lists.'''
         self.stopTimers()
         if self.stack:
+            if _debug: print 'closing transaction %r'%(self.id,)
             if self.id in self.stack.transactions: del self.stack.transactions[self.id]
 
     def state():
@@ -1265,6 +1281,7 @@ class Dialog(UserAgent):
         d.callId = request['Call-ID'].value
         d.localTag, d.remoteTag = response.To['tag'] or '', request.From['tag'] or ''
         d.localParty, d.remoteParty = Address(str(request.To.value)), Address(str(request.From.value))
+        if _debug: print 'request contact', request.Contact
         if request.Contact: d.remoteTarget = URI(str(request.first('Contact').value.uri))
         # TODO: retransmission timer for 2xx in UAC
         stack.dialogs[d.id] = d

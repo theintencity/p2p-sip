@@ -10,14 +10,15 @@ import struct
 def createRedundant(packets):
     '''Create redundant payload using the individual RTP packets. The packets arg is assumed
     to be a list of tuples (pt, timestamp, payload). The first packet is assumed to be 
-    primary, and is put the last. All other packets are put in the same order'''
+    primary, and is put the last. All other packets are put in the reverse order'''
     hdr, data = '', ''
-    for p in packets[1:]:
-        hdr += struct.pack('!BHB', 0x80 | p[0], p[1] - packets[0][1], len(p[2]))
-        data += p[2]
-    if packets:
-        hdr += struct.pack('!BHB', packets[0][0], packets[0][1], len(packets[0][2]))
-        data += packets[0][2]
+    first = packets[0][1]
+    for pt, ts, payload in reversed(packets[1:]):
+        hdr += struct.pack('!BHB', 0x80 | pt, first - ts, len(payload))
+        data += payload
+    hdr += struct.pack('!B', 0x7f & packets[0][0])
+    data += packets[0][2]
+    # print '%r %r'%(hdr, data)
     return hdr + data
 
 def parseRedundant(packet, ts):
@@ -26,19 +27,21 @@ def parseRedundant(packet, ts):
     original RTP packet should be supplied as well.'''
     all = []
     while packet:
-        pt, = struct.unpack('!B', packet[:1])
+        pt = struct.unpack('!B', packet[:1])[0]
         packet = packet[1:]
-        if pt & 0x80: 
-            all.insert(0, (pt))
+        if pt & 0x80 == 0: 
+            all.insert(0, (pt,))
+            break
         else:
-            tsoffset, len = struct.unpack('!HB', packet[:3])
+            tsoffset, length = struct.unpack('!HB', packet[:3])
+            tsoffset = tsoffset & 0x3fff
             packet = packet[3:]
-            all.append((pt & 0x7f, tsoffset, len))
+            all.insert(0, (pt & 0x7f, tsoffset, length))
     result = []
-    for a in all[1:]: # for all secondary data
-        data = (a[0], ts+a[1], packet[:a[2]])
-        packet = packet[a[2]:]
-        result.append(data)
+    for pt, tsoffset, length in all[1:]: # for all secondary data
+        print ts, tsoffset
+        result.append((pt, ts-tsoffset, packet[:length] if length > 0 else ''))
+        if length > 0: packet = packet[length:]
     if all:
         result.insert(0, (all[0][0], ts, packet)) # put remaining data as primary
     return result

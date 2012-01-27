@@ -79,7 +79,7 @@ def createAnswer(streams, offer, **kwargs):
     s.s = '-'
     s.t = offer.t
     s.m = []
-    streams = list(streams) # so that original stream is not modified
+    streams = list(streams) # so that original list is not modified
     for your in offer.m: # for each m= line in offer
         my, i   = None, 0      # answered stream
         while i < len(streams):
