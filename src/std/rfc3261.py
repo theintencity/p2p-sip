@@ -11,7 +11,7 @@ compactness of the code.
 import re, socket, traceback
 from kutil import getlocaladdr
 from rfc2396 import isIPv4, isMulticast, isLocal, isPrivate, URI, Address
-from rfc2617 import createAuthorization
+from rfc2617 import updateAuthState, generateAuthResponse
 from socket import gethostbyname # TODO: should replace with getifaddr, SRV, NAPTR or similar
 
 _debug = False
@@ -141,6 +141,7 @@ class Header(object):
         >>> print Header.createHeaders('Event: presence, reg')
         ('Event', [Event: presence, Event: reg])
         '''
+        
         name, value = map(str.strip, value.split(':', 1))
         return (_canon(name),  map(lambda x: Header(x, name), value.split(',') if name.lower() not in _comma else [value]))
 
@@ -215,7 +216,7 @@ class Message(object):
                     if not isinstance(self[name],list): self[name] = [self[name]]
                     self[name] += values
             except:
-                if _debug: print 'error parsing', h 
+                if _debug: print 'error parsing', h
                 continue
         bodyLen = int(self['Content-Length'].value) if 'Content-Length' in self else 0
         if body: self.body = body
@@ -350,7 +351,8 @@ class Stack(object):
             'to inform that the UAS or Dialog has received a cancel for original request (Message).'
         def dialogCreated(self, dialog, ua): pass
             'to inform that the a new Dialog is created from the old UserAgent.'
-        def authenticate(self, ua, header): header.password='mypass'; return True
+        def authenticate(self, ua, credentialList, transactionRequest): return (canAuth, authType)
+            'if authType is 'server' the credentialList['password'] == mypass; return (canAuth, authType=server|client)'
             'to ask the application for credentials for this challenge header (Header).'
         def createTimer(self, cbObj): return timerObject
             'the returned timer object must have start() and stop() methods, a delay (int)
@@ -403,6 +405,7 @@ class Stack(object):
     def send(self, data, dest=None, transport=None):
         '''Send a data (Message) to given dest (URI or hostPort), or using the Via header of 
         response message if dest is missing.'''
+        # if _debug: print 'sending data from stack.send', str(data), 'end data'
         if dest and isinstance(dest, URI):
             if not dest.uri.host: raise ValueError, 'No host in destination uri'
             dest = (dest.host, dest.port or self.transport.type == 'tls' and self.transport.secure and 5061 or 5060)
@@ -499,14 +502,14 @@ class Stack(object):
                     app = d
             elif r.method != 'CANCEL': # process all other out-of-dialog request except CANCEL
                 u = self.createServer(r, uri)
-                if u: 
+                if u:
                     app = u
                 elif r.method == 'OPTIONS':
                     m = Message.createResponse(200, 'OK', None, None, r)
                     m.Allow = Header('INVITE, ACK, CANCEL, BYE, OPTIONS', 'Allow')
                     self.send(m)
                     return
-                elif r.method != 'ACK': 
+                elif r.method != 'ACK':
                     self.send(Message.createResponse(405, 'Method not allowed', None, None, r))
                     return
             else: # Process a CANCEL request
@@ -547,7 +550,7 @@ class Stack(object):
                 d = self.findDialog(r)
                 if not d: # no dialog or transaction for success response of INVITE.
                     raise ValueError, 'No transaction or dialog for 2xx of INVITE'
-                else: 
+                else:
                     d.receivedResponse(None, r)
             else:
                 if _debug: print 'transaction id %r not found in %r'%(Transaction.createId(branch, method), self.transactions)
@@ -567,7 +570,13 @@ class Stack(object):
     def receivedResponse(self, ua, response): self.app.receivedResponse(ua, response, self)
     def cancelled(self, ua, request): self.app.cancelled(ua, request, self)
     def dialogCreated(self, dialog, ua): self.app.dialogCreated(dialog, ua, self)
-    def authenticate(self, ua, header): return self.app.authenticate(ua, header, self) if hasattr(self.app, 'authenticate') else False
+    
+    def authenticate(self, ua, credentialList, transactionRequest):
+        if hasattr(self.app, 'authenticate'):
+            return self.app.authenticate(ua, credentialList, transactionRequest, self)
+        else:
+            return (False, None)
+        
     def createTimer(self, obj): return self.app.createTimer(obj, self)
     
     def findDialog(self, arg):
@@ -738,6 +747,7 @@ class ClientTransaction(Transaction):
     '''Non-INVITE client transaction'''
     def __init__(self):
         Transaction.__init__(self, False)
+
     def start(self):
         self.state = 'trying'
         if not self.transport.reliable: 
@@ -1017,7 +1027,7 @@ class UserAgent(object):
         if self.routeSet: 
             for route in map(lambda x: Header(str(x), 'Route'), self.routeSet):
                 route.value.uri.secure = self.secure
-                #print 'adding route header', route
+                # print 'adding route header', route
                 headers.append(route)
         # app adds other headers such as Supported, Require and Proxy-Require
         if contentType:
@@ -1110,14 +1120,14 @@ class UserAgent(object):
             else:
                 self.stack.receivedResponse(self, response)
         elif response.response == 401 or response.response == 407: # authentication challenge
-            if not self.authenticate(response, self.transaction): # couldn't authenticate
-                self.stack.receivedResponse(self, response)
+            if not self.authenticate(response, self.transaction):
+                self.stack.receivedResponse(self, response) #failed auth
         else:
             if self.canCreateDialog(self.request, response):
                 dialog = Dialog.createClient(self.stack, self.request, response, transaction)
                 self.stack.dialogCreated(dialog, self)
                 self.stack.receivedResponse(dialog, response)
-                if self.autoack and self.request.method == 'INVITE': 
+                if self.autoack and self.request.method == 'INVITE':
                     dialog.sendRequest(dialog.createRequest('ACK'))
             else:
                 self.stack.receivedResponse(self, response)
@@ -1232,35 +1242,36 @@ class UserAgent(object):
     def authenticate(self, response, transaction):
         '''Whether we can supply the credentials locally to authenticate or not?
         If we can, then re-send the request in new transaction and return true, else return false'''
-        a = response.first('WWW-Authenticate') or response.first('Proxy-Authenticate') or None
-        if not a: 
+        responseHeader = response.first('WWW-Authenticate') or response.first('Proxy-Authenticate') or None
+        if not responseHeader:
             return False
         request = Message(str(transaction.request)) # construct a new message
         
         resend, present = False, False
-        for b in request.all('Authorization', 'Proxy-Authorization'):
-            if a.realm == b.realm and (a.name == 'WWW-Authenticate' and b.name == 'Authorization' or a.name == 'Proxy-Authenticate' and b.name == 'Proxy-Authorization'):
+        for requestHeader in request.all('Authorization', 'Proxy-Authorization'):
+            if responseHeader.realm == requestHeader.realm and (responseHeader.name == 'WWW-Authenticate' and requestHeader.name == 'Authorization' or responseHeader.name == 'Proxy-Authenticate' and requestHeader.name == 'Proxy-Authorization'):
                 present = True
                 break
-
-        if not present and 'realm' in a: # prompt for password
-            result = self.stack.authenticate(self, a)
-            if not result or 'password' not in a and 'hashValue' not in a: 
-                return False
-            value = createAuthorization(a.value, a.username, a.password, str(request.uri), self.request.method, self.request.body, self.auth)
-            if value:
-                request.insert(Header(value, (a.name == 'WWW-Authenticate') and 'Authorization' or 'Proxy-Authorization'), True)
-                resend = True
         
-        if resend:
-            self.localSeq = self.localSeq + 1
-            request.CSeq = Header(str(self.localSeq) + ' ' + request.method, 'CSeq')
-            request.first('Via').branch = Transaction.createBranch(request, False) 
-            self.request = request
-            self.transaction = Transaction.createClient(self.stack, self, self.request, self.transaction.transport, self.transaction.remote)
-            return True
-        else:
-            return False;
+        result = False
+        if not present and 'realm' in responseHeader: # prompt for password
+            credentialList = dict()
+            updateAuthState(responseHeader, credentialList, self.auth, str(request.uri), self.request.body, self.request.method)
+            result, authType = self.stack.authenticate(self, transaction.id, credentialList)
+            if authType == 'server':
+                authHeader = generateAuthResponse(credentialList)
+                if authHeader:
+                    result = self.sendAuth(responseHeader.name, transaction.request, authHeader)
+        return result
+
+    def sendAuth(self, authType, request, header):
+        request.insert(Header(header, (authType == 'WWW-Authenticate') and 'Authorization' or 'Proxy-Authorization'), True)
+        self.localSeq = self.localSeq + 1
+        request.CSeq = Header(str(self.localSeq) + ' ' + request.method, 'CSeq')
+        request.first('Via').branch = Transaction.createBranch(request, False)
+        self.request = request
+        self.transaction = Transaction.createClient(self.stack, self, self.request, self.transaction.transport, self.transaction.remote)
+        return True
     
 # @implements RFC3261 P69L23-P70L18
 class Dialog(UserAgent):
@@ -1294,7 +1305,7 @@ class Dialog(UserAgent):
         d = Dialog(stack, request, False)
         d.request = request
         d.routeSet = [x for x in reversed(response.all('Record-Route'))] if response['Record-Route'] else None
-        #print 'UAC routeSet=', d.routeSet
+        # if _debug: print 'UAC routeSet=', d.routeSet
         d.secure = request.uri.secure
         d.localSeq, d.remoteSeq = request.CSeq.number, 0
         d.callId = request['Call-ID'].value
@@ -1399,9 +1410,9 @@ class Dialog(UserAgent):
         if response.response == 408 or response.response == 481: # remote doesn't recognize the dialog
             self.close() 
             
-        if response.response == 401 or response.response == 407:
+        if response.response == 401 or response.response == 407:# authentication challenge
             if not self.authenticate(response, transaction):
-                self.stack.receivedResponse(self, response)
+                self.stack.receivedResponse(self, response) #Failed auth
         elif transaction:
             self.stack.receivedResponse(self, response)
         

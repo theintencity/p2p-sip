@@ -47,37 +47,18 @@ def createAuthorization(challenge, username, password, uri=None, method=None, en
     >>> print createAuthorization('Basic realm="WallyWorld"', 'Aladdin', 'open sesame')
     Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==
     '''
-    authMethod, sep, rest = challenge.strip().partition(' ')
-    ch, cr = dict(), dict() # challenge and credentials
-    cr['password']   = password
-    cr['username']   = username
+    authMethod, sep, rest = challenge.value.strip().partition(' ')
+    challengeList, credentialList = dict(), dict() # challenge and credentials
+    credentialList['password']   = password
+    credentialList['username']   = username
     
     # @implements RFC2617 P5L20-P5L41
     if authMethod.lower() == 'basic':
-        return authMethod + ' ' + basic(cr)
+        return generateBasicResponse(credentialList)
     # @implements RFC2617 P6L46-P7L5
     elif authMethod.lower() == 'digest':
-        for n,v in map(lambda x: x.strip().split('='), rest.split(',') if rest else []):
-            ch[n.lower().strip()] = _unquote(v.strip())
-        # TODO: doesn't work if embedded ',' in value, e.g., qop="auth,auth-int"
-        # @implements RFC2617 P8L3-P8L25
-        for y in filter(lambda x: x in ch, ['username', 'realm', 'nonce', 'opaque', 'algorithm']):
-            cr[y] = ch[y]
-        cr['uri']        = uri
-        cr['httpMethod'] = method
-        if 'qop' in ch:
-            if context and 'cnonce' in context:
-                cnonce, nc = context['cnonce'], context['nc'] + 1
-            else:
-                cnonce, nc = H(str(randint(0, 2**31))), 1
-            if context:
-                context['cnonce'], context['nc'] = cnonce, nc
-            cr['qop'], cr['cnonce'], cr['nc'] = 'auth', cnonce, '%08x'% nc
-    
-        # @implements RFC2617 P11L11-P11L30
-        cr['response'] = digest(cr)
-        items = sorted(filter(lambda x: x not in ['name', 'authMethod', 'value', 'httpMethod', 'entityBody', 'password'], cr))
-        return authMethod + ' ' + ','.join(map(lambda y: '%s=%s'%(y, (cr[y] if y == 'qop' or y == 'nc' else _quote(cr[y]))), items))
+        updateAuthState(challenge, credentialList, context, uri, entityBody, method)
+        return generateDigestReponse(credentialList)
     else:
         raise ValueError, 'Invalid auth method -- ' + authMethod
 
@@ -86,8 +67,40 @@ def createAuthorization(challenge, username, password, uri=None, method=None, en
 H = lambda d: md5(d).hexdigest()
 KD = lambda s, d: H(s + ':' + d)
 
+def updateAuthState(challenge, credentialList, context, uri, entityBody, method):
+    challengeList = dict()
+    authMethod, sep, rest = challenge.value.strip().partition(' ')
+    credentialList['authMethod'] = authMethod
+    if authMethod.lower() == 'digest':
+        for n,v in map(lambda x: x.strip().split('='), rest.split(',') if rest else []):
+            challengeList[n.lower().strip()] = _unquote(v.strip())
+        # TODO: doesn't work if embedded ',' in value, e.g., qop="auth,auth-int"
+        # @implements RFC2617 P8L3-P8L25
+        for y in filter(lambda x: x in challengeList, ['username', 'realm', 'nonce', 'opaque', 'algorithm']):
+            credentialList[y] = challengeList[y]
+        credentialList['uri']        = uri
+        credentialList['httpMethod'] = method
+        credentialList['authType'] = challenge.name
+        if 'qop' in challengeList:
+            if context and 'cnonce' in context:
+                cnonce, nc = context['cnonce'], context['nc'] + 1
+            else:
+                cnonce, nc = H(str(randint(0, 2**31))), 1
+            if context:
+                context['cnonce'], context['nc'] = cnonce, nc
+            credentialList['qop'], credentialList['cnonce'], credentialList['nc'] = 'auth', cnonce, '%08x'% nc
+
+def generateAuthResponse(credentialList):
+    return generateDigestResponse(credentialList) if credentialList['authMethod'].lower() == 'digest' else generateBasicResponse(credentialList)
+
+def generateDigestResponse(credentialList):
+    # @implements RFC2617 P11L11-P11L30
+    credentialList['response'] = digest(credentialList)
+    items = sorted(filter(lambda x: x not in ['name', 'authMethod', 'value', 'httpMethod', 'entityBody', 'password'], credentialList))
+    return credentialList['authMethod'] + ' ' + ','.join(map(lambda y: '%s=%s'%(y, (credentialList[y] if y == 'qop' or y == 'nc' else _quote(credentialList[y]))), items))
+
 # @implements RFC2617 P18L34-P19L9
-def digest(cr):
+def digest(credentialList):
     '''Create a digest response for the credentials.
     
     >>> input = {'httpMethod':'GET', 'username':'Mufasa', 'password': 'Circle Of Life', 'realm':'testrealm@host.com', 'algorithm':'md5', 'nonce':'dcd98b7102dd2f0e8b11d0f600bfb0c093', 'uri':'/dir/index.html', 'qop':'auth', 'nc': '00000001', 'cnonce':'0a4f113b', 'opaque':'5ccc069c403ebaf9f0171e9517f40e41'}
@@ -95,7 +108,7 @@ def digest(cr):
     "6629fae49393a05397450978507c4ef1"
     '''
     algorithm, username, realm, password, nonce, cnonce, nc, qop, httpMethod, uri, entityBody \
-      = map(lambda x: cr[x] if x in cr else None, ['algorithm', 'username', 'realm', 'password', 'nonce', 'cnonce', 'nc', 'qop', 'httpMethod', 'uri', 'entityBody'])
+      = map(lambda x: credentialList[x] if x in credentialList else None, ['algorithm', 'username', 'realm', 'password', 'nonce', 'cnonce', 'nc', 'qop', 'httpMethod', 'uri', 'entityBody'])
       
     # @implements RFC2617 P13L26-P13L45
     if algorithm and algorithm.lower() == 'md5-sess':
@@ -115,16 +128,18 @@ def digest(cr):
     else:
         return _quote(KD(H(A1), nonce + ':' + H(A2)))
 
+def generateBasicResponse(credentialList):
+    return credentialList['authMethod'] + ' ' + basic(credentialList)
 
 # @implements RFC2617 P6L8-P6L11
-def basic(cr):
+def basic(credentialList):
     '''Create a basic response for the credentials.
     
     >>> print basic({'username':'Aladdin', 'password':'open sesame'})
     QWxhZGRpbjpvcGVuIHNlc2FtZQ==
     '''
     # @implements RFC2617 P5L43-P6L6
-    return b64encode(cr['username'] + ':' + cr['password'])
+    return b64encode(credentialList['username'] + ':' + credentialList['password'])
 
 
 if __name__ == '__main__':
