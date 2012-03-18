@@ -50,7 +50,7 @@ class IncomingEvent(MessageEvent):
         self.ua.sendResponse(code, reason)
     def challenge(self, realm):
         response = self.ua.createResponse(401, 'Unauthorized')
-        response.insert(Header(createAuthenticate(realm=realm, domain=str(self.uri), stale=('FALSE' if auth==401 else 'TRUE')), 'WWW-Authenticate'), append=True)
+        response.insert(Header(createAuthenticate(realm=realm, domain=str(self.uri), stale='FALSE'), 'WWW-Authenticate'), append=True)
         self.ua.sendResponse(response)
     def proxy(self, recordRoute=False):
         location = self.location if isinstance(self.location, list) else [self.location]
@@ -58,7 +58,8 @@ class IncomingEvent(MessageEvent):
             proxied = self.ua.createRequest(self.method, c, recordRoute=recordRoute)
             self.ua.sendRequest(proxied)
         if not location:
-            self.ua.sendResponse(480, 'Temporarily Unavailable')
+            if self.ua.request.method != 'ACK':
+                self.ua.sendResponse(480, 'Temporarily Unavailable')
     def redirect(self):
         location = self.location if isinstance(self.location, list) else [self.location]
         response = self.ua.createResponse(302, 'Moved Temporarily')
