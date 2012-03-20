@@ -590,7 +590,7 @@ class User(object):
         def _cancelled(self, ua, request): # a generator version
             if hasattr(ua, 'queue') and ua.queue is not None:
                 yield ua.queue.put(request)
-            elif self._queue and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
+            elif self._queue is not None and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
                 yield self._queue.put(('close', (str(request.From.value), ua)))
         multitask.add(_cancelled(self, ua, request))
         
