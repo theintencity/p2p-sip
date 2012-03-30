@@ -10,10 +10,12 @@ The high level script in this module controls the behavior of an incoming call s
 An examples from SER config file is at http://lists.iptel.org/pipermail/serusers/2004-December/013690.html
 '''
 
+import sys, logging
 from app import sipapi
 from std import rfc3261 
+from external import log
 
-_debug = False  # To debug: enable this if importing as module, otherwise use option -d command line option if running as application
+logger = logging.getLogger('sipd')
 HP = lambda x: (x.partition(':')[0], int(x.partition(':')[2])) if ':' in x else (x, 5060) # convert "ip:port" to ("ip", port) and "ip" to ("ip", 5060)
 HPS= lambda x: '%s:%d'%(x[0], x[1]) if x[1] != 0 and x[1] != 5060 and x[1] is not None else x[0] # convert ("ip", port) to "ip:port" or "ip"
 
@@ -22,7 +24,8 @@ if __name__ == '__main__': # parse command line options, and set the high level 
     parser = OptionParser()
     parser.add_option('-d', '--verbose',   dest='verbose', default=False, action='store_true', help='enable debug for all modules')
     group1 = OptionGroup(parser, 'Registrar', 'Use these options to specify registrar options such as listening address and hosted domains. A hosted domain is the host portion of the URI for which this registrar will accept registrations. Any domain that is not hosted here is treated as foreign domain.')
-    group1.add_option('-l', '--local',     dest='local',   default='0.0.0.0:5060', metavar='HOST:PORT', help='local listening HOST:PORT. Default is "0.0.0.0:5060"')
+    group1.add_option('-t', '--transport', dest='transport', default=[], action='append', metavar='TYPE', help='transport type is "udp", "tcp", "tls", "ws" or "wss". This can appear multiple times, e.g., "-t udp -t tcp". Default is "udp"')
+    group1.add_option('-l', '--local',     dest='local',  default=[], action='append', metavar='HOST:PORT', help='local listening HOST:PORT. If multiple --transport are specified then multiple --local should be specified, one per transport, in that order. Default is "0.0.0.0:5060"')
     group1.add_option('-r', '--domain',    dest='domain',  default=[], action='append',metavar='DOMAIN', help='restrict hosted domain, e.g., example.net. This option can appear multiple times. If the option is not specified, then it can host any domain.')
     parser.add_option_group(group1)
     group2 = OptionGroup(parser, 'Failover and Load Sharing', 'Use these options to specify multiple primary and secondary SIP servers, by using multiple -p and -s options. The server farm automatically uses two-stage architecture if there are multiple primary servers. Each instance of the server in the farm must use the same ordered list of server options.')
@@ -31,10 +34,30 @@ if __name__ == '__main__': # parse command line options, and set the high level 
     parser.add_option_group(group2)
     (options, args) = parser.parse_args()
     
-    if options.verbose: _debug = sipapi._debug = rfc3261._debug = True 
+    if not options.local: options.local = ['0.0.0.0:5060']
+    if not options.transport: options.transport = ['udp']
+    if len(options.local) != len(options.transport):
+        print 'must use multiple --local option with multiple --transport option'
+        sys.exit(-1)
+        
+    handler = log.ColorizingStreamHandler(stream=sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter('%(asctime)s.%(msecs)d %(name)s %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
+    logging.getLogger().addHandler(handler)
+    
+    logger.setLevel((options.verbose or options.verbose_all) and logging.DEBUG or logging.INFO)
+    if options.verbose:
+        logger.setLevel(logging.DEBUG)
+        sipapi.logger.setLevel(logging.DEBUG)
+        if hasattr(rfc3261, 'logger'): rfc3261.logger.setLevel(logging.DEBUG)
+        else: rfc3261._debug = True
+    else:
+        logger.setLevel(logging.INFO)
+        
     # create the proxy and registrar agent
-    sipaddr = HP(options.local)
-    agent = sipapi.Agent(sipaddr=sipaddr, transports=('udp',))
+    sipaddr = HP(options.local[0])
+    hostports = [HP(x) for x in options.local]
+    agent = sipapi.Agent(listen=[(y, x[0], x[1]) for x, y in zip(hostports, options.transport)])
     agent.domain = options.domain                  # list of supported local domains for registrar.
     agent.location = sipapi.Location()             # storage for contact locations.
     # agent.subscriber = sipapi.Subscriber()       # list of subscribers. Enable this to allow only registered subscribers.
@@ -43,7 +66,7 @@ if __name__ == '__main__': # parse command line options, and set the high level 
         local = sipaddr if sipaddr[0] != '0.0.0.0' else ('localhost', sipaddr[1])
         if agent.primary and local in agent.primary: agent.index = agent.primary.index(local)+1
         elif agent.secondary and local in agent.secondary: agent.index = -agent.secondary.index(local)-1
-        else: raise ValueError('local sipaddr %s argument must exist in primary or secondary if primary or secondary are specified'%(sipaddr))
+        else: raise ValueError('local %s argument must exist in primary or secondary if primary or secondary are specified'%(sipaddr))
     agent.start()  
     
 def route(event):
@@ -87,11 +110,11 @@ def route(event):
             return event.action.reject(403, 'Please register to use our service')
     else:
         if event.agent.domain and HPS(event.uri.hostPort) not in event.agent.domain or not event.agent.domain and not event.ua.isLocal(event.uri): 
-            if _debug: print 'proxying non-invite non-local request'
+            logger.debug('proxying non-invite non-local request')
             event.location = event.uri
             return event.action.proxy()
     event.location = map(lambda x: x.value.uri, event.agent.location.locate(str(event.uri).lower()))
-    if _debug: print 'locate returned', event.location
+    logger.debug('locate returned %r', event.location)
     return event.action.proxy(recordRoute=(event.method=='INVITE'))
 
 if __name__ == '__main__': 

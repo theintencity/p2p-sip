@@ -71,29 +71,56 @@ class Header(object):
             count = addr.parse(value)
             value, rest = addr, value[count:]
             if rest:
-                for n,sep,v in map(lambda x: x.partition('='), rest.split(';') if rest else []):
-                    if n.strip():
-                        self.__dict__[n.lower().strip()] = v.strip()
+                self._parseParams(rest)
+#            for n,sep,v in map(lambda x: x.partition('='), rest.split(';') if rest else []):
+#                if n.strip():
+#                    self.__dict__[n.lower().strip()] = v.strip()
         elif name not in _comma and name not in _unstructured: # standard
             value, sep, rest = value.partition(';')
-            for n,sep,v in map(lambda x: x.partition('='), rest.split(';') if rest else []):
-                # TODO: add checks for token 
-                self.__dict__[n.lower().strip()] = v.strip()
+            if rest:
+                self._parseParams(rest)
+#            for n,sep,v in map(lambda x: x.partition('='), rest.split(';') if rest else []):
+#                # TODO: add checks for token 
+#                self.__dict__[n.lower().strip()] = v.strip()
         if name in _comma:
             self.authMethod, sep, rest = value.strip().partition(' ')
-            for n,v in map(lambda x: x.strip().split('='), rest.split(',') if rest else []):
-                self.__dict__[n.lower().strip()] = _unquote(v.strip())
+            if rest:
+                self._parseParams(rest)
+#            for n,v in map(lambda x: x.strip().split('='), rest.split(',') if rest else []):
+#                self.__dict__[n.lower().strip()] = _unquote(v.strip())
         elif name == 'cseq':
             n, sep, self.method = map(lambda x: x.strip(), value.partition(' '))
             self.number = int(n); value = n + ' ' + self.method
         return value
+    
+    def _parseParams(self, rest):
+        try:
+            length, index = len(rest), 0
+            while index < length:
+                sep1 = rest.find('=', index)
+                sep2 = rest.find(';', index)
+                if sep2 < 0: sep2 = length # next parameter
+                n = v = ''
+                if sep1 >= 0 and sep1 < sep2: # parse "a=b;..." or "a=b"
+                    n = rest[index:sep1].lower().strip()
+                    if rest[sep1+1] == '"': sep1 += 1; sep2 = rest.find('"', sep1+2)
+                    v = rest[sep1+1:sep2].strip()
+                    index = sep2+1
+                elif sep1 < 0 or sep1 >= 0 and sep1 > sep2: # parse "a" or "a;b=c" or ";b"
+                    n, index = rest[index:sep2].lower().strip(), sep2+1
+                else: break
+                if n:
+                    self.__dict__[n] = v
+        except:
+            if _debug: print 'error parsing parameters'; traceback.print_exc()
+
     
     def __str__(self):
         '''Return a string representation of the header value.'''
         # TODO: use reduce instead of join+map
         name = self.name.lower()
         rest = '' if ((name in _comma) or (name in _unstructured)) \
-                else (';'.join(map(lambda x: self.__dict__[x] and '%s=%s'%(x.lower(),self.__dict__[x]) or x, filter(lambda x: x.lower() not in ['name','value', '_viauri'], self.__dict__))))
+                else (';'.join(['%s'%(x,) if not y else ('%s=%s'%(x.lower(), y) if re.match(r'^[a-zA-Z0-9\-_\.=]*$', str(y)) else '%s="%s"'%(x.lower(), y))for x, y in self.__dict__.iteritems() if x.lower() not in ['name','value', '_viauri']]))
         return str(self.value) + (rest and (';'+rest) or '');
     
     def __repr__(self):
@@ -1617,6 +1644,13 @@ class Proxy(UserAgent):
     
     def error(self, transaction, error):
         '''A transaction gave transport error.'''
+        if transaction is None:
+            self.transaction = None
+            if self.request.method != 'ACK':
+                response = Message.createResponse(503, 'Service unavailable - ' + error, None, None, self.request)
+                return self.sendResponse(response)
+            else:
+                if _debug: print 'warning: dropping ACK:', error
         branch = self.getBranch(transaction)
         if not branch:  return # invalid transaction
         self.transaction = None

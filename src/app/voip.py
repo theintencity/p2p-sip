@@ -616,9 +616,27 @@ class User(object):
         def _send(self, data, addr): # generator version
             if _debug: print 'sending[%d] to %s\n%s'%(len(data), addr, data)
             if self.sock:
-                try: yield self.sock.sendto(data, addr)
-                except socket.error:
-                    if _debug: print 'socket error in sending' 
+                if self.sock.type == socket.SOCK_STREAM:
+                    try: 
+                        remote = self.sock.getpeername()
+                        if remote != addr:
+                            if _debug: print 'connected to wrong addr', remote, 'but sending to', addr
+                    except socket.error: # not connected, try connecting
+                        try:
+                            self.sock.connect(addr)
+                        except socket.error:
+                            if _debug: print 'failed to connect to', addr
+                    try:
+                        yield self.sock.send(data)
+                    except socket.error:
+                        if _debug: print 'socket error in send'
+                elif self.sock.type == socket.SOCK_DGRAM:
+                    try: 
+                        yield self.sock.sendto(data, addr)
+                    except socket.error:
+                        if _debug: print 'socket error in sendto' 
+                else:
+                    if _debug: print 'invalid socket type', self.sock.type
         multitask.add(_send(self, data, addr))
 
 #-------------------- Media Session ---------------------------------------

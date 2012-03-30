@@ -297,13 +297,13 @@ class Stacks(object):
         if stack.sock:
             try: 
                 if stack.transport.type == Stacks.UDP: stack.sock.sendto(data, addr)
-                elif addr in self._conn: self._conn[addr].send(data)
+                elif addr in self._conn: self._conn[addr].sendall(data)
                 elif self.allow_outbound:
                     conn = self._conn[addr] = socket.socket(type=socket.SOCK_STREAM)
                     try:
                         logger.debug('first connecting to %r', addr)
                         conn.connect(addr)
-                        conn.send(data)
+                        conn.sendall(data)
                         gevent.spawn(self._siptcpreceiver, stack, conn, addr)
                     except:
                         logger.exception('failed to connect to %r', addr)
