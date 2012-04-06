@@ -45,7 +45,7 @@ if __name__ == '__main__': # parse command line options, and set the high level 
     handler.setFormatter(logging.Formatter('%(asctime)s.%(msecs)d %(name)s %(levelname)s - %(message)s', datefmt='%H:%M:%S'))
     logging.getLogger().addHandler(handler)
     
-    logger.setLevel((options.verbose or options.verbose_all) and logging.DEBUG or logging.INFO)
+    logger.setLevel(options.verbose and logging.DEBUG or logging.INFO)
     if options.verbose:
         logger.setLevel(logging.DEBUG)
         sipapi.logger.setLevel(logging.DEBUG)
