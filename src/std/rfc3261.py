@@ -85,7 +85,7 @@ class Header(object):
         if name in _comma:
             self.authMethod, sep, rest = value.strip().partition(' ')
             if rest:
-                self._parseParams(rest)
+                self._parseParams(rest, delimiter=',')
 #            for n,v in map(lambda x: x.strip().split('='), rest.split(',') if rest else []):
 #                self.__dict__[n.lower().strip()] = _unquote(v.strip())
         elif name == 'cseq':
@@ -93,19 +93,23 @@ class Header(object):
             self.number = int(n); value = n + ' ' + self.method
         return value
     
-    def _parseParams(self, rest):
+    def _parseParams(self, rest, delimiter=';'):
         try:
             length, index = len(rest), 0
             while index < length:
                 sep1 = rest.find('=', index)
-                sep2 = rest.find(';', index)
+                sep2 = rest.find(delimiter, index)
                 if sep2 < 0: sep2 = length # next parameter
                 n = v = ''
                 if sep1 >= 0 and sep1 < sep2: # parse "a=b;..." or "a=b"
                     n = rest[index:sep1].lower().strip()
-                    if rest[sep1+1] == '"': sep1 += 1; sep2 = rest.find('"', sep1+2)
-                    v = rest[sep1+1:sep2].strip()
-                    index = sep2+1
+                    if rest[sep1+1] == '"': sep1 += 1; sep2 = rest.find('"', sep1+1)
+                    if sep2 >= 0:
+                        v = rest[sep1+1:sep2].strip()
+                        index = sep2+2
+                    else:
+                        v = rest[sep1+1:].strip()
+                        index = length
                 elif sep1 < 0 or sep1 >= 0 and sep1 > sep2: # parse "a" or "a;b=c" or ";b"
                     n, index = rest[index:sep2].lower().strip(), sep2+1
                 else: break
