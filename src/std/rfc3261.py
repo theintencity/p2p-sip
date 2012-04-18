@@ -103,10 +103,14 @@ class Header(object):
                 n = v = ''
                 if sep1 >= 0 and sep1 < sep2: # parse "a=b;..." or "a=b"
                     n = rest[index:sep1].lower().strip()
-                    if rest[sep1+1] == '"': sep1 += 1; sep2 = rest.find('"', sep1+1)
+                    if rest[sep1+1] == '"': 
+                        sep1 += 1
+                        sep2 = rest.find('"', sep1+1)
+                        if sep2 >= 0:
+                            sep2 += 1
                     if sep2 >= 0:
                         v = rest[sep1+1:sep2].strip()
-                        index = sep2+2
+                        index = sep2+1
                     else:
                         v = rest[sep1+1:].strip()
                         index = length
