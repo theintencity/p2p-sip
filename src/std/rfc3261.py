@@ -71,21 +71,21 @@ class Header(object):
             count = addr.parse(value)
             value, rest = addr, value[count:]
             if rest:
-                self._parseParams(rest)
+                for k, v in self.parseParams(rest): self.__dict__[k] = v
 #            for n,sep,v in map(lambda x: x.partition('='), rest.split(';') if rest else []):
 #                if n.strip():
 #                    self.__dict__[n.lower().strip()] = v.strip()
         elif name not in _comma and name not in _unstructured: # standard
             value, sep, rest = value.partition(';')
             if rest:
-                self._parseParams(rest)
+                for k, v in self.parseParams(rest): self.__dict__[k] = v
 #            for n,sep,v in map(lambda x: x.partition('='), rest.split(';') if rest else []):
 #                # TODO: add checks for token 
 #                self.__dict__[n.lower().strip()] = v.strip()
         if name in _comma:
             self.authMethod, sep, rest = value.strip().partition(' ')
             if rest:
-                self._parseParams(rest, delimiter=',')
+                for k, v in self.parseParams(rest, delimiter=','): self.__dict__[k] = v
 #            for n,v in map(lambda x: x.strip().split('='), rest.split(',') if rest else []):
 #                self.__dict__[n.lower().strip()] = _unquote(v.strip())
         elif name == 'cseq':
@@ -93,7 +93,20 @@ class Header(object):
             self.number = int(n); value = n + ' ' + self.method
         return value
     
-    def _parseParams(self, rest, delimiter=';'):
+    @staticmethod
+    def parseParams(rest, delimiter=';'):
+        '''A generator to parse the parameters using the supplied delimitter.
+        >>> print list(Header.parseParams(";param1=value1;param2=value2"))
+        [('param1', 'value1'), ('param2', 'value2')]
+        >>> print list(Header.parseParams(';param1="value1" ;param2="value2"'))
+        [('param1', 'value1'), ('param2', 'value2')]
+        >>> print list(Header.parseParams('param1="value1", param2=value2', delimiter=','))
+        [('param1', 'value1'), ('param2', 'value2')]
+        >>> print list(Header.parseParams('param1="";param2'))
+        [('param1', ''), ('param2', '')]
+        >>> print list(Header.parseParams('param1="";param2=;'))  # error cases
+        [('param1', ''), ('param2', '')]
+        '''
         try:
             length, index = len(rest), 0
             while index < length:
@@ -106,8 +119,6 @@ class Header(object):
                     if rest[sep1+1] == '"': 
                         sep1 += 1
                         sep2 = rest.find('"', sep1+1)
-                        if sep2 >= 0:
-                            sep2 += 1
                     if sep2 >= 0:
                         v = rest[sep1+1:sep2].strip()
                         index = sep2+1
@@ -118,9 +129,10 @@ class Header(object):
                     n, index = rest[index:sep2].lower().strip(), sep2+1
                 else: break
                 if n:
-                    self.__dict__[n] = v
+                    yield (n, v)
         except:
             if _debug: print 'error parsing parameters'; traceback.print_exc()
+        raise StopIteration(None)
 
     
     def __str__(self):
@@ -980,7 +992,7 @@ if __name__ == '__main__':
               + 'From: sip:sanjayc77@example.net\r\n'
               + 'Call-ID: 783713917681\r\n'
               + '\r\n')
-    print Transaction.createBranch(m, True)
+    assert Transaction.createBranch(m, True) == 'z9hG4bK1D-mLC6hGL1liMJ2jjYlTw..'
 
 #---------------------------UserAgent and Dialog---------------------------
 
@@ -1168,7 +1180,7 @@ class UserAgent(object):
         #    response.Allow = Header('INVITE, ACK, CANCEL, BYE', 'Allow') # TODO make this configurable
         #    transaction.sendResponse(response)
         #    return
-        if request.uri.scheme not in ['sip', 'sips']:
+        if request.uri.scheme not in ['sip', 'sips', 'urn']:
             transaction.sendResponse(transaction.createResponse(416, 'Unsupported URI scheme'))
             return
         if 'tag' not in request.To: # out of dialog request
