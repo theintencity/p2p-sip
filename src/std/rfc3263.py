@@ -6,9 +6,9 @@ Uses DNS to resolve a domain name into SIP servers using NAPTR, SRV and A/AAAA r
 TODO: (1) need to make it multitask compatible or have a separate thread, (3) need to return priority and weight.
 
 >>> print resolve('sip:192.1.2.3')                    # with numeric IP
-[('192.1.2.3', 5060, 'udp'), ('192.1.2.3', 5060, 'tcp'), ('192.1.2.3', 5060, 'sctp')]
+[('192.1.2.3', 5060, 'udp'), ('192.1.2.3', 5060, 'tcp'), ('192.1.2.3', 5061, 'tls')]
 >>> print resolve('sip:192.1.2.3;maddr=192.3.3.3')    #    and maddr param
-[('192.3.3.3', 5060, 'udp'), ('192.3.3.3', 5060, 'tcp'), ('192.3.3.3', 5060, 'sctp')]
+[('192.3.3.3', 5060, 'udp'), ('192.3.3.3', 5060, 'tcp'), ('192.3.3.3', 5061, 'tls')]
 >>> print resolve('sip:192.1.2.3:5062;transport=tcp') #    and port, transport param
 [('192.1.2.3', 5062, 'tcp')]
 >>> print resolve('sips:192.1.2.3')                   #    and sips
@@ -16,25 +16,30 @@ TODO: (1) need to make it multitask compatible or have a separate thread, (3) ne
 >>> print resolve('sips:192.1.2.3:5062')              #    and sips, port
 [('192.1.2.3', 5062, 'tls')]
 >>> print resolve('sip:39peers.net')                  # with non-numeric without NAPTR/SRV
-[('74.220.215.84', 5060, 'udp'), ('74.220.215.84', 5060, 'tcp'), ('74.220.215.84', 5060, 'sctp')]
+[('74.220.215.84', 5060, 'udp'), ('74.220.215.84', 5060, 'tcp'), ('74.220.215.84', 5061, 'tls')]
 >>> print resolve('sip:39peers.net:5062')             #    and port  
-[('74.220.215.84', 5062, 'udp'), ('74.220.215.84', 5062, 'tcp'), ('74.220.215.84', 5062, 'sctp')]
+[('74.220.215.84', 5062, 'udp'), ('74.220.215.84', 5062, 'tcp'), ('74.220.215.84', 5062, 'tls')]
 >>> print resolve('sip:39peers.net;transport=tcp')    #    and transport  
 [('74.220.215.84', 5060, 'tcp')]
 >>> print resolve('sips:39peers.net')                 #    and sips  
 [('74.220.215.84', 5061, 'tls')]
 >>> print resolve('sip:iptel.org')                    # with no NAPTR but has SRV records
-[('213.192.59.75', 5060, '_sip._udp'), ('213.192.59.75', 5060, '_sip._tcp')]
+[('217.9.36.145', 5060, 'udp'), ('217.9.36.145', 5060, 'tcp')]
 >>> print resolve('sips:iptel.org')                   #    and sips
-[('213.192.59.75', 5061, 'tls')]
->>> print sorted(resolve('sip:columbia.edu'))         # with one NAPTR and two SRV records
-[('128.59.59.199', 5060, 'udp'), ('128.59.59.79', 5060, 'udp')]
->>> print sorted(resolve('sips:columbia.edu'))        #    and sips (no NAPTR for sips)
+[('217.9.36.145', 5061, 'tls')]
+>>> print resolve('sip:columbia.edu')                 # with one NAPTR and two SRV records
+[('128.59.59.229', 5060, 'udp'), ('128.59.59.208', 5060, 'udp')]
+>>> print resolve('sips:columbia.edu')                #    and sips (no NAPTR for sips)
 [('128.59.48.24', 5061, 'tls')]
->>> print sorted(resolve('sip:yale.edu'))             # with NAPTR and SRV, but no A. uses A for domain.
-[('130.132.51.8', 5060, 'tcp'), ('130.132.51.8', 5060, 'udp')]
->>> print sorted(resolve('sip:adobe.com'))            # with multiple NAPTR and multiple SRV
-[('192.150.12.115', 5060, 'tcp'), ('192.150.12.115', 5060, 'udp'), ('192.150.12.115', 5061, 'tls')]
+>>> print resolve('sip:adobe.com')                    # with multiple NAPTR and multiple SRV
+[('192.150.12.115', 5060, 'udp')]
+>>> print resolve('sip:adobe.com', supported=('tcp', 'tls')) # if udp is not supported
+[('192.150.12.115', 5060, 'tcp')]
+>>> print resolve('sips:adobe.com')                    # with multiple NAPTR and multiple SRV
+[('192.150.12.115', 5061, 'tls')]
+>>> try: resolve('sip:twilio.com')                     # with incorrectly configured SRV
+... except: print 'error'
+error
 '''
 
 import sys, os, time, random
@@ -50,8 +55,7 @@ import dns
 from std.rfc2396 import URI, isIPv4
 
 _debug = False; # enable debug trace or not
-_resolver, _cache, _secproto, _unsecproto = None, {}, ('tls', ), ('udp', 'tcp', 'sctp') # Name servers and supported transports, resolver and DNS cache (plus negative cache)
-_supported = _secproto + _unsecproto # list of supported protocols 
+_resolver, _cache = None, {} # Name servers, resolver and DNS cache (plus negative cache)
 _proto = {'udp': ('sip+d2u', 5060), 'tcp': ('sip+d2t', 5060), 'tls': ('sips+d2t', 5061), 'sctp': ('sip+d2s', 5060)} # map from transport to details
 _rproto = dict([(x[1][0], x[0]) for x in _proto.iteritems()]) # reverse mapping {'sip+d2u': 'udp', ...} 
 _xproto = dict([(x[0], '_%s._%s'%(x[1][0].split('+')[0], x[0] if x[0] != 'tls' else 'tcp')) for x in _proto.iteritems()]) # mapping {'udp' : '_sip._udp', ...}
@@ -65,7 +69,9 @@ def _query(key, negTimeout=60): # key is (target, type)
     global _resolver; resolver = _resolver or dns.Resolver(_nameservers)
     if key in _cache and _cache[key][1] < time.time(): return random.shuffle(_cache[key][0]) and _cache[key][0]
     try:
-        raw = resolver.Raw(key[0], key[1], dns.C_IN, True)
+        raw = resolver.Raw(key[0], key[1], dns.C_IN, recursion=True, proto=None)
+        if raw and raw['HEADER']['OPCODES']['TC']: # if truncated, try with TCP
+            raw = resolver.Raw(key[0], key[1], dns.C_IN, recursion=False, proto='tcp')
         answer = raw and raw['HEADER']['ANCOUNT'] > 0 and raw['ANSWER'] or []; random.shuffle(answer)
     except Exception, e:
         if _debug: print '_query(', key, ') exception=', e 
@@ -74,36 +80,44 @@ def _query(key, negTimeout=60): # key is (target, type)
     return answer
  
 # @implements RFC3263 P1L27-P1L32
-def resolve(uri):
+def resolve(uri, supported=('udp', 'tcp', 'tls'), secproto=('tls',)):
+    global _supported
     '''Resolve a URI using RFC3263 to list of (IP address, port) tuples each with its order, preference, transport and 
     TTL information. The application can supply a list of supported protocols if needed.'''
     if not isinstance(uri, URI): uri = URI(uri)
-    transport, target = uri.param['transport'] if 'transport' in uri.param else None, uri.param['maddr'] if 'maddr' in uri.param else uri.host
-    numeric, port, result, naptr, srv, result = isIPv4(target), uri.port, None, None, None, None
+    transport = uri.param['transport'] if 'transport' in uri.param else None
+    target = uri.param['maddr'] if 'maddr' in uri.param else uri.host
+    numeric, port, naptr, srv, result = isIPv4(target), uri.port, None, None, None
+    if uri.secure: supported = secproto # only support secproto for "sips"
     #@implements rfc3263 P6L10-P8L32
-    if transport: transports = [transport] # only the given transport is used
-    elif numeric or port is not None: transports = [x for x in (_secproto if uri.secure else _unsecproto)]
+    if transport: transports = (transport,) if transport in supported else () # only the given transport is used
+    elif numeric or port is not None: transports = supported
     else:
         naptr = _query((target, dns.T_NAPTR))
-        if naptr:
-            transports = map(lambda y: _rproto[y[1].lower()], sorted(map(lambda x: (x['RDATA']['ORDER'], x['RDATA']['SERVICE']), naptr), lambda a,b: a[0]-b[0]))
-            if uri.secure: 
-                transports = filter(lambda x: x in _secproto, transports)
-                if not transports: transports, naptr = _secproto, None # assume tls if not found; clear the naptr response
-        else:
-            srv = filter(lambda x: x[1], [(p, _query(('%s.%s'%(p, target), dns.T_SRV))) for p in [_xproto[x] for x in (_secproto if uri.secure else _unsecproto)]])
-            transports = [_rxproto[y[0]] for y in srv] or uri.secure and list(_secproto) or list(_unsecproto)
+        if naptr: # find the first that is supported
+            ordered = filter(lambda r: r[1] in supported, sorted(map(lambda r: (r['RDATA']['ORDER'], _rproto.get(r['RDATA']['SERVICE'].lower(), ''), r), naptr), lambda a,b: a[0]-b[0])) # filter out unsupported transports
+            if ordered:
+                selected = filter(lambda r: r[0] == ordered[0][0], ordered) # keep only top-ordered values, ignore rest
+                transports, naptr = map(lambda r: r[1], selected), map(lambda r: r[2], selected) # unzip to transports and naptr values
+            else: transports, naptr = supported, None # assume failure if not found; clear the naptr response
+        if not naptr: # do not use "else", because naptr may be cleared in "if"
+            srv = filter(lambda r: r[1], map(lambda p: (_rxproto.get(p, ''), _query(('%s.%s'%(p, target), dns.T_SRV))), map(lambda t: _xproto[t], supported)))
+            if srv: transports = map(lambda s: s[0], srv)
+            else: transports = supported
     #@implements rfc3263 P8L34-P9L31
-    if numeric: result = [(target, port or _proto[x][1], x) for x in transports]
+    if numeric: result = map(lambda t: (target, port or _proto[t][1], t), transports)
+    elif port: 
+        result = sum(map(lambda t: map(lambda r: (r['RDATA'], port, t), _query((target, dns.T_A))), transports), [])
     elif port is None:
         service = None
         if naptr: service = sorted(map(lambda x: (x['RDATA']['REPLACEMENT'].lower(), x['RDATA']['ORDER'], x['RDATA']['PREFERENCE'], x['RDATA']['SERVICE'].lower()), naptr), lambda a,b: a[1]-b[1])
         elif transport: service = [('%s.%s'%(_xproto[transport], target), 0, 0, _proto[transport][0])]
-        if not srv: srv = filter(lambda y: y[1], [(_rproto[a[3].lower()], _query((a[0], dns.T_SRV))) for a in service]) if service else []
+        if not srv: 
+            srv = filter(lambda y: y[1], map(lambda s: (_rproto[s[3].lower()], _query((s[0], dns.T_SRV))), service)) if service else []
         if srv:
-            out = sum([[sorted([(y['RDATA']['DOMAIN'].lower(), y['RDATA']['PRIORITY'], y['RDATA']['WEIGHT'], y['RDATA']['PORT'], x[0])],  lambda a,b: a[1]-b[1]) for y in x[1]] for x in srv], [])
-            result = sum([[(y['RDATA'], x[1], x[2]) for y in (_query((x[0], dns.T_A)) or [])] for x in [(x[0], x[3], x[4]) for x in sum(out, [])]], [])
-    return result or [(x[0], port or _proto[x[1]][1], x[1]) for x in sum([[(a, b) for a in [x['RDATA'] for x in _query((target, dns.T_A))] ] for b in transports], [])] # finally do A record on target, if nothing else worked
+            out = list(sorted(sum(map(lambda s: map(lambda r: (r['RDATA']['DOMAIN'].lower(), r['RDATA']['PRIORITY'], r['RDATA']['WEIGHT'], r['RDATA']['PORT'], s[0]), s[1]), srv), []),  lambda a,b: a[1]-b[1]))
+            result = sum(map(lambda x: map(lambda y: (y['RDATA'], x[1], x[2]), (_query((x[0], dns.T_A)) or [])), map(lambda r: (r[0], r[3], r[4]), out)), [])
+    return result or map(lambda x: (x[0], port or _proto[x[1]][1], x[1]), sum(map(lambda b: map(lambda a: (a, b), map(lambda x: x['RDATA'], _query((target, dns.T_A)))), transports), [])) # finally do A record on target, if nothing else worked
 
 if __name__ == '__main__': # Unit test of this module
     import doctest; doctest.testmod()
