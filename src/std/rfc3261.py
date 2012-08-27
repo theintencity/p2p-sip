@@ -452,7 +452,7 @@ class Stack(object):
         response message if dest is missing.'''
         # TODO: why do we need transport argument?
         if dest and isinstance(dest, URI):
-            if not dest.uri.host: raise ValueError, 'No host in destination uri'
+            if not dest.host: raise ValueError, 'No host in destination uri'
             dest = (dest.host, dest.port or self.transport.type == 'tls' and self.transport.secure and 5061 or 5060)
         if isinstance(data, Message):
             if data.method:      # request
@@ -598,7 +598,7 @@ class Stack(object):
                 else: 
                     d.receivedResponse(None, r)
             else:
-                if _debug: print 'transaction id %r not found in %r'%(Transaction.createId(branch, method), self.transactions)
+                if _debug: print 'transaction id %r not found'%(Transaction.createId(branch, method),) # do not print the full transactions table
                 if method == 'INVITE' and r.isfinal: # final failure response for INVITE, send ACK to same transport
                     # TODO: check if this following is as per the standard
                     m = Message.createRequest('ACK', str(r.To.value.uri))
@@ -1129,7 +1129,7 @@ class UserAgent(object):
             raise ValueError, 'No more DNS resolved address to try'
         target = URI(self.remoteCandiates.pop(0))
         self.request.first('Via').branch += 'A' # so that we create a different new transaction
-        transaction = Transaction.createClient(self.stack, self, self.request, self.stack.transport, target.hostPort)
+        self.transaction = Transaction.createClient(self.stack, self, self.request, self.stack.transport, target.hostPort)
     
     @staticmethod
     def canCreateDialog(request, response):
