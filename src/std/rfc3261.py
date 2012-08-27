@@ -140,7 +140,7 @@ class Header(object):
         # TODO: use reduce instead of join+map
         name = self.name.lower()
         rest = '' if ((name in _comma) or (name in _unstructured)) \
-                else (';'.join(['%s'%(x,) if not y else ('%s=%s'%(x.lower(), y) if re.match(r'^[a-zA-Z0-9\-_\.=]*$', str(y)) else '%s="%s"'%(x.lower(), y))for x, y in self.__dict__.iteritems() if x.lower() not in ['name','value', '_viauri']]))
+                else (';'.join(['%s'%(x,) if not y else ('%s=%s'%(x.lower(), y) if re.match(r'^[a-zA-Z0-9\-_\.=]*$', str(y)) else '%s="%s"'%(x.lower(), y))for x, y in self.__dict__.iteritems() if x.lower() not in ('name','value', '_viauri')]))
         return str(self.value) + (rest and (';'+rest) or '');
     
     def __repr__(self):
@@ -228,7 +228,7 @@ class Message(object):
     def _parse(self, value):
         '''Parse a SIP message as this object. Throws exception on error'''
         # TODO: perform all error checking:
-        # 1. no \r\n\r\n in the message.
+        # 1. no \r\n\r\n in the message. (done)
         # 2. no headers.
         # 3. first line has less than three parts.
         # 4. syntax for protocol, and must be SIP/2.0
@@ -450,6 +450,7 @@ class Stack(object):
     def send(self, data, dest=None, transport=None):
         '''Send a data (Message) to given dest (URI or hostPort), or using the Via header of 
         response message if dest is missing.'''
+        # TODO: why do we need transport argument?
         if dest and isinstance(dest, URI):
             if not dest.uri.host: raise ValueError, 'No host in destination uri'
             dest = (dest.host, dest.port or self.transport.type == 'tls' and self.transport.secure and 5061 or 5060)
@@ -488,7 +489,7 @@ class Stack(object):
         except ValueError, E: # TODO: send 400 response to non-ACK request
             if _debug: print 'Error in received message:', E
             if _debug: traceback.print_exc()
-            if m.method and m.uri and m.protocol and m.method != 'ACK': # this was a request
+            if m.method and m.uri and m.protocol and m.method != 'ACK': # this was a non-ACK request
                 try: self.send(Message.createResponse(400, str(E), None, None, m))
                 except: pass # ignore error since m may be malformed.                
     
@@ -718,16 +719,9 @@ class Transaction(object):
     def equals(t1, r, t2):
         '''Compare transaction t1 with new request r and original transaction t2.'''
         t = t1.request
-        #return  r.To.value.uri == t.To.value.uri and r.From.value.uri == t.From.value.uri \
-        #    and r['Call-ID'].value == t['Call-ID'].value and r.CSeq.value == t.CSeq.value \
-        #    and r.From.tag == t.From.tag and t2.server == t1.server
-        a = r.To.value.uri == t.To.value.uri
-        a = a and (r.From.value.uri == t.From.value.uri)
-        a = a and (r['Call-ID'].value == t['Call-ID'].value)
-        a = a and (r.CSeq.value == t.CSeq.value)
-        a = a and (r.From['tag'] == t.From['tag'])
-        a = a and (t2.server == t1.server)
-        return a
+        return  r.To.value.uri == t.To.value.uri and r.From.value.uri == t.From.value.uri \
+            and r['Call-ID'].value == t['Call-ID'].value and r.CSeq.value == t.CSeq.value \
+            and r.From['tag'] == t.From['tag'] and t2.server == t1.server
     
     def createAck(self):
         '''Create an ACK request (Message) in this client transaction, else None.'''
@@ -779,6 +773,7 @@ class Timer(object):
     def D(self): return max(64*self.T1, 32000)
     def I(self): return self.T4
     A, B, D, E, F, G, H, I, J, K = map(lambda x: property(x), [A, B, D, A, B, A, B, I, B, I])
+    # TODO: why no timer C?
 
 # @implements RFC3261 P130L35-P134L6
 class ClientTransaction(Transaction):
@@ -852,7 +847,7 @@ class ServerTransaction(Transaction):
     def sendResponse(self, response):
         self.lastResponse = response;
         if response.is1xx:
-            if self.state == 'trying' or self.state == 'proceedings':
+            if self.state == 'trying' or self.state == 'proceeding':
                 self.state = 'proceeding'
                 self.stack.send(response, self.remote, self.transport)
         elif response.isfinal:
@@ -1294,6 +1289,7 @@ class UserAgent(object):
             result = self.stack.authenticate(self, a)
             if not result or 'password' not in a and 'hashValue' not in a: 
                 return False
+            # TODO: hashValue is not used
             value = createAuthorization(a.value, a.username, a.password, str(request.uri), self.request.method, self.request.body, self.auth)
             if value:
                 request.insert(Header(value, (a.name == 'WWW-Authenticate') and 'Authorization' or 'Proxy-Authorization'), True)
@@ -1421,7 +1417,7 @@ class Dialog(UserAgent):
             return
         self.remoteSeq = request.CSeq.number
         
-        if request.method == 'INVITE' and request.Contect:
+        if request.method == 'INVITE' and request.Contact:
             self.remoteTarget = request.first('Contact').value.uri.dup()
         
         if request.method == 'ACK' or request.method == 'CANCEL':
@@ -1529,7 +1525,7 @@ class Proxy(UserAgent):
             self.transaction = Transaction.createServer(self.stack, self, self.request, self.stack.transport, self.stack.tag, start=False)
         UserAgent.sendResponse(self, response, responsetext, content, contentType, False) # never create dialog
     
-    def createRequest(self, method, dest, stateless=False, recordRoute=False, headers=[], route=[]):
+    def createRequest(self, method, dest, stateless=False, recordRoute=False, headers=(), route=()):
         '''Create a proxied request from the original request, using destination (host, port). Additional arguments
         modify how the proxied request is generated. The caller must invoke sendRequest to send the returned request.'''
         if method != self.request.method: raise ValueError('method in createRequest must be same as original UAS for proxy')

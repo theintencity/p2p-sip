@@ -113,7 +113,7 @@ class URI(object):
         return (self.scheme + ':' + ((user + \
           ((':'+self.password) if self.password else '') + '@') if user else '') + \
           (((host if host else '') + ((':'+str(self.port)) if self.port else '')) if host else '') + \
-          ((';'+';'.join([(n+'='+v if v is not None else n) for n,v in self.param.items()])) if len(self.param)>0 else '') + \
+          ((';'+';'.join([(n+'='+v if v is not None else n) for n,v in sorted(self.param.items())])) if len(self.param)>0 else '') + \
           (('?'+'&'.join(self.header)) if len(self.header)>0 else '')) if self.scheme and host else '';
     
     def dup(self):

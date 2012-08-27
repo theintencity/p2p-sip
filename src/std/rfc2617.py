@@ -110,7 +110,6 @@ def digest(cr):
 
     # @implements RFC2617 P13L6-P13L20
     if qop and (qop == 'auth' or qop == 'auth-int'):
-        a = nonce + ':' + str(nc) + ':' + cnonce + ':' + qop + ':' + A2
         return _quote(KD(H(A1), nonce + ':' + str(nc) + ':' + cnonce + ':' + qop + ':' + H(A2)))
     else:
         return _quote(KD(H(A1), nonce + ':' + H(A2)))

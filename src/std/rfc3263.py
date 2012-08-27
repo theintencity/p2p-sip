@@ -81,7 +81,6 @@ def _query(key, negTimeout=60): # key is (target, type)
  
 # @implements RFC3263 P1L27-P1L32
 def resolve(uri, supported=('udp', 'tcp', 'tls'), secproto=('tls',)):
-    global _supported
     '''Resolve a URI using RFC3263 to list of (IP address, port) tuples each with its order, preference, transport and 
     TTL information. The application can supply a list of supported protocols if needed.'''
     if not isinstance(uri, URI): uri = URI(uri)
@@ -106,9 +105,8 @@ def resolve(uri, supported=('udp', 'tcp', 'tls'), secproto=('tls',)):
             else: transports = supported
     #@implements rfc3263 P8L34-P9L31
     if numeric: result = map(lambda t: (target, port or _proto[t][1], t), transports)
-    elif port: 
-        result = sum(map(lambda t: map(lambda r: (r['RDATA'], port, t), _query((target, dns.T_A))), transports), [])
-    elif port is None:
+    elif port: result = sum(map(lambda t: map(lambda r: (r['RDATA'], port, t), _query((target, dns.T_A))), transports), [])
+    else:
         service = None
         if naptr: service = sorted(map(lambda x: (x['RDATA']['REPLACEMENT'].lower(), x['RDATA']['ORDER'], x['RDATA']['PREFERENCE'], x['RDATA']['SERVICE'].lower()), naptr), lambda a,b: a[1]-b[1])
         elif transport: service = [('%s.%s'%(_xproto[transport], target), 0, 0, _proto[transport][0])]
