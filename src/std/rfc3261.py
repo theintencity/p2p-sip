@@ -250,10 +250,15 @@ class Message(object):
         except: # probably a request
             self.method, self.uri, self.protocol = a, URI(b), c
             
+        hlist = []
         for h in headers.split('\n'):
             if h and h[-1] == '\r': h = h[:-1]
-            if h.startswith(r'[ \t]'):
-                pass
+            if h and (h[0] == ' ' or h[0] == '\t'):
+                if hlist:
+                    hlist[-1] += h
+            else:
+                hlist.append(h)
+        for h in hlist:
             try:
                 name, values = Header.createHeaders(h)
                 if name not in self: # doesn't already exist
@@ -476,6 +481,9 @@ class Stack(object):
                 if via.viaUri.host != src[0] or via.viaUri.port != src[1]: 
                     via['received'], via.viaUri.host = src[0], src[0]
                 if 'rport' in via: 
+                    via['rport'] = src[1]
+                    via.viaUri.port = src[1]
+                if self.transport.type == 'tcp': # assume rport
                     via['rport'] = src[1]
                     via.viaUri.port = src[1]
                 if self.fix_nat and m.method in ('INVITE', 'MESSAGE'):
@@ -1252,6 +1260,7 @@ class UserAgent(object):
     def timeout(self, transaction):
         '''A client transaction was timedout.'''
         if transaction and transaction != self.transaction: # invalid transaction
+            if _debug: print 'invalid transaction in timeout() %r != %r'%(transaction, self.transaction)
             return
         self.transaction = None 
         if not self.server: # UAC
