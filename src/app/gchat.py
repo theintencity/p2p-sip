@@ -1,3 +1,7 @@
+'''
+An example program that uses the XMPP modules (rfc3920 and rfc3921) to connect to
+Google Chat and send messages.
+'''
 import sys, getpass, select
 try: import readline
 except: readline = None
