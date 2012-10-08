@@ -249,7 +249,8 @@ class Message(object):
             firstheaders, body = value[:indexLFLF], value[indexLFLF+2:]
         else:
             firstheaders, body = value, '' # assume no body
-        firstline, headers = firstheaders.split('\n', 1)
+        try: firstline, headers = firstheaders.split('\n', 1)
+        except: raise ValueError, 'No first line found'
         if firstline[-1] == '\r': firstline = firstline[:-1]
         a, b, c = firstline.split(' ', 2)
         try:    # try as response
