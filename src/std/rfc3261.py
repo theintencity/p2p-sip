@@ -238,12 +238,19 @@ class Message(object):
         # 8. Content-Length if present must match the length of body.
         # 9. mandatory headers are To, From, Call-ID and CSeq.
         # 10. syntax for top Via header and fields: ttl, maddr, received, branch.
-        try: firstheaders, body = value.split('\r\n\r\n', 1)
-        except ValueError: # may be \n\n
-            try: firstheaders, body = value.split('\n\n', 1)
-            except ValueError: firstheaders, body = value, '' # assume no body
-        try: firstline, headers = firstheaders.split('\r\n', 1)
-        except ValueError: firstline, headers = firstheaders.split('\n', 1)
+        indexCRLFCRLF, indexLFLF = value.find('\r\n\r\n'), value.find('\n\n')
+        firstheaders = body = ''
+        if indexCRLFCRLF >= 0 and indexLFLF >= 0:
+            if indexCRLFCRLF < indexLFLF: indexLFLF = -1
+            else: indexCRLFCRLF = -1
+        if indexCRLFCRLF >= 0:
+            firstheaders, body = value[:indexCRLFCRLF], value[indexCRLFCRLF+4:]
+        elif indexLFLF >= 0:
+            firstheaders, body = value[:indexLFLF], value[indexLFLF+2:]
+        else:
+            firstheaders, body = value, '' # assume no body
+        firstline, headers = firstheaders.split('\n', 1)
+        if firstline[-1] == '\r': firstline = firstline[:-1]
         a, b, c = firstline.split(' ', 2)
         try:    # try as response
             self.response, self.responsetext, self.protocol = int(b), c, a # throws error if b is not int.
