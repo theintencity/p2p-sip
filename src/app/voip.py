@@ -690,7 +690,7 @@ class MediaSession(object):
             elif i.src and i.src[0] != '0.0.0.0':
                 ip.append(i.src[0])
             else:
-               ip.append(getlocaladdr(i.rtp[0]))
+               ip.append(getlocaladdr(i.rtp)[0])
         if self.mysdp['c']: self.mysdp['c'].address = ip[0] if not value else '0.0.0.0'
         self.mysdp['a'] = ['sendrecv'] if not value else ['sendonly']
         for m, i in zip(self.mysdp['m'], ip):
