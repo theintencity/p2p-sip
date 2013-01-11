@@ -14,7 +14,7 @@ p2p-sip/src/app/sipapi.py
 p2p-sip/src/app/sipcaller.py
 p2p-sip/src/app/sipd.py
 p2p-sip/src/app/voip.py
-p2p-sip/src/external/__init__.pu
+p2p-sip/src/external/__init__.py
 p2p-sip/src/external/dns.py
 p2p-sip/src/external/log.py
 p2p-sip/src/external/multitask.py
