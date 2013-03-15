@@ -8,7 +8,7 @@ In my code there is no performance optimization, if it hurts the style and
 compactness of the code.
 '''
 
-import re, socket, traceback
+import re, socket, traceback, uuid
 from kutil import getlocaladdr
 from rfc2396 import isIPv4, isMulticast, isLocal, isPrivate, URI, Address
 from rfc2617 import createAuthorization
@@ -453,7 +453,7 @@ class Stack(object):
 
     @property
     def newCallId(self):
-        return str(random.randint(0,2**31)) + '@' + (self.transport.host or 'localhost')
+        return str(uuid.uuid1()) + '@' + (self.transport.host or 'localhost')
 
     def createVia(self, secure=False):
         if not self.transport: raise ValueError, 'No transport in stack'

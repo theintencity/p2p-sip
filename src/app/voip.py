@@ -294,7 +294,6 @@ class User(object):
         except GeneratorExit: pass
         except: print 'User._natcheck exception', (sys and sys.exc_info() or None)
         if _debug: print 'terminating User._natcheck()'
-        
 
     #-------------------- binding related ---------------------------------
     
@@ -445,8 +444,12 @@ class User(object):
         
         try:
             while True:
+
                 request = yield ua.queue.get(timeout=5) # wait for 5 seconds for ACK
                 if request.method == 'ACK':
+                    ''' hack: force terminating the transaction because Stack._receivedRequest
+                    is unable to find it due to branch names being different'''
+                    ua.transaction.timeout('H', 0)
                     session, incoming = Session(user=self, dest=dest), ua.request
                     session.ua, session.mediasock = hasattr(ua, 'dialog') and ua.dialog or ua, mediasock
                     session.mysdp, session.yoursdp, session.local = sdp, None, local
@@ -904,7 +907,7 @@ class Session(object):
             if oldsdp and newsdp and len(oldsdp['m']) != len(newsdp['m']): # don't accept change in m= lines count
                 self.ua.sendResponse(488, 'Change Not Acceptable Here')
             else:
-                self.media.setRemote(SDP(request.body))
+                self.media.setRemote(newsdp)
                 mysdp, yoursdp, m = self.media.mysdp, self.media.yoursdp, self.ua.createResponse(200, 'OK')
                 m.body, m['Content-Type'] = str(mysdp), sip.Header('application/sdp', 'Content-Type')
                 self.ua.sendResponse(m)
@@ -1355,7 +1358,6 @@ def testRegister():
     print 'user.close() returned', result, reason
     user.stop()
     sock.close()
-    
 
 def testOutgoing(user, dest):
     msock = socket.socket(type=socket.SOCK_DGRAM)
