@@ -187,9 +187,12 @@ class Header(object):
         one but for comma separated header line there can be multiple.
         >>> print Header.createHeaders('Event: presence, reg')
         ('Event', [Event: presence, Event: reg])
+        >>> print Header.createHeaders('Contact: <sip:user@1.2.3.4:5060;line=vvl1wrhk>;reg-id=1;q=1.0;+sip.instance="<urn:uuid:bff62662-19cc-4781-8830-0004132E682E>";audio;mobility="fixed";duplex="full";description="snom370";actor="principal";events="dialog";methods="INVITE,ACK,CANCEL,BYE,REFER,OPTIONS,NOTIFY,SUBSCRIBE,PRACK,MESSAGE,INFO"')
+        ('Contact', [Contact: <sip:user@1.2.3.4:5060;line=vvl1wrhk>;reg-id=1;mobility=fixed;duplex=full;description=snom370;actor=principal;q=1.0;methods="INVITE,ACK,CANCEL,BYE,REFER,OPTIONS,NOTIFY,SUBSCRIBE,PRACK,MESSAGE,INFO";audio;events=dialog;+sip.instance="<urn:uuid:bff62662-19cc-4781-8830-0004132E682E>"])
         '''
         name, value = map(str.strip, value.split(':', 1))
-        return (_canon(name),  map(lambda x: Header(x, name), value.split(',') if name.lower() not in _comma else [value]))
+        value = '"'.join([(x if i % 2 == 0 else re.sub(r',', r'%2C', x)) for i, x in enumerate(value.split('"'))])
+        return (_canon(name),  map(lambda x: Header(re.sub(r'%2C', r',', x), name), value.split(',') if name.lower() not in _comma else [value]))
 
 
 
