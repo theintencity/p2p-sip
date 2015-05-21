@@ -5,7 +5,7 @@ This page describes how you can use external media tools such as RAT and vic wit
 ## How are SIP and SDP connected? ##
 
 In app/voip.py there is a User class with connect(..., sdp) and accept(..., sdp) methods. There is also a MediaSession class which has mysdp property and a setRemote(sdp) method. In rfc4566.py there is a SDP class which is used as sdp in above methods and properties. The MediaSession has mysdp (local party's SDP) and yoursdp (remote party's SDP) properties which can be assigned in any order depending on whether the call is incoming or outgoing. For example, for incoming call, you assign mysdp first, and when you received SIP successful response, you assign yoursdp using setRemote() method. For incoming call, you assign yoursdp based on the incoming SIP call invitation, and then ask for mysdp to send in the successful SIP response body. The voip.py module separates the SIP session from the media session. Some example of how SDP and MediaSession is used is shown in rtmp\_invite, rtmp\_accept and _incominghandler functions of:
-http://code.google.com/p/rtmplite/source/browse/trunk/siprtmp.py_
+https://github.com/theintencity/rtmplite (see siprtmp.py)_
 
 ## How can I use it for external tools? ##
 
