@@ -9,6 +9,8 @@
 
 This project aims at implementing an open-source peer-to-peer Internet telephony software using the Session Initiation Protocol (P2P-SIP) in the Python programming language.
 
+**New:** The new RTClite project is a superset of this P2P-SIP project. Please migrate to or start using the [RTClite project](https://github.com/theintencity/rtclite) instead of this. More information at https://github.com/theintencity/rtclite
+
 **New:** project description has been moved from the 39peers.net website to this page
 
 Peer-to-peer systems inherently have high scalability, fault tolerance and robustness against catastrophic failures because there is no central server and the network self-organizes itself. Internet telephony can be an application of peer-to-peer architecture where the participants locate and communicate with each other without relying on expensive or managed service providers. This project is an attempt to provide an open source peer-to-peer software based on open standards.
